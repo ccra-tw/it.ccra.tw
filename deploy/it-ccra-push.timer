@@ -1,0 +1,9 @@
+[Unit]
+Description=Check for ops-room push events every minute
+
+[Timer]
+OnBootSec=60s
+OnUnitActiveSec=1min
+
+[Install]
+WantedBy=timers.target

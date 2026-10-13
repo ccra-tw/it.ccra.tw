@@ -251,6 +251,7 @@ function barcls($v) { return $v === null ? '' : ($v >= 90 ? 'hi' : ($v >= 75 ? '
 <script src="/assets/whoami.js?v=dev" defer></script>
 <script src="/assets/footer.js?v=dev" defer></script>
 <script src="/assets/live.js?v=dev" defer></script>
+<script src="/assets/push.js?v=dev" defer></script>
 <style>
   .autoref{margin:-4px 0 10px;font-size:12.5px;color:var(--muted);text-align:right}
 /* 數字卡排成一排，有幾張就分幾欄（熊哥 10-05：「可以變成一排」） */
@@ -305,6 +306,10 @@ table.srv tr.warnrow td:first-child{border-left:3px solid var(--red);padding-lef
 table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:hover{text-decoration:underline}
 .kpi.plk{grid-template-columns:repeat(5,1fr)}
 .kpi.plk{margin-top:12px}
+.pushbox{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:12px 0 0;font-size:13.5px;color:var(--muted)}
+.pushbox span{flex:1 1 240px}
+.pushbox button{border:1px solid var(--edge);background:var(--cream);border-radius:10px;padding:6px 12px;font:800 13px/1 "Noto Sans TC",sans-serif;cursor:pointer;color:var(--ink)}
+.pushbox[hidden]{display:none}
 .kpi.plk > .pltile{display:block;text-align:left;font:inherit;cursor:pointer;color:inherit;background:var(--panel);border:1px solid var(--edge);border-radius:16px;padding:12px 14px;box-shadow:var(--glow)}
 .kpi.plk > .pltile.hot{border-color:color-mix(in srgb,var(--red) 50%,transparent)}
 .kpi.plk > .pltile.on{border-color:var(--green);box-shadow:0 0 0 2px color-mix(in srgb,var(--green) 35%,transparent)}
@@ -340,6 +345,9 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
     <div><h1><?= h($me) ?>，平安！今天的戰況</h1><p>只有資訊部帳號看得到。每張申請單都在 Planner「資訊部共同事務」有一張任務；指派負責人後掛上人，狀態變更會寄信通知同工。</p></div>
   </div>
   <?php if ($flash): ?><p class="flash"><?= h($flash) ?></p><?php endif; ?>
+  <!-- 網頁推播（熊哥 10-13：「有異常狀況可以即時通知」）：斷線、資安事件、新申請單 -->
+  <div class="pushbox" id="push-box" hidden><span id="push-msg"></span>
+    <button type="button" id="push-btn">開啟通知</button><button type="button" id="push-test" hidden>送一則測試</button></div>
   <p class="autoref" id="autoref">每分鐘自動更新・<?= h(date('H:i:s')) ?></p>
   <div class="kpi">
     <a href="#repair" class="<?= count(array_filter($openRep, fn($r) => $r['status'] === 'new')) ? 'hot' : '' ?>"><b><?= count(array_filter($openRep, fn($r) => $r['status'] === 'new')) ?></b><span>報修待處理</span></a>
