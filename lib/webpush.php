@@ -5,6 +5,7 @@
 // ⚠️ 金鑰換掉，所有人的訂閱都會失效，要各自重新按「開啟通知」。
 // 訂閱存 PostgreSQL schema push（表 subs），推送失敗回 404／410 代表對方已取消，直接刪除。
 require_once __DIR__ . '/db.php';
+date_default_timezone_set('Asia/Taipei');   // 命令列呼叫時沒有經過 access.php，紀錄時間也要台北時間
 if (!defined('STATE_DIR')) define('STATE_DIR', '/var/lib/it-ccra');
 const VAPID_SUB = 'mailto:ituncle@ccra.org.tw';
 
