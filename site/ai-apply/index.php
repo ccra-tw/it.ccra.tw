@@ -2,6 +2,10 @@
 // AI 工具使用申請（內部版）。題目照 Google 表單 ccra.tw/ai-apply（2026-08-26 熊哥定案）。
 // 資料存 PostgreSQL itccra 的 ai_apply schema（2026-10-06 前是 SQLite）；通知信由 IT大蘇本機腳本讀取後寄出（熊哥審核／主管知會／申請人確認）。
 require '/var/www/it-lib/access.php';
+// v2.0（GitHub #12）：AI 工具申請併入「資訊服務申請」單一入口，舊網址轉過去並預選類型。舊申請紀錄仍在原資料表、戰情室照常顯示。
+access_identity();
+header('Location: /apply/?type=ai', true, 302);
+exit;
 $id = access_identity();
 $email = strtolower($id['email']);
 

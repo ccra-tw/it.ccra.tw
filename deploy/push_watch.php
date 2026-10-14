@@ -18,6 +18,7 @@ const SRC = [
     'ai_apply' => ['ai_apply', 'ai_apply', '新的 AI 工具申請', '/ops/#ai'],
     'shortlink'=> ['shortlink', 'apply', '新的縮址後台申請', '/ops/#shortlink'],
     'cafe_join'=> ['cafe_join', 'cafe_join', '新的咖啡廳加入申請', '/ops/#cafe'],
+    'svc_apply'=> ['svc_apply', 'req', '新的資訊服務申請', '/ops/#svc'],   // v2.0 單一入口（GitHub #12）
 ];
 foreach (SRC as $src => [$schema, $table, $title, $url]) {
     try {
@@ -30,10 +31,13 @@ foreach (SRC as $src => [$schema, $table, $title, $url]) {
         if ($last === false) { $d->prepare('INSERT INTO cursor VALUES (?,?)')->execute([$src, $max]); continue; }
         if ($max <= (int)$last) continue;
         $extra = in_array('is_test', $cols, true) ? ', is_test' : '';
-        $rows = $s->prepare("SELECT id, name, dept$extra FROM $table WHERE id > ? ORDER BY id");
+        // 資訊服務申請的姓名／部門欄名不同，另帶類型
+        $nd = $table === 'req' ? "applicant_name AS name, applicant_dept AS dept, type" : 'name, dept';
+        $rows = $s->prepare("SELECT id, $nd$extra FROM $table WHERE id > ? ORDER BY id");
         $rows->execute([(int)$last]);
         foreach ($rows->fetchAll(PDO::FETCH_ASSOC) as $r) {
             $who = trim(($r['dept'] ?? '') . ' ' . ($r['name'] ?? ''));
+            if (isset($r['type'])) { require_once '/var/www/it-lib/svc_apply.php'; $who = (svc_types()[$r['type']]['name'] ?? $r['type']) . '｜' . $who; }
             $test = !empty($r['is_test']) ? '（測試）' : '';
             push_send(['title' => $title . $test, 'body' => "#{$r['id']} {$who}", 'url' => $url, 'tag' => "$src-{$r['id']}"], $src);
         }

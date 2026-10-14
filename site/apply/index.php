@@ -92,6 +92,8 @@ if (isset($_GET['sent'])) {
         <label class="q" for="<?= h($fid) ?>"><?= h($f['label']) ?><?= empty($f['required']) ? '（選填）' : '' ?></label>
         <?php if ($f['type'] === 'date'): ?>
           <input type="date" id="<?= h($fid) ?>" name="f[<?= h($f['key']) ?>]"<?= empty($f['past_ok']) ? ' min="' . date('Y-m-d') . '"' : '' ?> value="<?= h($fv) ?>"<?= !empty($f['required']) ? ' required' : '' ?><?= $v['type'] === $k ? '' : ' disabled' ?>>
+        <?php elseif ($f['type'] === 'textarea'): ?>
+          <textarea id="<?= h($fid) ?>" name="f[<?= h($f['key']) ?>]" maxlength="<?= (int)($f['max'] ?? 2000) ?>"<?= !empty($f['required']) ? ' required' : '' ?><?= $v['type'] === $k ? '' : ' disabled' ?>><?= h($fv) ?></textarea>
         <?php elseif ($f['type'] === 'select'): ?>
           <select id="<?= h($fid) ?>" name="f[<?= h($f['key']) ?>]"<?= !empty($f['required']) ? ' required' : '' ?><?= $v['type'] === $k ? '' : ' disabled' ?>>
             <option value="">請選擇…</option>

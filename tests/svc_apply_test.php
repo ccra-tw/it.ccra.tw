@@ -123,9 +123,9 @@ $e = ['csrf' => $tok('apply', $STAFF), 'type' => 'email', 'name' => '新同工',
       'f' => ['name_zh' => '新同工', 'name_en' => 'New Staff', 'start' => '2020-01-01']];
 $b = $cnt(); req($STAFF, 'apply/index.php', 'POST', $e);
 ok($cnt() === $b + 1, 'Email 到職日可以是過去（補辦）');
-$want = ['email' => true, 'google' => true, 'vpn' => true, 'sysperm' => true, 'github' => true, 'firewall' => true, 'folder' => false, 'dns' => false, 'other' => false];
+$want = ['ai' => true, 'email' => true, 'google' => true, 'vpn' => true, 'sysperm' => true, 'github' => true, 'firewall' => true, 'folder' => false, 'dns' => false, 'other' => false];
 $got = array_map(fn($t) => $t['director'], svc_types());
-ok(array_diff_key($want, $got) === [] && array_intersect_key($got, $want) == $want, '主任核准分流符合 #2 決定（AI 與縮址在 #12、#13 加入）');
+ok(array_diff_key($want, $got) === [] && array_intersect_key($got, $want) == $want, '主任核准分流符合 #2 決定（縮址在 #13 加入）');
 $gh = ['csrf' => $tok('apply', $STAFF), 'type' => 'github', 'name' => '開發者', 'purpose' => '開發', 'wanted_by' => '',
        'f' => ['account' => 'me@example.org', 'org' => 'ccra-tw', 'repos' => 'it.ccra.tw', 'perm' => '寫入']];
 $b = $cnt(); $o = req($STAFF, 'apply/index.php', 'POST', $gh);
@@ -158,6 +158,25 @@ $r = $d->query('SELECT * FROM req ORDER BY id DESC LIMIT 1')->fetch(PDO::FETCH_A
 ok($r['for_self'] === true && $r['target_name'] === '本人丁', '選本人時忽略對象欄位，對象＝本人');
 $o = req($STAFF, 'apply/index.php', 'GET');
 ok(str_contains($o, 'name="for" value="other"') && str_contains($o, 'id="target_dept"'), '申請頁有「為誰申請」與對象欄位');
+
+echo "AI 工具併入（#12）
+";
+$ai = ['csrf' => $tok('apply', $STAFF), 'type' => 'ai', 'name' => '同工戊', 'purpose' => '整理會議紀錄', 'wanted_by' => '',
+       'f' => ['tool' => 'Claude', 'plan' => "每週整理逐字稿
+比對上週", 'why' => 'Copilot 不能處理長檔', 'pii' => '不會']];
+$b = $cnt(); $o = req($STAFF, 'apply/index.php', 'POST', array_merge($ai, ['f' => array_merge($ai['f'], ['tool' => 'ChatGPT'])]));
+ok($cnt() === $b, 'AI：還沒開放的工具不能選');
+req($STAFF, 'apply/index.php', 'POST', $ai);
+$aid = (int)$d->query("SELECT max(id) FROM req WHERE type = 'ai'")->fetchColumn();
+ok($row($aid)['status'] === 'review' && (json_decode($row($aid)['fields'], true)['plan'] ?? '') === "每週整理逐字稿
+比對上週", 'AI：送出待主任核准，多行使用計畫原樣保存');
+req($DIR, 'ops/index.php', 'POST', ['csrf' => $tok('ops', $DIR), 'act' => 'svc', 'do' => 'approve', 'id' => $aid, 'note' => '']);
+$r = $row($aid);
+ok($r['status'] === 'doing' && $r['accepted_by'] === 'ituncle@ccra.org.tw', 'AI：主任核准後自動由大蘇受理（沿用開通 Claude 流程）');
+$o = req($STAFF, 'ai-apply/index.php');
+ok(!str_contains($o, 'name="plan"'), '舊 AI 申請網址不再顯示舊表單（轉到新入口）');
+$o = req($STAFF, 'apply/index.php', 'GET', [], ['type' => 'ai']);
+ok(str_contains($o, '<option value="ai" selected') && str_contains($o, '<textarea id="f_ai_plan"'), '新入口帶 type=ai 會預選 AI 工具並顯示使用計畫');
 
 $d->exec('TRUNCATE req RESTART IDENTITY');
 echo ($fail ? "🔴 失敗 {$fail}／{$n}\n" : "✅ 全部通過 {$n} 項\n");

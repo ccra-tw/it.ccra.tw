@@ -13,6 +13,13 @@ const SVC_OPEN = ['review', 'intake', 'doing'];
 function svc_types(): array {
     $until = ['key' => 'until', 'label' => '使用期限', 'type' => 'date', 'required' => false, 'hint' => '不填＝長期，資訊部會定期確認'];
     return [
+        // AI 工具（#12）：題目沿用原 /ai-apply/（2026-08-26 定案），核准後由資訊部受理開通；ChatGPT 協會申請中，開放後加進選項
+        'ai' => ['name' => 'AI 工具', 'director' => true, 'auto_accept' => 'ituncle@ccra.org.tw', 'fields' => [
+            ['key' => 'tool', 'label' => '申請工具', 'type' => 'select', 'required' => true, 'options' => ['Claude'], 'hint' => 'ChatGPT（含 Codex）協會申請中，開放後會通知大家'],
+            ['key' => 'plan', 'label' => '使用計畫', 'type' => 'textarea', 'required' => true, 'max' => 2000, 'hint' => '例：每週把會議錄音逐字稿整理成重點紀錄與待辦清單'],
+            ['key' => 'why', 'label' => '為什麼 Copilot Chat 不夠用？', 'type' => 'textarea', 'required' => true, 'max' => 2000],
+            ['key' => 'pii', 'label' => '工作會不會處理個資或敏感資料？', 'type' => 'select', 'required' => true, 'options' => ['不會', '會']],
+        ]],
         'email' => ['name' => 'Email 帳號開通', 'director' => true, 'fields' => [
             ['key' => 'name_zh', 'label' => '中文姓名', 'type' => 'text', 'required' => true, 'max' => 50],
             ['key' => 'name_en', 'label' => '英文姓名', 'type' => 'text', 'required' => true, 'max' => 80, 'hint' => '用來產生帳號，例：Mary Chen'],
@@ -147,9 +154,16 @@ function svc_decide(int $id, string $by, string $decision, string $note = ''): b
     $note = mb_substr(trim($note), 0, 500);
     if ($decision === 'reject' && $note === '') return false;   // 不核准要附理由，申請人才知道怎麼辦
     $now = date('c');
-    $s = svc_db()->prepare("UPDATE req SET status = ?, decision = ?, decision_note = ?, decided_by = ?, decided_at = ?, first_response_at = COALESCE(first_response_at, ?), done_at = ? WHERE id = ? AND status = 'review'");
+    $d = svc_db();
+    $s = $d->prepare("UPDATE req SET status = ?, decision = ?, decision_note = ?, decided_by = ?, decided_at = ?, first_response_at = COALESCE(first_response_at, ?), done_at = ? WHERE id = ? AND status = 'review'");
     $s->execute([$decision === 'approve' ? 'intake' : 'rejected', $decision, $note, strtolower($by), $now, $now, $decision === 'reject' ? $now : null, $id]);
-    return $s->rowCount() === 1;
+    if ($s->rowCount() !== 1) return false;
+    // 核准後固定由某人執行的類型（AI 工具＝大蘇開通帳號，沿用 v1 的「開通 Claude」任務）：直接受理，省掉一次手動受理
+    if ($decision === 'approve') {
+        $t = $d->prepare('SELECT type FROM req WHERE id = ?'); $t->execute([$id]);
+        if ($who = svc_types()[$t->fetchColumn()]['auto_accept'] ?? null) svc_accept($id, $who);
+    }
+    return true;
 }
 
 // 資訊部受理（直接辦理類 intake → doing）。受理人就是負責人；Planner 工單由本機腳本開。
