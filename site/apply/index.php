@@ -3,6 +3,7 @@
 //（知會主管 → 主任核准或資訊部受理 → Planner 工單 → 完成通知）。這台不寄信，通知由資訊部本機維運腳本處理。
 require '/var/www/it-lib/access.php';
 require '/var/www/it-lib/svc_apply.php';
+require_once '/var/www/it-lib/itstaff.php';
 $id = access_identity();
 $email = strtolower($id['email']);
 $who = (json_decode((string)@file_get_contents(STATE_DIR . '/dept_map.json'), true) ?: [])[$email] ?? ['name' => '', 'dept' => ''];
@@ -21,6 +22,8 @@ $err = [];
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     foreach (['type', 'name', 'purpose', 'wanted_by', 'for', 'target_name', 'target_dept', 'target_start'] as $k) $v[$k] = (string)($_POST[$k] ?? '');
     $v['f'] = is_array($_POST['f'] ?? null) ? $_POST['f'] : [];
+    // 測試單（#15，熊哥 10-14 選 A）：只有資訊部能送；通知只寄送單人、不知會主管與主任、不開 Planner、不動真實名單
+    $v['is_test'] = is_it_staff($email) && !empty($_POST['is_test']);
     if (!hash_equals($csrf, $_POST['csrf'] ?? '')) $err[] = '頁面已過期，請重新整理後再送出。';
     else {
         [$err, $rid] = svc_submit(['email' => $email, 'name' => $v['name'], 'dept' => $who['dept']], $v);
@@ -131,6 +134,7 @@ if (isset($_GET['sent'])) {
       <textarea id="purpose" name="purpose" maxlength="2000" required placeholder="需要什麼、做什麼用"><?= h($v['purpose']) ?></textarea>
       <label class="q" for="wanted_by">希望完成日（選填）</label>
       <input type="date" id="wanted_by" name="wanted_by" min="<?= date('Y-m-d') ?>" value="<?= h($v['wanted_by']) ?>">
+      <?php if (is_it_staff($email)): ?><label class="hint" style="display:block;margin:10px 0 0"><input type="checkbox" name="is_test" value="1"<?= !empty($v['is_test']) ? ' checked' : '' ?>> 測試單（資訊部專用：通知只寄給自己，不知會主管與主任、不開 Planner 工單）</label><?php endif; ?>
       <button class="go" type="submit">送出申請 →</button>
     </div>
   </form>

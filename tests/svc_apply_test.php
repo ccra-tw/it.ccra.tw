@@ -208,6 +208,22 @@ $o = req($OUT, 'shortlink/index.php');
 ok(!str_contains($o, 'name="purpose"'), '舊縮址申請頁不再顯示舊表單（沒帳號的轉到新入口）');
 $sl->exec('TRUNCATE users');
 
+echo "測試單（#15）\n";
+$d->exec('TRUNCATE req RESTART IDENTITY');
+$o = req($STAFF, 'apply/index.php');
+ok(str_contains($o, 'name="is_test"'), '資訊部看得到「測試單」勾選');
+$o = req($OUT, 'apply/index.php');
+ok(!str_contains($o, 'name="is_test"'), '非資訊部看不到「測試單」勾選');
+$tb = ['type' => 'shortlink', 'name' => '測試丙', 'purpose' => '走流程', 'wanted_by' => '', 'is_test' => '1', 'f' => ['need' => '後台帳號（自己建短網址）']];
+req($OUT, 'apply/index.php', 'POST', $tb + ['csrf' => $tok('apply', $OUT)]);
+ok($cnt() === 1 && !$row(1)['is_test'], '非資訊部硬送 is_test 也不算測試單');
+$d->exec('TRUNCATE req RESTART IDENTITY');
+req($STAFF, 'apply/index.php', 'POST', $tb + ['csrf' => $tok('apply', $STAFF)]);
+ok($cnt() === 1 && $row(1)['is_test'], '資訊部勾選 → 測試單');
+$sl->exec('TRUNCATE users');
+req($STAFF, 'ops/index.php', 'POST', ['csrf' => $tok('ops', $STAFF), 'act' => 'svc', 'do' => 'accept', 'id' => 1]);
+ok($row(1)['status'] === 'doing' && (int)$sl->query('SELECT count(*) FROM users')->fetchColumn() === 0, '測試單受理縮址後台帳號不寫入真實名單');
+
 echo "篩選、同工歷年、月報（#14）\n";
 $d->exec('TRUNCATE req RESTART IDENTITY');
 $ins = $d->prepare("INSERT INTO req (created_at,type,status,applicant_email,applicant_name,applicant_dept,for_self,target_name,purpose,fields,first_response_at,done_at,decided_by,is_test) VALUES (?,?,?,?,?,?,?,?,?,'{}'::jsonb,?,?,?,?)");

@@ -187,7 +187,8 @@ function svc_accept(int $id, string $by): bool {
     $r = $d->query('SELECT * FROM req WHERE id = ' . (int)$id)->fetch(PDO::FETCH_ASSOC);
     $f = json_decode((string)$r['fields'], true) ?: [];
     // 縮址後台帳號：寫入名單（唯一來源 shortlink.users），一小時內由本機 shortlink_sync 同步到 Cloudflare Access 與 YOURLS
-    if ($r['type'] === 'shortlink' && ($f['need'] ?? '') === '後台帳號（自己建短網址）') {
+    // 測試單不寫入真實名單（#15），否則會真的開出 Cloudflare Access 與 YOURLS 權限
+    if ($r['type'] === 'shortlink' && ($f['need'] ?? '') === '後台帳號（自己建短網址）' && !$r['is_test']) {
         $sl = itdb('shortlink');
         $sl->exec('CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, name TEXT, added_at TEXT, added_by TEXT, synced_at TEXT)');
         $sl->prepare('INSERT INTO users (email, name, added_at, added_by) VALUES (?,?,?,?) ON CONFLICT (email) DO NOTHING')

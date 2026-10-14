@@ -537,7 +537,7 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
           <button class="ok" name="do" value="approve">核准</button>
           <button name="do" value="reject" onclick="return confirm('確定不核准？')">不核准</button></form>
       <?php elseif ($r['status'] === 'review'): ?><div class="meta">等主任核准</div><?php endif; ?>
-      <?php if ($r['accepted_by']): ?><div class="meta">負責：<?= h(IT_STAFF[$r['accepted_by']] ?? $r['accepted_by']) ?>｜<?= $r['planner_task_id'] ? 'Planner 已開工單' : 'Planner 工單待開' ?><?= $r['status'] === 'done' ? '｜' . (empty($r['done_notified_at']) ? '完成通知待寄' : '已通知申請人') : '' ?></div><?php endif; ?>
+      <?php if ($r['accepted_by']): ?><div class="meta">負責：<?= h(IT_STAFF[$r['accepted_by']] ?? $r['accepted_by']) ?>｜<?= $r['is_test'] ? '測試單不開工單' : ($r['planner_task_id'] ? 'Planner 已開工單' : 'Planner 工單待開') ?><?= $r['status'] === 'done' ? '｜' . (empty($r['done_notified_at']) ? '完成通知待寄' : '已通知申請人') : '' ?></div><?php endif; ?>
       <?php if ($r['status'] === 'intake'): ?>
         <form method="post" class="act"><input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="act" value="svc"><input type="hidden" name="id" value="<?= (int)$r['id'] ?>">
           <button class="ok" name="do" value="accept">受理（由我負責）</button></form>
