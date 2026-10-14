@@ -22,8 +22,8 @@ body{background-image:radial-gradient(600px 300px at 90% 0%,color-mix(in srgb,va
 .pill input:focus-visible+span{outline:3px solid var(--focus);outline-offset:2px}
 .hint{color:var(--muted);font-size:14px}
 label.q{display:block;font-weight:800;margin:14px 0 4px}
-input[type=text],textarea,select{width:100%;font:inherit;color:inherit;background:var(--cream);border:2px solid var(--edge);border-radius:14px;padding:10px 12px}
-input[type=text]:focus,textarea:focus,select:focus{outline:none;border-color:var(--teal)}
+input[type=text],input[type=date],textarea,select{display:block;width:100%;font:inherit;color:inherit;background:var(--cream);border:2px solid var(--edge);border-radius:14px;padding:10px 12px}
+input[type=text]:focus,input[type=date]:focus,textarea:focus,select:focus{outline:none;border-color:var(--teal)}
 textarea{min-height:80px}
 .go{margin-top:18px;border:0;border-radius:999px;padding:13px 26px;font:900 16px/1 "Noto Sans TC",sans-serif;color:#fff;background:linear-gradient(135deg,var(--teal),var(--blue));cursor:pointer;box-shadow:0 10px 22px -12px rgba(85,124,121,.8)}
 .go:disabled{opacity:.45;cursor:default;box-shadow:none}
