@@ -222,8 +222,15 @@ $plPending = has_table('planner_actions.sqlite', 'act')
     ? array_column(db('planner_actions.sqlite')->query("SELECT task_id FROM act WHERE done_at IS NULL")->fetchAll(PDO::FETCH_ASSOC), 'task_id') : [];
 function planner_task_url($id) { return 'https://planner.cloud.microsoft/webui/plan/WLjIX4pJX0aot3QF96N06MkADMal/view/board/task/' . rawurlencode($id) . '?tid=a18de7ab-5b49-41ac-8831-357e9b0d5817'; }
 const PLANNER_URL = 'https://planner.cloud.microsoft/webui/plan/WLjIX4pJX0aot3QF96N06MkADMal/view/board?tid=a18de7ab-5b49-41ac-8831-357e9b0d5817';
-$svc = svc_db()->query("SELECT * FROM req WHERE is_test = FALSE OR status <> 'done' ORDER BY CASE status WHEN 'review' THEN 0 WHEN 'intake' THEN 1 WHEN 'doing' THEN 2 ELSE 3 END, id DESC LIMIT 60")->fetchAll(PDO::FETCH_ASSOC);
-$svcOpen = array_filter($svc, fn($r) => in_array($r['status'], SVC_OPEN, true));
+// #14：?st=類型&ss=狀態&stest=1 篩選；?who= 查同工歷年（新舊紀錄）；?sm=YYYY-MM 月報統計
+$svcF = ['type' => (string)($_GET['st'] ?? ''), 'status' => (string)($_GET['ss'] ?? ''), 'test' => !empty($_GET['stest'])];
+$svcFiltered = $svcF['type'] !== '' || $svcF['status'] !== '' || $svcF['test'];
+$svc = svc_list($svcF);
+$svcOpen = $svcFiltered ? array_filter(svc_list([]), fn($r) => in_array($r['status'], SVC_OPEN, true)) : array_filter($svc, fn($r) => in_array($r['status'], SVC_OPEN, true));
+$svcWho = trim((string)($_GET['who'] ?? ''));
+$svcHist = $svcWho !== '' ? svc_history($svcWho) : [];
+$svcMonth = preg_match('/^\d{4}-\d{2}$/', (string)($_GET['sm'] ?? '')) ? $_GET['sm'] : date('Y-m');
+$svcStats = svc_stats($svcMonth);
 $slApply = sl_db()->query('SELECT * FROM apply ORDER BY (decision IS NULL) DESC, id DESC LIMIT 30')->fetchAll(PDO::FETCH_ASSOC);
 $slUsers = sl_db()->query('SELECT * FROM users ORDER BY added_at')->fetchAll(PDO::FETCH_ASSOC);
 $slPending = array_filter($slApply, fn($r) => empty($r['decision']));
@@ -300,6 +307,10 @@ function barcls($v) { return $v === null ? '' : ($v >= 90 ? 'hi' : ($v >= 75 ? '
 .shots a{font-size:13px;margin-right:8px}
 .flash{background:var(--mist);border-radius:12px;padding:8px 12px;margin-top:14px;font-weight:700}
 details summary{cursor:pointer;color:var(--muted);font-size:14px;margin-top:8px}
+.act select,.act input[type=month]{padding:6px 8px;border-radius:10px;font-size:14px}
+.svct{width:100%;border-collapse:collapse;margin-top:8px;font-size:13.5px;display:block;overflow-x:auto}
+.svct th,.svct td{padding:5px 8px;border-bottom:1px solid var(--edge);text-align:left;white-space:nowrap}
+.svct tr.test td{color:var(--muted)}
 .empty{color:var(--muted);margin:0}
 a.hostbox{display:block;text-decoration:none;color:inherit}
 a.hostbox:hover{border-color:var(--teal)}
@@ -500,8 +511,15 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
 
   <div class="box" id="svc">
     <div class="sec"><h2>📝 資訊服務申請</h2><small>待受理的由資訊部按「受理」（受理人即負責人），做完按「完成」通知申請人</small></div>
-    <?php if (!$svc): ?><p class="empty">目前沒有申請。</p><?php endif; ?>
-    <?php $SVT = svc_types(); foreach ($svc as $r): ?>
+    <?php $SVT = svc_types(); ?>
+    <form method="get" action="./#svc" class="act svcf">
+      <select name="st"><option value="">全部類型</option><?php foreach ($SVT as $k => $t): ?><option value="<?= h($k) ?>"<?= $svcF['type'] === $k ? ' selected' : '' ?>><?= h($t['name']) ?></option><?php endforeach; ?></select>
+      <select name="ss"><option value="">全部狀態</option><?php foreach (SVC_STATUS as $k => $n): ?><option value="<?= h($k) ?>"<?= $svcF['status'] === $k ? ' selected' : '' ?>><?= h($n) ?></option><?php endforeach; ?></select>
+      <label><input type="checkbox" name="stest" value="1"<?= $svcF['test'] ? ' checked' : '' ?>> 含測試單</label>
+      <button>篩選</button><?php if ($svcFiltered): ?> <a href="./#svc">清除</a><?php endif; ?>
+    </form>
+    <?php if (!$svc): ?><p class="empty"><?= $svcFiltered ? '沒有符合的申請。' : '目前沒有申請。' ?></p><?php endif; ?>
+    <?php foreach ($svc as $r): ?>
       <div class="item"><div class="row"><span class="no"><?= h(svc_no($r)) ?></span>
         <span class="tag <?= ['review' => 'mid', 'intake' => 'new', 'doing' => 'doing', 'done' => 'done', 'rejected' => 'high'][$r['status']] ?? '' ?>"><?= h(SVC_STATUS[$r['status']] ?? $r['status']) ?></span>
         <span class="ttl"><?= h($SVT[$r['type']]['name'] ?? $r['type']) ?></span>
@@ -529,6 +547,30 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
           <button class="ok" name="do" value="done">完成</button></form>
       <?php endif; ?></div>
     <?php endforeach; ?>
+
+    <details id="svc-who"<?= $svcWho !== '' ? ' open' : '' ?>><summary>依同工查歷年申請（含 v2.0 前的 AI、縮址申請）</summary>
+      <form method="get" action="./#svc-who" class="act"><input type="text" name="who" value="<?= h($svcWho) ?>" maxlength="120" placeholder="協會 email 或姓名"><button>查詢</button></form>
+      <?php if ($svcWho !== '' && !$svcHist): ?><p class="empty">查無「<?= h($svcWho) ?>」的申請。</p><?php endif; ?>
+      <?php if ($svcHist): ?><table class="svct"><tr><th>編號</th><th>類型</th><th>申請人／對象</th><th>送出</th><th>狀態</th><th>核准人</th><th>完成</th></tr>
+        <?php foreach ($svcHist as $r): ?><tr<?= $r['is_test'] ? ' class="test"' : '' ?>>
+          <td><?= h($r['no']) ?><?= $r['src'] === 'legacy' ? ' <small>舊</small>' : '' ?><?= $r['is_test'] ? ' <small>測試</small>' : '' ?></td>
+          <td><?= h($SVT[$r['type']]['name'] ?? $r['type']) ?></td>
+          <td><?= h($r['applicant_name']) ?><?= ($r['target_name'] ?? '') !== '' && $r['target_name'] !== $r['applicant_name'] ? '→' . h($r['target_name']) : '' ?></td>
+          <td><?= h(date('Y-m-d', strtotime($r['created_at']))) ?></td>
+          <td><?= h(SVC_STATUS[$r['status']] ?? $r['status']) ?></td>
+          <td><?= h($r['decided_by'] ? (IT_STAFF[$r['decided_by']] ?? ($r['decided_by'] === SVC_DIRECTOR ? '主任' : $r['decided_by'])) : '—') ?></td>
+          <td><?= $r['done_at'] ? h(date('Y-m-d', strtotime($r['done_at']))) : '—' ?></td></tr>
+        <?php endforeach; ?></table><?php endif; ?>
+    </details>
+
+    <details id="svc-stat"<?= isset($_GET['sm']) ? ' open' : '' ?>><summary>月報統計（<?= h($svcMonth) ?>，不含測試單）</summary>
+      <form method="get" action="./#svc-stat" class="act"><input type="month" name="sm" value="<?= h($svcMonth) ?>"><button>切換月份</button></form>
+      <?php if (!$svcStats): ?><p class="empty">這個月沒有申請。</p><?php else: ?>
+      <table class="svct"><tr><th>類型</th><th>件數</th><th>已完成</th><th>未核准</th><th>處理中</th><th>平均首次回應</th><th>平均完成</th></tr>
+        <?php foreach ($svcStats as $k => $s): ?><tr><td><?= h($SVT[$k]['name'] ?? $k) ?></td><td><?= $s['total'] ?></td><td><?= $s['done'] ?></td><td><?= $s['rejected'] ?></td><td><?= $s['open'] ?></td>
+          <td><?= $s['resp_h'] === null ? '—' : h($s['resp_h']) . ' 小時' ?></td><td><?= $s['fin_h'] === null ? '—' : h($s['fin_h']) . ' 小時' ?></td></tr><?php endforeach; ?>
+      </table><?php endif; ?>
+    </details>
   </div>
 
   <div class="box" id="ai">

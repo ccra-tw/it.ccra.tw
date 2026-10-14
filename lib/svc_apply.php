@@ -204,3 +204,78 @@ function svc_complete(int $id, string $by, string $note = ''): bool {
 }
 
 function svc_no(array $r): string { return 'S' . date('ymd', strtotime($r['created_at'])) . '-' . str_pad((string)$r['id'], 3, '0', STR_PAD_LEFT); }
+
+// ---- 篩選、同工歷年、月報統計（#14） ----
+// 戰情室清單篩選。$f：type、status（空＝全部）、test（true＝含測試單；預設只含未結案的測試單，方便測完收尾）。
+function svc_list(array $f = [], int $limit = 60): array {
+    $w = []; $p = [];
+    if (($f['type'] ?? '') !== '' && isset(svc_types()[$f['type']])) { $w[] = 'type = ?'; $p[] = $f['type']; }
+    if (($f['status'] ?? '') !== '' && isset(SVC_STATUS[$f['status']])) { $w[] = 'status = ?'; $p[] = $f['status']; }
+    if (empty($f['test'])) $w[] = "(is_test = FALSE OR status IN ('review','intake','doing'))";
+    $s = svc_db()->prepare('SELECT * FROM req' . ($w ? ' WHERE ' . implode(' AND ', $w) : '')
+        . " ORDER BY CASE status WHEN 'review' THEN 0 WHEN 'intake' THEN 1 WHEN 'doing' THEN 2 ELSE 3 END, id DESC LIMIT " . max(1, $limit));
+    $s->execute($p);
+    return $s->fetchAll(PDO::FETCH_ASSOC);
+}
+
+// 舊紀錄（v2.0 前的 AI 申請、縮址申請）轉成與 req 相同的欄位，供歷年查詢與統計共用。
+// 舊單只有主任裁示：未裁示＝待主任核准、核准＝已完成（舊流程核准即結案，開通另走 Planner）、不核准＝未核准。
+function svc_legacy(): array {
+    $out = [];
+    foreach ([['ai_apply', 'ai_apply', 'ai', 'A'], ['shortlink', 'apply', 'shortlink', 'L']] as [$schema, $table, $type, $pre]) {
+        try {
+            $d = itdb($schema);
+            if (!itdb_cols($d, $table)) continue;
+            foreach ($d->query("SELECT * FROM $table")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $st = $r['decision'] === null || $r['decision'] === '' ? 'review' : ($r['decision'] === 'approve' ? 'done' : 'rejected');
+                $out[] = ['src' => 'legacy', 'no' => $pre . date('ymd', strtotime($r['created_at'])) . '-' . str_pad((string)$r['id'], 3, '0', STR_PAD_LEFT),
+                    'type' => $type, 'status' => $st, 'created_at' => $r['created_at'],
+                    'applicant_email' => strtolower((string)$r['email']), 'applicant_name' => $r['name'], 'applicant_dept' => $r['dept'],
+                    'target_name' => $r['name'], 'decided_by' => $r['decided_by'] ?? null, 'decided_at' => $r['decided_at'] ?? null,
+                    'accepted_by' => null, 'first_response_at' => $r['first_response_at'] ?? null, 'done_at' => $r['done_at'] ?? null,
+                    'is_test' => !empty($r['is_test'])];
+            }
+        } catch (Throwable $e) { error_log("svc_legacy $schema: " . $e->getMessage()); }
+    }
+    return $out;
+}
+
+// 新舊紀錄合併成同一種列（新紀錄 src='new'）。
+function svc_all(): array {
+    $rows = [];
+    foreach (svc_db()->query('SELECT * FROM req')->fetchAll(PDO::FETCH_ASSOC) as $r)
+        $rows[] = ['src' => 'new', 'no' => svc_no($r), 'is_test' => (bool)$r['is_test']] + $r;
+    return array_merge($rows, svc_legacy());
+}
+
+// 同工歷年申請：以 email（完整）或姓名（部分）比對申請人與申請對象，新到舊。含測試單但標示，由畫面決定怎麼顯示。
+function svc_history(string $who): array {
+    $who = trim(mb_strtolower($who));
+    if ($who === '') return [];
+    $hit = fn($r) => str_contains($who, '@') ? strtolower((string)$r['applicant_email']) === $who
+        : (str_contains(mb_strtolower((string)$r['applicant_name']), $who) || str_contains(mb_strtolower((string)($r['target_name'] ?? '')), $who));
+    $rows = array_values(array_filter(svc_all(), $hit));
+    usort($rows, fn($a, $b) => strcmp($b['created_at'], $a['created_at']));
+    return $rows;
+}
+
+// 月報統計（$ym 如 2026-10）：依送出月份，測試單一律排除。時數取平均、四捨五入到小數一位，無資料為 null。
+function svc_stats(string $ym): array {
+    $hours = fn($a, $b) => ($a && $b) ? (strtotime($b) - strtotime($a)) / 3600 : null;
+    $avg = fn(array $v) => $v ? round(array_sum($v) / count($v), 1) : null;
+    $by = [];
+    foreach (svc_all() as $r) {
+        if ($r['is_test'] || !str_starts_with(date('Y-m', strtotime($r['created_at'])), $ym)) continue;
+        $t = &$by[$r['type']];
+        $t ??= ['total' => 0, 'done' => 0, 'rejected' => 0, 'open' => 0, 'resp' => [], 'fin' => []];
+        $t['total']++;
+        if ($r['status'] === 'done') $t['done']++; elseif ($r['status'] === 'rejected') $t['rejected']++; else $t['open']++;
+        if (($h = $hours($r['created_at'], $r['first_response_at'])) !== null) $t['resp'][] = $h;
+        if ($r['status'] === 'done' && ($h = $hours($r['created_at'], $r['done_at'])) !== null) $t['fin'][] = $h;
+        unset($t);
+    }
+    foreach ($by as &$t) { $t['resp_h'] = $avg($t['resp']); $t['fin_h'] = $avg($t['fin']); unset($t['resp'], $t['fin']); }
+    unset($t);
+    ksort($by);
+    return $by;
+}
