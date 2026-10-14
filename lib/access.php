@@ -26,6 +26,8 @@ function access_deny($why) {
 
 // 回傳已驗證的登入資訊（含 email）；驗不過直接 403 結束。
 function access_identity() {
+    // 測試接縫（GitHub #8）：只在命令列執行時可用替身身分，網頁（php-fpm）永遠走下面的 JWT 驗證
+    if (PHP_SAPI === 'cli' && ($t = getenv('ITCCRA_TEST_EMAIL'))) return ['email' => $t];
     $jwt = $_SERVER['HTTP_CF_ACCESS_JWT_ASSERTION'] ?? '';
     $p = explode('.', $jwt);
     if (count($p) !== 3) access_deny('no jwt');

@@ -7,6 +7,7 @@ require '/var/www/it-lib/itstaff.php';
 require '/var/www/it-lib/uptime.php';
 require '/var/www/it-lib/zabbix.php';
 require '/var/www/it-lib/graph.php';   // 主任有約取消時撤回行事曆邀請（同 /meet/ 那支的專用 App，只有行事曆權限）
+require '/var/www/it-lib/svc_apply.php';   // 資訊服務申請（v2.0 單一入口，GitHub #7）
 $id = access_identity();
 $email = strtolower($id['email']);
 if (!is_it_staff($email)) { http_response_code(403); exit('戰情室只開放給資訊部帳號。'); }
@@ -188,6 +189,14 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         header('Location: ./?m=' . urlencode($flash) . '#cafe', true, 303);
         exit;
     }
+    elseif (($_POST['act'] ?? '') === 'svc') {
+        // 資訊服務申請：資訊部受理（待受理 → 處理中，受理人即負責人）／完成。通知與 Planner 由本機腳本處理（GitHub #8）
+        $sid = (int)($_POST['id'] ?? 0); $do = $_POST['do'] ?? '';
+        if ($do === 'accept') $flash = svc_accept($sid, $email) ? '已受理，一小時內 Planner 會開工單給你。' : '這筆已經有人受理了。';
+        elseif ($do === 'done') $flash = svc_complete($sid, $email, (string)($_POST['note'] ?? '')) ? '已完成，一小時內通知申請人。' : '這筆不在處理中。';
+        header('Location: ./?m=' . urlencode($flash) . '#svc', true, 303);
+        exit;
+    }
     header('Location: ./?m=' . urlencode($flash) . '#repair', true, 303);
     exit;
 }
@@ -208,6 +217,8 @@ $plPending = has_table('planner_actions.sqlite', 'act')
     ? array_column(db('planner_actions.sqlite')->query("SELECT task_id FROM act WHERE done_at IS NULL")->fetchAll(PDO::FETCH_ASSOC), 'task_id') : [];
 function planner_task_url($id) { return 'https://planner.cloud.microsoft/webui/plan/WLjIX4pJX0aot3QF96N06MkADMal/view/board/task/' . rawurlencode($id) . '?tid=a18de7ab-5b49-41ac-8831-357e9b0d5817'; }
 const PLANNER_URL = 'https://planner.cloud.microsoft/webui/plan/WLjIX4pJX0aot3QF96N06MkADMal/view/board?tid=a18de7ab-5b49-41ac-8831-357e9b0d5817';
+$svc = svc_db()->query("SELECT * FROM req WHERE is_test = FALSE OR status <> 'done' ORDER BY CASE status WHEN 'review' THEN 0 WHEN 'intake' THEN 1 WHEN 'doing' THEN 2 ELSE 3 END, id DESC LIMIT 60")->fetchAll(PDO::FETCH_ASSOC);
+$svcOpen = array_filter($svc, fn($r) => in_array($r['status'], SVC_OPEN, true));
 $slApply = sl_db()->query('SELECT * FROM apply ORDER BY (decision IS NULL) DESC, id DESC LIMIT 30')->fetchAll(PDO::FETCH_ASSOC);
 $slUsers = sl_db()->query('SELECT * FROM users ORDER BY added_at')->fetchAll(PDO::FETCH_ASSOC);
 $slPending = array_filter($slApply, fn($r) => empty($r['decision']));
@@ -479,6 +490,27 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
         </form>
         <?php endif; ?>
       </div>
+    <?php endforeach; ?>
+  </div>
+
+  <div class="box" id="svc">
+    <div class="sec"><h2>📝 資訊服務申請</h2><small>待受理的由資訊部按「受理」（受理人即負責人），做完按「完成」通知申請人</small></div>
+    <?php if (!$svc): ?><p class="empty">目前沒有申請。</p><?php endif; ?>
+    <?php $SVT = svc_types(); foreach ($svc as $r): ?>
+      <div class="item"><div class="row"><span class="no"><?= h(svc_no($r)) ?></span>
+        <span class="tag <?= ['review' => 'mid', 'intake' => 'new', 'doing' => 'doing', 'done' => 'done', 'rejected' => 'high'][$r['status']] ?? '' ?>"><?= h(SVC_STATUS[$r['status']] ?? $r['status']) ?></span>
+        <span class="ttl"><?= h($SVT[$r['type']]['name'] ?? $r['type']) ?></span>
+        <span class="meta" style="margin:0"><?= h($r['applicant_name']) ?>（<?= h($r['applicant_dept']) ?>）｜<?= h(ago($r['created_at'])) ?><?= $r['wanted_by'] ? '｜希望 ' . h($r['wanted_by']) . ' 前' : '' ?><?= $r['is_test'] ? '｜測試' : '' ?></span></div>
+      <p class="desc"><?= h($r['purpose']) ?></p>
+      <?php if ($r['accepted_by']): ?><div class="meta">負責：<?= h(IT_STAFF[$r['accepted_by']] ?? $r['accepted_by']) ?>｜<?= $r['planner_task_id'] ? 'Planner 已開工單' : 'Planner 工單待開' ?><?= $r['status'] === 'done' ? '｜' . (empty($r['done_notified_at']) ? '完成通知待寄' : '已通知申請人') : '' ?></div><?php endif; ?>
+      <?php if ($r['status'] === 'intake'): ?>
+        <form method="post" class="act"><input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="act" value="svc"><input type="hidden" name="id" value="<?= (int)$r['id'] ?>">
+          <button class="ok" name="do" value="accept">受理（由我負責）</button></form>
+      <?php elseif ($r['status'] === 'doing' && $r['accepted_by'] === $email): ?>
+        <form method="post" class="act"><input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="act" value="svc"><input type="hidden" name="id" value="<?= (int)$r['id'] ?>">
+          <input type="text" name="note" maxlength="300" placeholder="完成說明（會寄給申請人，選填）">
+          <button class="ok" name="do" value="done">完成</button></form>
+      <?php endif; ?></div>
     <?php endforeach; ?>
   </div>
 

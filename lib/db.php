@@ -11,6 +11,8 @@ const PG_CONF = '/var/lib/it-ccra/pg.json';
 function itdb(string $schema): PDO {
     static $conns = [];
     if (!preg_match('/^[a-z_]+$/', $schema)) throw new InvalidArgumentException('bad schema');
+    // 測試接縫：命令列且 ITCCRA_TEST_DB=1 時一律改用 <schema>_test，測試資料不進正式表
+    if (PHP_SAPI === 'cli' && getenv('ITCCRA_TEST_DB') === '1') $schema .= '_test';
     if (isset($conns[$schema])) return $conns[$schema];
     $c = json_decode((string)file_get_contents(PG_CONF), true);
     $d = new PDO("pgsql:host={$c['host']};dbname={$c['db']}", $c['user'], $c['pass'],
