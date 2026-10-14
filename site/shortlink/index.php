@@ -21,6 +21,8 @@ $st->execute([$email]);
 $user = $st->fetch(PDO::FETCH_ASSOC);
 // 已開通而且已同步到 Cloudflare／YOURLS 才轉過去；剛核准還沒同步的先顯示「開通中」，免得轉過去被擋
 if ($user && $user['synced_at']) { header('Location: ' . SSO_URL, true, 302); exit; }
+// v2.0（GitHub #13）：還沒有帳號的人改走「資訊服務申請」單一入口；已核准、同步中的照舊顯示「開通中」
+if (!$user) { header('Location: /apply/?type=shortlink', true, 302); exit; }
 
 $secret = trim((string)@file_get_contents(STATE_DIR . '/form_secret'));
 $csrf = hash_hmac('sha256', 'shortlink' . $email . date('Y-m-d'), $secret);

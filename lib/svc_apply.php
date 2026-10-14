@@ -20,6 +20,12 @@ function svc_types(): array {
             ['key' => 'why', 'label' => '為什麼 Copilot Chat 不夠用？', 'type' => 'textarea', 'required' => true, 'max' => 2000],
             ['key' => 'pii', 'label' => '工作會不會處理個資或敏感資料？', 'type' => 'select', 'required' => true, 'options' => ['不會', '會']],
         ]],
+        // 縮址服務（#13）：資訊部直接受理（#2）。後台帳號受理時寫入 shortlink.users，由本機 shortlink_sync 同步到 Cloudflare Access 與 YOURLS
+        'shortlink' => ['name' => '縮址服務（ccra.tw 短網址）', 'director' => false, 'fields' => [
+            ['key' => 'need', 'label' => '需要什麼', 'type' => 'select', 'required' => true, 'options' => ['後台帳號（自己建短網址）', '請資訊部代建一個短網址']],
+            ['key' => 'url', 'label' => '目標網址', 'type' => 'text', 'required' => false, 'max' => 500, 'pattern' => '#^https?://\S+$#', 'hint' => '代建時必填，例：https://www.ccra.org.tw/活動頁'],
+            ['key' => 'slug', 'label' => '希望的短網址', 'type' => 'text', 'required' => false, 'max' => 50, 'pattern' => '/^[A-Za-z0-9_-]+$/', 'hint' => '例：1919run → ccra.tw/1919run；只能用英數、- 與 _'],
+        ]],
         'email' => ['name' => 'Email 帳號開通', 'director' => true, 'fields' => [
             ['key' => 'name_zh', 'label' => '中文姓名', 'type' => 'text', 'required' => true, 'max' => 50],
             ['key' => 'name_en', 'label' => '英文姓名', 'type' => 'text', 'required' => true, 'max' => 80, 'hint' => '用來產生帳號，例：Mary Chen'],
@@ -132,6 +138,11 @@ function svc_submit(array $who, array $in): array {
     elseif ($wanted !== '' && $wanted < date('Y-m-d')) $err[] = '希望完成日不能早於今天。';
     [$ferr, $fields] = svc_fields($type, $in);
     $err = array_merge($err, $ferr);
+    // 縮址：代建要填目標網址；後台帳號只能本人申請（帳號要對應本人的 M365 登入）
+    if ($type === 'shortlink' && !$ferr) {
+        if (($fields['need'] ?? '') === '請資訊部代建一個短網址' && ($fields['url'] ?? '') === '') $err[] = '請填寫目標網址。';
+        if (($fields['need'] ?? '') === '後台帳號（自己建短網址）' && !$forSelf) $err[] = '縮址後台帳號請本人申請。';
+    }
     if ($err) return [$err, null];
 
     $d = svc_db();
@@ -168,10 +179,21 @@ function svc_decide(int $id, string $by, string $decision, string $note = ''): b
 
 // 資訊部受理（直接辦理類 intake → doing）。受理人就是負責人；Planner 工單由本機腳本開。
 function svc_accept(int $id, string $by): bool {
-    $s = svc_db()->prepare("UPDATE req SET status = 'doing', accepted_by = ?, accepted_at = ?, first_response_at = COALESCE(first_response_at, ?) WHERE id = ? AND status = 'intake'");
+    $d = svc_db();
+    $s = $d->prepare("UPDATE req SET status = 'doing', accepted_by = ?, accepted_at = ?, first_response_at = COALESCE(first_response_at, ?) WHERE id = ? AND status = 'intake'");
     $now = date('c');
     $s->execute([strtolower($by), $now, $now, $id]);
-    return $s->rowCount() === 1;
+    if ($s->rowCount() !== 1) return false;
+    $r = $d->query('SELECT * FROM req WHERE id = ' . (int)$id)->fetch(PDO::FETCH_ASSOC);
+    $f = json_decode((string)$r['fields'], true) ?: [];
+    // 縮址後台帳號：寫入名單（唯一來源 shortlink.users），一小時內由本機 shortlink_sync 同步到 Cloudflare Access 與 YOURLS
+    if ($r['type'] === 'shortlink' && ($f['need'] ?? '') === '後台帳號（自己建短網址）') {
+        $sl = itdb('shortlink');
+        $sl->exec('CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, name TEXT, added_at TEXT, added_by TEXT, synced_at TEXT)');
+        $sl->prepare('INSERT INTO users (email, name, added_at, added_by) VALUES (?,?,?,?) ON CONFLICT (email) DO NOTHING')
+           ->execute([$r['applicant_email'], $r['applicant_name'], $now, strtolower($by)]);
+    }
+    return true;
 }
 
 // 完成（doing → done）。完成通知由本機腳本寄、Planner 工單由本機腳本結案。

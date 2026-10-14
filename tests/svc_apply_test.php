@@ -98,7 +98,7 @@ ok($r['status'] === 'rejected' && $r['decision_note'] === '請改用遠端桌面
 echo "全部類型（#10）\n";
 $fill = function ($t) {
     $f = [];
-    foreach ($t['fields'] as $x) $f[$x['key']] = $x['type'] === 'select' ? $x['options'][0] : ($x['type'] === 'date' ? date('Y-m-d') : (!empty($x['pattern']) ? 'test-user1' : '測試值'));
+    foreach ($t['fields'] as $x) $f[$x['key']] = $x['type'] === 'select' ? $x['options'][0] : ($x['type'] === 'date' ? date('Y-m-d') : (!empty($x['pattern']) ? ($x['key'] === 'url' ? 'https://example.org/x' : 'test-user1') : '測試值'));
     return $f;
 };
 foreach (svc_types() as $k => $t) {
@@ -123,9 +123,9 @@ $e = ['csrf' => $tok('apply', $STAFF), 'type' => 'email', 'name' => '新同工',
       'f' => ['name_zh' => '新同工', 'name_en' => 'New Staff', 'start' => '2020-01-01']];
 $b = $cnt(); req($STAFF, 'apply/index.php', 'POST', $e);
 ok($cnt() === $b + 1, 'Email 到職日可以是過去（補辦）');
-$want = ['ai' => true, 'email' => true, 'google' => true, 'vpn' => true, 'sysperm' => true, 'github' => true, 'firewall' => true, 'folder' => false, 'dns' => false, 'other' => false];
+$want = ['ai' => true, 'shortlink' => false, 'email' => true, 'google' => true, 'vpn' => true, 'sysperm' => true, 'github' => true, 'firewall' => true, 'folder' => false, 'dns' => false, 'other' => false];
 $got = array_map(fn($t) => $t['director'], svc_types());
-ok(array_diff_key($want, $got) === [] && array_intersect_key($got, $want) == $want, '主任核准分流符合 #2 決定（縮址在 #13 加入）');
+ok(array_diff_key($want, $got) === [] && array_intersect_key($got, $want) == $want, '主任核准分流符合 #2 決定');
 $gh = ['csrf' => $tok('apply', $STAFF), 'type' => 'github', 'name' => '開發者', 'purpose' => '開發', 'wanted_by' => '',
        'f' => ['account' => 'me@example.org', 'org' => 'ccra-tw', 'repos' => 'it.ccra.tw', 'perm' => '寫入']];
 $b = $cnt(); $o = req($STAFF, 'apply/index.php', 'POST', $gh);
@@ -177,6 +177,36 @@ $o = req($STAFF, 'ai-apply/index.php');
 ok(!str_contains($o, 'name="plan"'), '舊 AI 申請網址不再顯示舊表單（轉到新入口）');
 $o = req($STAFF, 'apply/index.php', 'GET', [], ['type' => 'ai']);
 ok(str_contains($o, '<option value="ai" selected') && str_contains($o, '<textarea id="f_ai_plan"'), '新入口帶 type=ai 會預選 AI 工具並顯示使用計畫');
+
+echo "縮址併入（#13）
+";
+$sl = itdb('shortlink');
+$sl->exec('CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, name TEXT, added_at TEXT, added_by TEXT, synced_at TEXT)');
+$sl->exec('TRUNCATE users');
+$base = ['csrf' => $tok('apply', $STAFF), 'type' => 'shortlink', 'name' => '公關己', 'purpose' => '活動頁', 'wanted_by' => ''];
+$b = $cnt();
+$o = req($STAFF, 'apply/index.php', 'POST', $base + ['f' => ['need' => '請資訊部代建一個短網址']]);
+ok($cnt() === $b && str_contains($o, '請填寫目標網址'), '縮址代建：目標網址必填');
+$o = req($STAFF, 'apply/index.php', 'POST', $base + ['f' => ['need' => '請資訊部代建一個短網址', 'url' => 'www.ccra.org.tw']]);
+ok($cnt() === $b && str_contains($o, '目標網址格式不正確'), '縮址代建：網址要有 http(s)://');
+$o = req($STAFF, 'apply/index.php', 'POST', $base + ['f' => ['need' => '請資訊部代建一個短網址', 'url' => 'https://www.ccra.org.tw/a', 'slug' => '中文 名']]);
+ok($cnt() === $b && str_contains($o, '希望的短網址格式不正確'), '縮址代建：短網址只能英數 - _');
+$o = req($STAFF, 'apply/index.php', 'POST', $base + ['for' => 'other', 'target_name' => '別人', 'target_dept' => '資訊部', 'f' => ['need' => '後台帳號（自己建短網址）']]);
+ok($cnt() === $b && str_contains($o, '縮址後台帳號請本人申請'), '縮址後台帳號不能代他人申請');
+req($STAFF, 'apply/index.php', 'POST', $base + ['f' => ['need' => '後台帳號（自己建短網址）']]);
+$sid = (int)$d->query("SELECT max(id) FROM req WHERE type = 'shortlink'")->fetchColumn();
+ok($row($sid)['status'] === 'intake', '縮址：資訊部直接受理（不經主任）');
+req($STAFF, 'ops/index.php', 'POST', ['csrf' => $tok('ops', $STAFF), 'act' => 'svc', 'do' => 'accept', 'id' => $sid]);
+$u = $sl->query('SELECT * FROM users')->fetchAll(PDO::FETCH_ASSOC);
+ok($row($sid)['status'] === 'doing' && count($u) === 1 && $u[0]['email'] === $STAFF && $u[0]['added_by'] === $STAFF && $u[0]['synced_at'] === null,
+   '縮址後台帳號受理 → 寫入名單（待同步）');
+req($STAFF, 'apply/index.php', 'POST', $base + ['name' => '公關庚', 'f' => ['need' => '請資訊部代建一個短網址', 'url' => 'https://www.ccra.org.tw/a', 'slug' => 'run2026']]);
+$s2 = (int)$d->query("SELECT max(id) FROM req WHERE type = 'shortlink'")->fetchColumn();
+req($STAFF, 'ops/index.php', 'POST', ['csrf' => $tok('ops', $STAFF), 'act' => 'svc', 'do' => 'accept', 'id' => $s2]);
+ok((int)$sl->query('SELECT count(*) FROM users')->fetchColumn() === 1, '縮址代建受理不會開後台帳號');
+$o = req($OUT, 'shortlink/index.php');
+ok(!str_contains($o, 'name="purpose"'), '舊縮址申請頁不再顯示舊表單（沒帳號的轉到新入口）');
+$sl->exec('TRUNCATE users');
 
 $d->exec('TRUNCATE req RESTART IDENTITY');
 echo ($fail ? "🔴 失敗 {$fail}／{$n}\n" : "✅ 全部通過 {$n} 項\n");
