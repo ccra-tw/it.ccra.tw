@@ -86,6 +86,7 @@ function svc_db(): PDO {
         done_by TEXT, done_note TEXT, done_at TEXT,
         ack_notified_at TEXT, decision_notified_at TEXT, done_notified_at TEXT,
         first_response_at TEXT, is_test BOOLEAN NOT NULL DEFAULT FALSE)');
+    $d->exec('ALTER TABLE req ADD COLUMN IF NOT EXISTS head_note TEXT');   // 主管知會結果（#11）：已知會誰／查無主管
     return $d;
 }
 
@@ -99,6 +100,18 @@ function svc_submit(array $who, array $in): array {
     $purpose = trim((string)($in['purpose'] ?? ''));
     $wanted = trim((string)($in['wanted_by'] ?? ''));
     if ($name === '' || mb_strlen($name) > 50) $err[] = '請填寫姓名。';
+    // 為誰申請（#11）：本人，或代他人（例如替還沒有帳號的新同工申請）
+    $forSelf = ($in['for'] ?? 'self') !== 'other';
+    $tName = $name; $tDept = (string)($who['dept'] ?? ''); $tStart = null;
+    if (!$forSelf) {
+        $tName = trim((string)($in['target_name'] ?? ''));
+        $tDept = (string)($in['target_dept'] ?? '');
+        $tStart = trim((string)($in['target_start'] ?? ''));
+        if ($tName === '' || mb_strlen($tName) > 50) $err[] = '請填寫申請對象的姓名。';
+        if (!in_array($tDept, require __DIR__ . '/depts.php', true)) $err[] = '請選擇申請對象的部門。';
+        if ($tStart !== '' && (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $tStart) || strtotime($tStart) === false)) $err[] = '申請對象的到職日格式不正確。';
+        if ($tStart === '') $tStart = null;
+    }
     if ($purpose === '' || mb_strlen($purpose) > 2000) $err[] = '請說明用途（2000 字內）。';
     if ($wanted !== '' && (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $wanted) || strtotime($wanted) === false)) $err[] = '希望完成日格式不正確。';
     elseif ($wanted !== '' && $wanted < date('Y-m-d')) $err[] = '希望完成日不能早於今天。';
@@ -109,14 +122,14 @@ function svc_submit(array $who, array $in): array {
     $d = svc_db();
     // 防重複：同一人、同類型、同對象、還沒結束的申請已存在就不新增（重新整理或連按兩下）
     $dup = $d->prepare('SELECT id FROM req WHERE applicant_email = ? AND type = ? AND target_name = ? AND status = ANY(?::text[]) ORDER BY id DESC LIMIT 1');
-    $dup->execute([strtolower($who['email']), $type, $name, '{' . implode(',', SVC_OPEN) . '}']);
+    $dup->execute([strtolower($who['email']), $type, $tName, '{' . implode(',', SVC_OPEN) . '}']);
     if ($old = $dup->fetchColumn()) return [[], (int)$old];
 
     $status = $types[$type]['director'] ? 'review' : 'intake';
-    $st = $d->prepare('INSERT INTO req (created_at, type, status, applicant_email, applicant_name, applicant_dept, for_self, target_name, target_dept, purpose, wanted_by, fields, is_test)
-                       VALUES (?,?,?,?,?,?,TRUE,?,?,?,?,?::jsonb,?) RETURNING id');
+    $st = $d->prepare('INSERT INTO req (created_at, type, status, applicant_email, applicant_name, applicant_dept, for_self, target_name, target_dept, target_start, purpose, wanted_by, fields, is_test)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?::jsonb,?) RETURNING id');
     $st->execute([date('c'), $type, $status, strtolower($who['email']), $name, (string)($who['dept'] ?? ''),
-                  $name, (string)($who['dept'] ?? ''), $purpose, $wanted !== '' ? $wanted : null, json_encode((object)$fields, JSON_UNESCAPED_UNICODE), !empty($in['is_test']) ? 'true' : 'false']);
+                  $forSelf ? 'true' : 'false', $tName, $tDept, $tStart, $purpose, $wanted !== '' ? $wanted : null, json_encode((object)$fields, JSON_UNESCAPED_UNICODE), !empty($in['is_test']) ? 'true' : 'false']);
     return [[], (int)$st->fetchColumn()];
 }
 

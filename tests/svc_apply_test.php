@@ -129,6 +129,30 @@ ok(array_diff_key($want, $got) === [] && array_intersect_key($got, $want) == $wa
 $o = req($STAFF, 'apply/index.php', 'GET');
 ok(substr_count($o, 'class="tf"') === count(array_filter(svc_types(), fn($t) => $t['fields'])) && str_contains($o, '<select id="f_google_service"'), '申請頁為每個類型產生欄位區，下拉選單正確');
 
+echo "代他人申請（#11）\n";
+$ob = ['csrf' => $tok('apply', $STAFF), 'type' => 'other', 'name' => '主管甲', 'purpose' => '替新人申請', 'wanted_by' => '',
+       'for' => 'other', 'target_name' => '新人乙', 'target_dept' => '資訊部', 'target_start' => '2026-10-01'];
+$b = $cnt();
+$o = req($STAFF, 'apply/index.php', 'POST', array_merge($ob, ['target_name' => '']));
+ok($cnt() === $b && str_contains($o, '請填寫申請對象的姓名'), '代他人：對象姓名必填');
+$o = req($STAFF, 'apply/index.php', 'POST', array_merge($ob, ['target_dept' => '不存在的部門']));
+ok($cnt() === $b && str_contains($o, '請選擇申請對象的部門'), '代他人：部門須在清單內');
+$o = req($STAFF, 'apply/index.php', 'POST', array_merge($ob, ['target_start' => '10/01']));
+ok($cnt() === $b && str_contains($o, '到職日格式不正確'), '代他人：到職日格式檢查');
+req($STAFF, 'apply/index.php', 'POST', $ob);
+$r = $d->query('SELECT * FROM req ORDER BY id DESC LIMIT 1')->fetch(PDO::FETCH_ASSOC);
+ok($cnt() === $b + 1 && $r['for_self'] === false && $r['target_name'] === '新人乙' && $r['target_dept'] === '資訊部' && $r['target_start'] === '2026-10-01' && $r['applicant_name'] === '主管甲',
+   '代他人：申請人與對象分開記錄（含過去的到職日）');
+req($STAFF, 'apply/index.php', 'POST', array_merge($ob, ['target_name' => '新人丙']));
+ok($cnt() === $b + 2, '代不同對象申請同類型各自成立');
+req($STAFF, 'apply/index.php', 'POST', $ob);
+ok($cnt() === $b + 2, '同一對象重送不重複');
+req($STAFF, 'apply/index.php', 'POST', array_merge($ob, ['for' => 'self', 'target_name' => '應被忽略', 'name' => '本人丁']));
+$r = $d->query('SELECT * FROM req ORDER BY id DESC LIMIT 1')->fetch(PDO::FETCH_ASSOC);
+ok($r['for_self'] === true && $r['target_name'] === '本人丁', '選本人時忽略對象欄位，對象＝本人');
+$o = req($STAFF, 'apply/index.php', 'GET');
+ok(str_contains($o, 'name="for" value="other"') && str_contains($o, 'id="target_dept"'), '申請頁有「為誰申請」與對象欄位');
+
 $d->exec('TRUNCATE req RESTART IDENTITY');
 echo ($fail ? "🔴 失敗 {$fail}／{$n}\n" : "✅ 全部通過 {$n} 項\n");
 exit($fail ? 1 : 0);

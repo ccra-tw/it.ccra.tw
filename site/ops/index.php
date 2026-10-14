@@ -506,6 +506,8 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
         <span class="tag <?= ['review' => 'mid', 'intake' => 'new', 'doing' => 'doing', 'done' => 'done', 'rejected' => 'high'][$r['status']] ?? '' ?>"><?= h(SVC_STATUS[$r['status']] ?? $r['status']) ?></span>
         <span class="ttl"><?= h($SVT[$r['type']]['name'] ?? $r['type']) ?></span>
         <span class="meta" style="margin:0"><?= h($r['applicant_name']) ?>（<?= h($r['applicant_dept']) ?>）｜<?= h(ago($r['created_at'])) ?><?= $r['wanted_by'] ? '｜希望 ' . h($r['wanted_by']) . ' 前' : '' ?><?= $r['is_test'] ? '｜測試' : '' ?></span></div>
+      <?php if (!$r['for_self']): ?><div class="meta">代 <b><?= h($r['target_name']) ?></b>（<?= h($r['target_dept']) ?>）申請<?= $r['target_start'] ? '｜到職日 ' . h($r['target_start']) : '' ?></div><?php endif; ?>
+      <?php if ($r['head_note']): ?><div class="meta"><?= str_starts_with($r['head_note'], '查無') ? '<span class="tag high">' . h($r['head_note']) . '</span>' : '主管知會：' . h($r['head_note']) ?></div><?php endif; ?>
       <p class="desc"><?= h($r['purpose']) ?></p>
       <?php $fv = json_decode((string)$r['fields'], true) ?: []; foreach ($SVT[$r['type']]['fields'] ?? [] as $f): if (($fv[$f['key']] ?? '') === '') continue; ?>
         <div class="meta"><?= h($f['label']) ?>：<?= h($fv[$f['key']]) ?></div>
