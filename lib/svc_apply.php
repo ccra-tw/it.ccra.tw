@@ -39,6 +39,13 @@ function svc_types(): array {
             ['key' => 'role', 'label' => '需要的角色或功能', 'type' => 'text', 'required' => true, 'max' => 200],
             $until,
         ]],
+        'github' => ['name' => 'GitHub 權限', 'director' => true, 'fields' => [
+            ['key' => 'account', 'label' => 'GitHub 帳號', 'type' => 'text', 'required' => true, 'max' => 39, 'pattern' => '/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/', 'hint' => '帳號名稱，不是 email；還沒有帳號請先到 github.com 註冊'],
+            ['key' => 'org', 'label' => '組織', 'type' => 'select', 'required' => true, 'options' => ['ccra-tw', 'ccea-tw']],
+            ['key' => 'repos', 'label' => '要用的 repo', 'type' => 'text', 'required' => true, 'max' => 300, 'hint' => '可填多個，用逗號分開；不確定可寫用途'],
+            ['key' => 'perm', 'label' => '權限', 'type' => 'select', 'required' => true, 'options' => ['讀取', '寫入', '管理']],
+            $until,
+        ]],
         'dns' => ['name' => '網域指向（DNS）變更', 'director' => false, 'fields' => [
             ['key' => 'domain', 'label' => '網域', 'type' => 'text', 'required' => true, 'max' => 120, 'hint' => '例：event.ccra.tw'],
             ['key' => 'rtype', 'label' => '紀錄類型', 'type' => 'select', 'required' => true, 'options' => ['A', 'AAAA', 'CNAME', 'TXT', 'MX', '不確定']],
@@ -67,6 +74,7 @@ function svc_fields(string $type, array $in): array {
         } elseif ($f['type'] === 'select') {
             if (!in_array($v, $f['options'], true)) { $err[] = '請選擇' . $f['label'] . '。'; continue; }
         } elseif (mb_strlen($v) > ($f['max'] ?? 2000)) { $err[] = $f['label'] . '太長（' . ($f['max'] ?? 2000) . ' 字內）。'; continue; }
+        if (!empty($f['pattern']) && !preg_match($f['pattern'], $v)) { $err[] = $f['label'] . '格式不正確。'; continue; }
         $out[$f['key']] = $v;
     }
     return [$err, $out];

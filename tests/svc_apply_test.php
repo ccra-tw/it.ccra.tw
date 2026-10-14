@@ -98,7 +98,7 @@ ok($r['status'] === 'rejected' && $r['decision_note'] === '請改用遠端桌面
 echo "全部類型（#10）\n";
 $fill = function ($t) {
     $f = [];
-    foreach ($t['fields'] as $x) $f[$x['key']] = $x['type'] === 'select' ? $x['options'][0] : ($x['type'] === 'date' ? date('Y-m-d') : '測試值');
+    foreach ($t['fields'] as $x) $f[$x['key']] = $x['type'] === 'select' ? $x['options'][0] : ($x['type'] === 'date' ? date('Y-m-d') : (!empty($x['pattern']) ? 'test-user1' : '測試值'));
     return $f;
 };
 foreach (svc_types() as $k => $t) {
@@ -123,9 +123,15 @@ $e = ['csrf' => $tok('apply', $STAFF), 'type' => 'email', 'name' => '新同工',
       'f' => ['name_zh' => '新同工', 'name_en' => 'New Staff', 'start' => '2020-01-01']];
 $b = $cnt(); req($STAFF, 'apply/index.php', 'POST', $e);
 ok($cnt() === $b + 1, 'Email 到職日可以是過去（補辦）');
-$want = ['email' => true, 'google' => true, 'vpn' => true, 'sysperm' => true, 'firewall' => true, 'folder' => false, 'dns' => false, 'other' => false];
+$want = ['email' => true, 'google' => true, 'vpn' => true, 'sysperm' => true, 'github' => true, 'firewall' => true, 'folder' => false, 'dns' => false, 'other' => false];
 $got = array_map(fn($t) => $t['director'], svc_types());
 ok(array_diff_key($want, $got) === [] && array_intersect_key($got, $want) == $want, '主任核准分流符合 #2 決定（AI 與縮址在 #12、#13 加入）');
+$gh = ['csrf' => $tok('apply', $STAFF), 'type' => 'github', 'name' => '開發者', 'purpose' => '開發', 'wanted_by' => '',
+       'f' => ['account' => 'me@example.org', 'org' => 'ccra-tw', 'repos' => 'it.ccra.tw', 'perm' => '寫入']];
+$b = $cnt(); $o = req($STAFF, 'apply/index.php', 'POST', $gh);
+ok($cnt() === $b && str_contains($o, 'GitHub 帳號格式不正確'), 'GitHub 帳號填 email 被擋');
+$gh['f']['account'] = 'dev-user'; req($STAFF, 'apply/index.php', 'POST', $gh);
+ok($cnt() === $b + 1, 'GitHub 帳號格式正確可送出');
 $o = req($STAFF, 'apply/index.php', 'GET');
 ok(substr_count($o, 'class="tf"') === count(array_filter(svc_types(), fn($t) => $t['fields'])) && str_contains($o, '<select id="f_google_service"'), '申請頁為每個類型產生欄位區，下拉選單正確');
 
