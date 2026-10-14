@@ -53,9 +53,10 @@
     <section>
       <div class="sec-head"><h2>申請</h2><span class="eyebrow">Request</span></div>
       <div class="stack">
-        <a class="card c-red" href="/ai-apply/">
-          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg></span>
-          <span><span class="t">AI 工具使用申請</span><span class="d" style="display:block">申請 Claude 帳號；ChatGPT（含 Codex）協會申請中，敬請期待。送出後資訊部審核，並知會你的部門主管。</span></span>
+        <!-- v2.0（GitHub #15）：所有資訊服務申請走同一個入口，AI 工具、縮址也在裡面；舊 /ai-apply/ 轉到這裡 -->
+        <a class="card c-red" href="/apply/">
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6l1 2h3a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h3z"/><path d="M9 12l2 2 4-4"/></svg></span>
+          <span><span class="t">資訊服務申請</span><span class="d" style="display:block">AI 工具、Email 帳號、VPN、共用資料夾、系統與 GitHub 權限、縮址、DNS、防火牆……都從這裡申請，也可以替新同工申請。送出後知會你的部門主管，需要時由主任核准。</span></span>
           <span class="go" aria-hidden="true">→</span>
         </a>
         <a class="card c-yellow" href="/repair/">
@@ -202,7 +203,7 @@ fetch('/cdn-cgi/access/get-identity').then(function (r) { return r.json(); }).th
   btn.addEventListener('click', function () { lastClick = Date.now(); talk(next()); });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') say.hidden = true; });
   // 滑到某張卡片上，大蘇也會順口介紹一下
-  var CARD = { '/ai-apply/': '這張是 AI 申請，填完我就通知王主任審核 👍', '/meet/': '約主任？記得，能者過勞，請謹慎邀約 😉',
+  var CARD = { '/apply/': '要帳號、權限、AI 工具都從這張申請，填完我就幫你跑流程 👍', '/meet/': '約主任？記得，能者過勞，請謹慎邀約 😉',
                '/status/': '想知道哪個網站在鬧脾氣，看這裡就對了。', '/cafe-join/': '咖啡廳不賣咖啡，但有人陪你聊、陪你禱告 ☕' };
   [].forEach.call(document.querySelectorAll('a.card'), function (a) {
     var t = CARD[a.getAttribute('href')]; if (t) a.addEventListener('mouseenter', function () { if (window.matchMedia('(min-width: 1360px)').matches) talk(t); });
