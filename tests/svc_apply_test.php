@@ -59,6 +59,42 @@ ok($r['status'] === 'done' && $r['done_by'] === $STAFF && $r['done_note'] === '�
 req($STAFF, 'ops/index.php', 'POST', ['csrf' => $tok('ops', $STAFF), 'act' => 'svc', 'do' => 'done', 'id' => 1, 'note' => '再按一次']);
 ok($row(1)['done_note'] === '已處理', '已完成的再按完成不改內容');
 
+echo "需主任核准（VPN，#9）\n";
+$DIR = SVC_DIRECTOR;
+$vpn = ['csrf' => $tok('apply', $STAFF), 'type' => 'vpn', 'name' => '測試乙', 'purpose' => '在家連線', 'wanted_by' => '',
+        'f' => ['location' => '住家', 'device' => '協會筆電', 'until' => '']];
+$before = $cnt();
+$o = req($STAFF, 'apply/index.php', 'POST', array_merge($vpn, ['f' => ['location' => '', 'device' => '筆電']]));
+ok($cnt() === $before && str_contains($o, '請填寫使用地點'), 'VPN 使用地點必填');
+$o = req($STAFF, 'apply/index.php', 'POST', array_merge($vpn, ['f' => ['location' => '住家', 'device' => '筆電', 'until' => '2000-01-01']]));
+ok($cnt() === $before && str_contains($o, '使用期限不能早於今天'), 'VPN 期限不能早於今天');
+$o = req($STAFF, 'apply/index.php', 'POST', array_merge($vpn, ['f' => ['location' => str_repeat('長', 101), 'device' => '筆電']]));
+ok($cnt() === $before && str_contains($o, '使用地點太長'), 'VPN 欄位長度上限');
+req($STAFF, 'apply/index.php', 'POST', $vpn);
+$vid = (int)$d->query("SELECT max(id) FROM req WHERE type = 'vpn'")->fetchColumn();
+$r = $row($vid);
+ok($r && $r['status'] === 'review' && json_decode($r['fields'], true) == ['location' => '住家', 'device' => '協會筆電'], 'VPN 送出 → 待主任核准，欄位存成 JSON（空的選填不存）');
+$o = req($STAFF, 'apply/index.php', 'GET');
+ok(str_contains($o, 'data-type="vpn"') && str_contains($o, 'name="f[location]"'), '申請頁有 VPN 專屬欄位');
+req($STAFF, 'ops/index.php', 'POST', ['csrf' => $tok('ops', $STAFF), 'act' => 'svc', 'do' => 'approve', 'id' => $vid]);
+ok($row($vid)['status'] === 'review', '非主任按核准被拒');
+req($STAFF, 'ops/index.php', 'POST', ['csrf' => $tok('ops', $STAFF), 'act' => 'svc', 'do' => 'accept', 'id' => $vid]);
+ok($row($vid)['status'] === 'review', '待核准的不能被資訊部直接受理');
+req($DIR, 'ops/index.php', 'POST', ['csrf' => $tok('ops', $DIR), 'act' => 'svc', 'do' => 'reject', 'id' => $vid, 'note' => '']);
+ok($row($vid)['status'] === 'review', '不核准沒寫理由被擋');
+req($DIR, 'ops/index.php', 'POST', ['csrf' => $tok('ops', $DIR), 'act' => 'svc', 'do' => 'approve', 'id' => $vid, 'note' => '同意']);
+$r = $row($vid);
+ok($r['status'] === 'intake' && $r['decision'] === 'approve' && $r['decided_by'] === $DIR && $r['decision_note'] === '同意', '主任核准 → 待受理（交資訊部），記核准人與意見');
+req($STAFF, 'ops/index.php', 'POST', ['csrf' => $tok('ops', $STAFF), 'act' => 'svc', 'do' => 'accept', 'id' => $vid]);
+ok($row($vid)['status'] === 'doing', '核准後資訊部受理 → 處理中（之後開工單）');
+req($DIR, 'ops/index.php', 'POST', ['csrf' => $tok('ops', $DIR), 'act' => 'svc', 'do' => 'reject', 'id' => $vid, 'note' => '改變心意']);
+ok($row($vid)['status'] === 'doing', '已核准的不能再改成不核准');
+req($STAFF, 'apply/index.php', 'POST', array_merge($vpn, ['name' => '測試丙']));
+$v2 = (int)$d->query("SELECT max(id) FROM req WHERE type = 'vpn'")->fetchColumn();
+req($DIR, 'ops/index.php', 'POST', ['csrf' => $tok('ops', $DIR), 'act' => 'svc', 'do' => 'reject', 'id' => $v2, 'note' => '請改用遠端桌面']);
+$r = $row($v2);
+ok($r['status'] === 'rejected' && $r['decision_note'] === '請改用遠端桌面' && $r['done_at'], '主任不核准 → 未核准、記理由、結案時間');
+
 $d->exec('TRUNCATE req RESTART IDENTITY');
 echo ($fail ? "🔴 失敗 {$fail}／{$n}\n" : "✅ 全部通過 {$n} 項\n");
 exit($fail ? 1 : 0);

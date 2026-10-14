@@ -12,8 +12,30 @@ const SVC_OPEN = ['review', 'intake', 'doing'];
 // 類型設定。director＝是否需主任核准（#2 決定）；fields＝類型專屬欄位（#6 決定），共同欄位不在這裡。
 function svc_types(): array {
     return [
+        'vpn'   => ['name' => 'VPN', 'director' => true, 'fields' => [
+            ['key' => 'location', 'label' => '使用地點', 'type' => 'text', 'required' => true, 'max' => 100, 'hint' => '例：住家、出差地點'],
+            ['key' => 'device', 'label' => '使用裝置', 'type' => 'text', 'required' => true, 'max' => 100, 'hint' => '例：協會配發筆電、個人手機'],
+            ['key' => 'until', 'label' => '使用期限', 'type' => 'date', 'required' => false, 'hint' => '不填＝長期，資訊部會定期確認'],
+        ]],
         'other' => ['name' => '其他', 'director' => false, 'fields' => []],
     ];
+}
+
+// 驗證並整理類型專屬欄位，回傳 [錯誤陣列, 整理後的值]
+function svc_fields(string $type, array $in): array {
+    $err = []; $out = [];
+    foreach (svc_types()[$type]['fields'] ?? [] as $f) {
+        $v = trim((string)($in['f'][$f['key']] ?? ''));
+        if ($v === '') { if (!empty($f['required'])) $err[] = '請填寫' . $f['label'] . '。'; continue; }
+        if ($f['type'] === 'date') {
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $v) || strtotime($v) === false) { $err[] = $f['label'] . '格式不正確。'; continue; }
+            if ($v < date('Y-m-d')) { $err[] = $f['label'] . '不能早於今天。'; continue; }
+        } elseif ($f['type'] === 'select') {
+            if (!in_array($v, $f['options'], true)) { $err[] = '請選擇' . $f['label'] . '。'; continue; }
+        } elseif (mb_strlen($v) > ($f['max'] ?? 2000)) { $err[] = $f['label'] . '太長（' . ($f['max'] ?? 2000) . ' 字內）。'; continue; }
+        $out[$f['key']] = $v;
+    }
+    return [$err, $out];
 }
 
 function svc_db(): PDO {
@@ -46,6 +68,8 @@ function svc_submit(array $who, array $in): array {
     if ($purpose === '' || mb_strlen($purpose) > 2000) $err[] = '請說明用途（2000 字內）。';
     if ($wanted !== '' && (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $wanted) || strtotime($wanted) === false)) $err[] = '希望完成日格式不正確。';
     elseif ($wanted !== '' && $wanted < date('Y-m-d')) $err[] = '希望完成日不能早於今天。';
+    [$ferr, $fields] = svc_fields($type, $in);
+    $err = array_merge($err, $ferr);
     if ($err) return [$err, null];
 
     $d = svc_db();
@@ -58,8 +82,19 @@ function svc_submit(array $who, array $in): array {
     $st = $d->prepare('INSERT INTO req (created_at, type, status, applicant_email, applicant_name, applicant_dept, for_self, target_name, target_dept, purpose, wanted_by, fields, is_test)
                        VALUES (?,?,?,?,?,?,TRUE,?,?,?,?,?::jsonb,?) RETURNING id');
     $st->execute([date('c'), $type, $status, strtolower($who['email']), $name, (string)($who['dept'] ?? ''),
-                  $name, (string)($who['dept'] ?? ''), $purpose, $wanted !== '' ? $wanted : null, '{}', !empty($in['is_test']) ? 'true' : 'false']);
+                  $name, (string)($who['dept'] ?? ''), $purpose, $wanted !== '' ? $wanted : null, json_encode((object)$fields, JSON_UNESCAPED_UNICODE), !empty($in['is_test']) ? 'true' : 'false']);
     return [[], (int)$st->fetchColumn()];
+}
+
+// 主任核准／不核准（需主任核准類 review → intake 交資訊部受理，或 → rejected）。只有 SVC_DIRECTOR 能做。
+function svc_decide(int $id, string $by, string $decision, string $note = ''): bool {
+    if (strtolower($by) !== SVC_DIRECTOR || !in_array($decision, ['approve', 'reject'], true)) return false;
+    $note = mb_substr(trim($note), 0, 500);
+    if ($decision === 'reject' && $note === '') return false;   // 不核准要附理由，申請人才知道怎麼辦
+    $now = date('c');
+    $s = svc_db()->prepare("UPDATE req SET status = ?, decision = ?, decision_note = ?, decided_by = ?, decided_at = ?, first_response_at = COALESCE(first_response_at, ?), done_at = ? WHERE id = ? AND status = 'review'");
+    $s->execute([$decision === 'approve' ? 'intake' : 'rejected', $decision, $note, strtolower($by), $now, $now, $decision === 'reject' ? $now : null, $id]);
+    return $s->rowCount() === 1;
 }
 
 // 資訊部受理（直接辦理類 intake → doing）。受理人就是負責人；Planner 工單由本機腳本開。

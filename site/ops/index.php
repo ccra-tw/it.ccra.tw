@@ -193,6 +193,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         // 資訊服務申請：資訊部受理（待受理 → 處理中，受理人即負責人）／完成。通知與 Planner 由本機腳本處理（GitHub #8）
         $sid = (int)($_POST['id'] ?? 0); $do = $_POST['do'] ?? '';
         if ($do === 'accept') $flash = svc_accept($sid, $email) ? '已受理，一小時內 Planner 會開工單給你。' : '這筆已經有人受理了。';
+        elseif ($do === 'approve' || $do === 'reject') {
+            if ($email !== SVC_DIRECTOR) $flash = '這類申請只有主任能核准。';
+            elseif ($do === 'reject' && trim((string)($_POST['note'] ?? '')) === '') $flash = '不核准請寫理由，會寄給申請人。';
+            else $flash = svc_decide($sid, $email, $do, (string)($_POST['note'] ?? '')) ? ($do === 'approve' ? '已核准，交資訊部受理。' : '已不核准，一小時內通知申請人。') : '這筆已經處置過了。';
+        }
         elseif ($do === 'done') $flash = svc_complete($sid, $email, (string)($_POST['note'] ?? '')) ? '已完成，一小時內通知申請人。' : '這筆不在處理中。';
         header('Location: ./?m=' . urlencode($flash) . '#svc', true, 303);
         exit;
@@ -502,6 +507,16 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
         <span class="ttl"><?= h($SVT[$r['type']]['name'] ?? $r['type']) ?></span>
         <span class="meta" style="margin:0"><?= h($r['applicant_name']) ?>（<?= h($r['applicant_dept']) ?>）｜<?= h(ago($r['created_at'])) ?><?= $r['wanted_by'] ? '｜希望 ' . h($r['wanted_by']) . ' 前' : '' ?><?= $r['is_test'] ? '｜測試' : '' ?></span></div>
       <p class="desc"><?= h($r['purpose']) ?></p>
+      <?php $fv = json_decode((string)$r['fields'], true) ?: []; foreach ($SVT[$r['type']]['fields'] ?? [] as $f): if (($fv[$f['key']] ?? '') === '') continue; ?>
+        <div class="meta"><?= h($f['label']) ?>：<?= h($fv[$f['key']]) ?></div>
+      <?php endforeach; ?>
+      <?php if ($r['decision']): ?><div class="meta"><span class="tag <?= $r['decision'] === 'approve' ? 'done' : 'high' ?>"><?= $r['decision'] === 'approve' ? '主任已核准' : '主任不核准' ?></span> <?= h(ago($r['decided_at'])) ?><?= $r['decision_note'] !== '' ? '｜意見：' . h($r['decision_note']) : '' ?><?= $r['decision'] === 'reject' ? '｜' . (empty($r['decision_notified_at']) ? '通知待寄' : '已通知申請人') : '' ?></div><?php endif; ?>
+      <?php if ($r['status'] === 'review' && $email === SVC_DIRECTOR): ?>
+        <form method="post" class="act"><input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="act" value="svc"><input type="hidden" name="id" value="<?= (int)$r['id'] ?>">
+          <input type="text" name="note" maxlength="300" placeholder="意見（不核准時必填，會寄給申請人）">
+          <button class="ok" name="do" value="approve">核准</button>
+          <button name="do" value="reject" onclick="return confirm('確定不核准？')">不核准</button></form>
+      <?php elseif ($r['status'] === 'review'): ?><div class="meta">等主任核准</div><?php endif; ?>
       <?php if ($r['accepted_by']): ?><div class="meta">負責：<?= h(IT_STAFF[$r['accepted_by']] ?? $r['accepted_by']) ?>｜<?= $r['planner_task_id'] ? 'Planner 已開工單' : 'Planner 工單待開' ?><?= $r['status'] === 'done' ? '｜' . (empty($r['done_notified_at']) ? '完成通知待寄' : '已通知申請人') : '' ?></div><?php endif; ?>
       <?php if ($r['status'] === 'intake'): ?>
         <form method="post" class="act"><input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="act" value="svc"><input type="hidden" name="id" value="<?= (int)$r['id'] ?>">

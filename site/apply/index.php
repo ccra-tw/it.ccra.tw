@@ -14,10 +14,11 @@ function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 
 $TYPES = svc_types();
 $v = ['type' => isset($TYPES[$_GET['type'] ?? '']) ? $_GET['type'] : (count($TYPES) === 1 ? array_key_first($TYPES) : ''),
-      'name' => $who['name'], 'purpose' => '', 'wanted_by' => ''];
+      'name' => $who['name'], 'purpose' => '', 'wanted_by' => '', 'f' => []];
 $err = [];
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     foreach (['type', 'name', 'purpose', 'wanted_by'] as $k) $v[$k] = (string)($_POST[$k] ?? '');
+    $v['f'] = is_array($_POST['f'] ?? null) ? $_POST['f'] : [];
     if (!hash_equals($csrf, $_POST['csrf'] ?? '')) $err[] = '頁面已過期，請重新整理後再送出。';
     else {
         [$err, $rid] = svc_submit(['email' => $email, 'name' => $v['name'], 'dept' => $who['dept']], $v);
@@ -83,6 +84,21 @@ if (isset($_GET['sent'])) {
         <?php if (count($TYPES) > 1): ?><option value="">請選擇…</option><?php endif; ?>
         <?php foreach ($TYPES as $k => $t): ?><option value="<?= h($k) ?>"<?= $v['type'] === $k ? ' selected' : '' ?>><?= h($t['name']) ?></option><?php endforeach; ?>
       </select>
+      <?php foreach ($TYPES as $k => $t): if (!$t['fields']) continue; ?>
+      <div class="tf" data-type="<?= h($k) ?>"<?= $v['type'] === $k ? '' : ' hidden' ?>>
+        <?php foreach ($t['fields'] as $f): $fid = 'f_' . $k . '_' . $f['key']; $fv = $v['type'] === $k ? (string)($v['f'][$f['key']] ?? '') : ''; ?>
+        <label class="q" for="<?= h($fid) ?>"><?= h($f['label']) ?><?= empty($f['required']) ? '（選填）' : '' ?></label>
+        <?php if ($f['type'] === 'date'): ?>
+          <input type="date" id="<?= h($fid) ?>" name="f[<?= h($f['key']) ?>]" min="<?= date('Y-m-d') ?>" value="<?= h($fv) ?>"<?= !empty($f['required']) ? ' required' : '' ?><?= $v['type'] === $k ? '' : ' disabled' ?>>
+        <?php else: ?>
+          <input type="text" id="<?= h($fid) ?>" name="f[<?= h($f['key']) ?>]" maxlength="<?= (int)($f['max'] ?? 2000) ?>" value="<?= h($fv) ?>"<?= !empty($f['required']) ? ' required' : '' ?><?= $v['type'] === $k ? '' : ' disabled' ?>>
+        <?php endif; ?>
+        <?php if (!empty($f['hint'])): ?><p class="hint" style="margin:4px 0 0"><?= h($f['hint']) ?></p><?php endif; ?>
+        <?php endforeach; ?>
+      </div>
+      <?php endforeach; ?>
+      <?php $dirTypes = array_keys(array_filter($TYPES, fn($t) => $t['director'])); ?>
+      <p class="hint" id="dir-note" style="margin:8px 0 0"<?= in_array($v['type'], $dirTypes, true) ? '' : ' hidden' ?>>這類申請需要資訊部主任核准，核准後資訊部會開始處理。</p>
       <label class="q" for="name">姓名</label>
       <input type="text" id="name" name="name" maxlength="50" required value="<?= h($v['name']) ?>">
       <label class="q">登入帳號</label>
@@ -96,5 +112,20 @@ if (isset($_GET['sent'])) {
   </form>
 <?php endif; ?>
 </main>
+<script>
+// 依類型顯示該類型的欄位；隱藏的欄位停用，不會被送出或擋住必填
+(function () {
+  var sel = document.getElementById('type'); if (!sel) return;
+  var dir = <?= json_encode($dirTypes ?? []) ?>;
+  function sync() {
+    document.querySelectorAll('.tf').forEach(function (b) {
+      var on = b.dataset.type === sel.value; b.hidden = !on;
+      b.querySelectorAll('input,select,textarea').forEach(function (i) { i.disabled = !on; });
+    });
+    var n = document.getElementById('dir-note'); if (n) n.hidden = dir.indexOf(sel.value) < 0;
+  }
+  sel.addEventListener('change', sync); sync();
+})();
+</script>
 </body>
 </html>
