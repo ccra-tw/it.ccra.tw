@@ -11,11 +11,45 @@ const SVC_OPEN = ['review', 'intake', 'doing'];
 
 // 類型設定。director＝是否需主任核准（#2 決定）；fields＝類型專屬欄位（#6 決定），共同欄位不在這裡。
 function svc_types(): array {
+    $until = ['key' => 'until', 'label' => '使用期限', 'type' => 'date', 'required' => false, 'hint' => '不填＝長期，資訊部會定期確認'];
     return [
+        'email' => ['name' => 'Email 帳號開通', 'director' => true, 'fields' => [
+            ['key' => 'name_zh', 'label' => '中文姓名', 'type' => 'text', 'required' => true, 'max' => 50],
+            ['key' => 'name_en', 'label' => '英文姓名', 'type' => 'text', 'required' => true, 'max' => 80, 'hint' => '用來產生帳號，例：Mary Chen'],
+            ['key' => 'start', 'label' => '到職日', 'type' => 'date', 'required' => true, 'past_ok' => true],
+            ['key' => 'groups', 'label' => '需要的群組或共用信箱', 'type' => 'text', 'required' => false, 'max' => 200],
+        ]],
+        'google' => ['name' => 'Google Workspace 與服務權限', 'director' => true, 'fields' => [
+            ['key' => 'service', 'label' => '服務', 'type' => 'select', 'required' => true, 'options' => ['Google Workspace 帳號', 'Google Ads', 'Search Console', 'Google Analytics', 'YouTube', '其他']],
+            ['key' => 'level', 'label' => '權限層級', 'type' => 'select', 'required' => true, 'options' => ['檢視', '編輯', '管理']],
+            ['key' => 'account', 'label' => '要加入的帳號', 'type' => 'text', 'required' => false, 'max' => 120, 'hint' => '不填＝用申請對象的協會信箱'],
+        ]],
+        'folder' => ['name' => '共用資料夾', 'director' => false, 'fields' => [
+            ['key' => 'path', 'label' => '資料夾位置', 'type' => 'text', 'required' => true, 'max' => 200, 'hint' => '例：SharePoint 某站台／某資料夾，或網路磁碟路徑'],
+            ['key' => 'perm', 'label' => '權限', 'type' => 'select', 'required' => true, 'options' => ['讀取', '讀寫']],
+            $until,
+        ]],
         'vpn'   => ['name' => 'VPN', 'director' => true, 'fields' => [
             ['key' => 'location', 'label' => '使用地點', 'type' => 'text', 'required' => true, 'max' => 100, 'hint' => '例：住家、出差地點'],
             ['key' => 'device', 'label' => '使用裝置', 'type' => 'text', 'required' => true, 'max' => 100, 'hint' => '例：協會配發筆電、個人手機'],
-            ['key' => 'until', 'label' => '使用期限', 'type' => 'date', 'required' => false, 'hint' => '不填＝長期，資訊部會定期確認'],
+            $until,
+        ]],
+        'sysperm' => ['name' => '系統權限', 'director' => true, 'fields' => [
+            ['key' => 'system', 'label' => '系統名稱', 'type' => 'text', 'required' => true, 'max' => 100],
+            ['key' => 'role', 'label' => '需要的角色或功能', 'type' => 'text', 'required' => true, 'max' => 200],
+            $until,
+        ]],
+        'dns' => ['name' => '網域指向（DNS）變更', 'director' => false, 'fields' => [
+            ['key' => 'domain', 'label' => '網域', 'type' => 'text', 'required' => true, 'max' => 120, 'hint' => '例：event.ccra.tw'],
+            ['key' => 'rtype', 'label' => '紀錄類型', 'type' => 'select', 'required' => true, 'options' => ['A', 'AAAA', 'CNAME', 'TXT', 'MX', '不確定']],
+            ['key' => 'target', 'label' => '指向目標', 'type' => 'text', 'required' => true, 'max' => 300, 'hint' => '例：IP 位址、另一個網址，或服務商提供的驗證字串'],
+            ['key' => 'when', 'label' => '希望生效日', 'type' => 'date', 'required' => false],
+        ]],
+        'firewall' => ['name' => '防火牆異動', 'director' => true, 'fields' => [
+            ['key' => 'src', 'label' => '來源', 'type' => 'text', 'required' => true, 'max' => 200, 'hint' => '例：外部任何地方、某辦公室、某台電腦'],
+            ['key' => 'dst', 'label' => '目的', 'type' => 'text', 'required' => true, 'max' => 200, 'hint' => '要連到哪台主機或服務'],
+            ['key' => 'port', 'label' => '埠或服務', 'type' => 'text', 'required' => true, 'max' => 100, 'hint' => '例：443、遠端桌面；不確定可寫「不確定」'],
+            $until,
         ]],
         'other' => ['name' => '其他', 'director' => false, 'fields' => []],
     ];
@@ -26,10 +60,10 @@ function svc_fields(string $type, array $in): array {
     $err = []; $out = [];
     foreach (svc_types()[$type]['fields'] ?? [] as $f) {
         $v = trim((string)($in['f'][$f['key']] ?? ''));
-        if ($v === '') { if (!empty($f['required'])) $err[] = '請填寫' . $f['label'] . '。'; continue; }
+        if ($v === '') { if (!empty($f['required'])) $err[] = ($f['type'] === 'select' ? '請選擇' : '請填寫') . $f['label'] . '。'; continue; }
         if ($f['type'] === 'date') {
             if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $v) || strtotime($v) === false) { $err[] = $f['label'] . '格式不正確。'; continue; }
-            if ($v < date('Y-m-d')) { $err[] = $f['label'] . '不能早於今天。'; continue; }
+            if (empty($f['past_ok']) && $v < date('Y-m-d')) { $err[] = $f['label'] . '不能早於今天。'; continue; }
         } elseif ($f['type'] === 'select') {
             if (!in_array($v, $f['options'], true)) { $err[] = '請選擇' . $f['label'] . '。'; continue; }
         } elseif (mb_strlen($v) > ($f['max'] ?? 2000)) { $err[] = $f['label'] . '太長（' . ($f['max'] ?? 2000) . ' 字內）。'; continue; }

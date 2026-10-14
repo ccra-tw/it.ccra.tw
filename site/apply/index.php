@@ -89,7 +89,12 @@ if (isset($_GET['sent'])) {
         <?php foreach ($t['fields'] as $f): $fid = 'f_' . $k . '_' . $f['key']; $fv = $v['type'] === $k ? (string)($v['f'][$f['key']] ?? '') : ''; ?>
         <label class="q" for="<?= h($fid) ?>"><?= h($f['label']) ?><?= empty($f['required']) ? '（選填）' : '' ?></label>
         <?php if ($f['type'] === 'date'): ?>
-          <input type="date" id="<?= h($fid) ?>" name="f[<?= h($f['key']) ?>]" min="<?= date('Y-m-d') ?>" value="<?= h($fv) ?>"<?= !empty($f['required']) ? ' required' : '' ?><?= $v['type'] === $k ? '' : ' disabled' ?>>
+          <input type="date" id="<?= h($fid) ?>" name="f[<?= h($f['key']) ?>]"<?= empty($f['past_ok']) ? ' min="' . date('Y-m-d') . '"' : '' ?> value="<?= h($fv) ?>"<?= !empty($f['required']) ? ' required' : '' ?><?= $v['type'] === $k ? '' : ' disabled' ?>>
+        <?php elseif ($f['type'] === 'select'): ?>
+          <select id="<?= h($fid) ?>" name="f[<?= h($f['key']) ?>]"<?= !empty($f['required']) ? ' required' : '' ?><?= $v['type'] === $k ? '' : ' disabled' ?>>
+            <option value="">請選擇…</option>
+            <?php foreach ($f['options'] as $op): ?><option<?= $fv === $op ? ' selected' : '' ?>><?= h($op) ?></option><?php endforeach; ?>
+          </select>
         <?php else: ?>
           <input type="text" id="<?= h($fid) ?>" name="f[<?= h($f['key']) ?>]" maxlength="<?= (int)($f['max'] ?? 2000) ?>" value="<?= h($fv) ?>"<?= !empty($f['required']) ? ' required' : '' ?><?= $v['type'] === $k ? '' : ' disabled' ?>>
         <?php endif; ?>

@@ -95,6 +95,40 @@ req($DIR, 'ops/index.php', 'POST', ['csrf' => $tok('ops', $DIR), 'act' => 'svc',
 $r = $row($v2);
 ok($r['status'] === 'rejected' && $r['decision_note'] === '請改用遠端桌面' && $r['done_at'], '主任不核准 → 未核准、記理由、結案時間');
 
+echo "全部類型（#10）\n";
+$fill = function ($t) {
+    $f = [];
+    foreach ($t['fields'] as $x) $f[$x['key']] = $x['type'] === 'select' ? $x['options'][0] : ($x['type'] === 'date' ? date('Y-m-d') : '測試值');
+    return $f;
+};
+foreach (svc_types() as $k => $t) {
+    $base = ['csrf' => $tok('apply', $STAFF), 'type' => $k, 'name' => '型別' . $k, 'purpose' => '測試', 'wanted_by' => '', 'f' => $fill($t)];
+    foreach ($t['fields'] as $x) {
+        if (empty($x['required'])) continue;
+        $b = $cnt(); $p = $base; $p['f'][$x['key']] = '';
+        $o = req($STAFF, 'apply/index.php', 'POST', $p);
+        ok($cnt() === $b && str_contains($o, $x['type'] === 'select' ? '請選擇' . $x['label'] : '請填寫' . $x['label']), "{$t['name']}：{$x['label']}必填");
+        if ($x['type'] === 'select') {
+            $p['f'][$x['key']] = '不在選項內';
+            req($STAFF, 'apply/index.php', 'POST', $p);
+            ok($cnt() === $b, "{$t['name']}：{$x['label']}只接受選項內的值");
+        }
+    }
+    $b = $cnt();
+    req($STAFF, 'apply/index.php', 'POST', $base);
+    $r = $d->query("SELECT * FROM req WHERE type = " . $d->quote($k) . " ORDER BY id DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+    ok($cnt() === $b + 1 && $r['status'] === ($t['director'] ? 'review' : 'intake'), "{$t['name']}：送出 → " . ($t['director'] ? '待主任核准' : '待受理'));
+}
+$e = ['csrf' => $tok('apply', $STAFF), 'type' => 'email', 'name' => '新同工', 'purpose' => '到職', 'wanted_by' => '',
+      'f' => ['name_zh' => '新同工', 'name_en' => 'New Staff', 'start' => '2020-01-01']];
+$b = $cnt(); req($STAFF, 'apply/index.php', 'POST', $e);
+ok($cnt() === $b + 1, 'Email 到職日可以是過去（補辦）');
+$want = ['email' => true, 'google' => true, 'vpn' => true, 'sysperm' => true, 'firewall' => true, 'folder' => false, 'dns' => false, 'other' => false];
+$got = array_map(fn($t) => $t['director'], svc_types());
+ok(array_diff_key($want, $got) === [] && array_intersect_key($got, $want) == $want, '主任核准分流符合 #2 決定（AI 與縮址在 #12、#13 加入）');
+$o = req($STAFF, 'apply/index.php', 'GET');
+ok(substr_count($o, 'class="tf"') === count(array_filter(svc_types(), fn($t) => $t['fields'])) && str_contains($o, '<select id="f_google_service"'), '申請頁為每個類型產生欄位區，下拉選單正確');
+
 $d->exec('TRUNCATE req RESTART IDENTITY');
 echo ($fail ? "🔴 失敗 {$fail}／{$n}\n" : "✅ 全部通過 {$n} 項\n");
 exit($fail ? 1 : 0);
