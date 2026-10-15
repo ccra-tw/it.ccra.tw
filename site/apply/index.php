@@ -84,11 +84,36 @@ if (isset($_GET['sent'])) {
     <div class="box">
       <p class="step"><b>1</b>申請內容</p>
       <?php if ($err): ?><ul class="err errs"><?php foreach ($err as $e): ?><li><?= h($e) ?></li><?php endforeach; ?></ul><?php endif; ?>
-      <label class="q" for="type">申請類型</label>
-      <select id="type" name="type" required>
-        <?php if (count($TYPES) > 1): ?><option value="">請選擇…</option><?php endif; ?>
-        <?php foreach ($TYPES as $k => $t): ?><option value="<?= h($k) ?>"<?= $v['type'] === $k ? ' selected' : '' ?>><?= h($t['name']) ?></option><?php endforeach; ?>
-      </select>
+      <?php
+      // 熊哥 2026-10-15：「申請內容太雜一般人看不懂，需要分類讓使用者好申請」——改成分類卡片＋一句白話說明；送出的 type 值不變
+      $CATS = [
+        ['👤', '帳號', ['email' => '幫新同工開協會信箱', 'google' => '要用 Google 的服務（ccra.tw 帳號、廣告、網站分析、YouTube）']],
+        ['🤖', 'AI 工具', ['ai' => '想用 Claude 協助工作']],
+        ['📁', '檔案與系統', ['folder' => '要看或要改某個共用資料夾', 'sysperm' => '要用某個業務系統（例如 1919、收據系統）的功能', 'vpn' => '在家或出差時，要連回協會的電腦或檔案']],
+        ['🌐', '網站與網址', ['shortlink' => '要一個好記的短網址（ccra.tw/xxx）', 'dns' => '要把網址指到某個網站或服務（通常是廠商或活動網站請你轉達的）']],
+        ['🛠️', '技術需求（工程或廠商合作才會用到）', ['github' => '要進協會的程式碼（GitHub）', 'firewall' => '要開放某個連線（防火牆）']],
+        ['💬', '其他', ['other' => '上面都不是，直接寫你需要什麼']],
+      ];
+      // 保險：新增了類型卻忘了放進分類時，自動列在「其他」，不會從頁面上消失
+      $listed = array_merge(...array_map(fn($c) => array_keys($c[2]), $CATS));
+      foreach (array_diff(array_keys($TYPES), $listed) as $k) $CATS[count($CATS) - 1][2] = [$k => $TYPES[$k]['name']] + $CATS[count($CATS) - 1][2];
+      $SHOW = ['vpn' => 'VPN 遠端連線', 'dns' => '網址設定（DNS）', 'sysperm' => '業務系統權限', 'folder' => '共用資料夾權限', 'google' => 'Google 服務權限', 'email' => 'Email 帳號開通'];
+      ?>
+      <p class="q">要申請什麼？（點一下最接近的那一項）</p>
+      <?php foreach ($CATS as [$icon, $title, $items]): $items = array_intersect_key($items, $TYPES); if (!$items) continue; ?>
+      <fieldset class="cat"><legend><?= $icon ?> <?= h($title) ?></legend>
+        <?php foreach ($items as $k => $desc): ?>
+        <label class="tcard"><input type="radio" name="type" value="<?= h($k) ?>"<?= $v['type'] === $k ? ' checked' : '' ?> required>
+          <span><b><?= h($SHOW[$k] ?? $TYPES[$k]['name']) ?></b><small><?= h($desc) ?></small></span></label>
+        <?php endforeach; ?>
+      </fieldset>
+      <?php endforeach; ?>
+      <style>.cat{border:0;margin:14px 0 0;padding:0}.cat legend{font-weight:800;margin-bottom:6px}
+      .cat{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+      .tcard{position:relative;display:block;cursor:pointer}.tcard input{position:absolute;opacity:0;inset:0}
+      .tcard span{display:flex;flex-direction:column;gap:2px;height:100%;padding:12px 14px;border-radius:14px;border:2px solid var(--edge);background:var(--cream);transition:transform .15s}
+      .tcard span:hover{transform:translateY(-2px)}.tcard small{color:var(--ink-2);font-size:14px;line-height:1.5}
+      .tcard input:checked+span{border-color:var(--teal);background:var(--mist)}.tcard input:focus-visible+span{outline:3px solid var(--focus);outline-offset:2px}</style>
       <?php foreach ($TYPES as $k => $t): if (!$t['fields']) continue; ?>
       <div class="tf" data-type="<?= h($k) ?>"<?= $v['type'] === $k ? '' : ' hidden' ?>>
         <?php foreach ($t['fields'] as $f): $fid = 'f_' . $k . '_' . $f['key']; $fv = $v['type'] === $k ? (string)($v['f'][$f['key']] ?? '') : ''; ?>
@@ -143,16 +168,23 @@ if (isset($_GET['sent'])) {
 <script>
 // 依類型顯示該類型的欄位；隱藏的欄位停用，不會被送出或擋住必填
 (function () {
-  var sel = document.getElementById('type'); if (!sel) return;
+  var radios = document.querySelectorAll('input[name=type]'); if (!radios.length) return;
   var dir = <?= json_encode($dirTypes ?? []) ?>;
+  function cur() { var c = document.querySelector('input[name=type]:checked'); return c ? c.value : ''; }
   function sync() {
+    var t = cur();
     document.querySelectorAll('.tf').forEach(function (b) {
-      var on = b.dataset.type === sel.value; b.hidden = !on;
+      var on = b.dataset.type === t; b.hidden = !on;
       b.querySelectorAll('input,select,textarea').forEach(function (i) { i.disabled = !on; });
     });
-    var n = document.getElementById('dir-note'); if (n) n.hidden = dir.indexOf(sel.value) < 0;
+    var n = document.getElementById('dir-note'); if (n) n.hidden = dir.indexOf(t) < 0;
   }
-  sel.addEventListener('change', sync); sync();
+  radios.forEach(function (r) { r.addEventListener('change', function () {
+    sync();
+    var box = document.querySelector('.tf:not([hidden])') || document.getElementById('name');   // 選好後帶到要填的地方（手機上分類很長）
+    if (box && box.scrollIntoView) box.scrollIntoView({behavior: 'smooth', block: 'center'});
+  }); });
+  sync();
   var tg = document.getElementById('target');
   function syncFor() {
     var other = document.querySelector('input[name=for]:checked').value === 'other';
