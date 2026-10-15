@@ -337,6 +337,9 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
 .pushbox span{flex:1 1 240px}
 .pushbox button{border:1px solid var(--edge);background:var(--cream);border-radius:10px;padding:6px 12px;font:800 13px/1 "Noto Sans TC",sans-serif;cursor:pointer;color:var(--ink)}
 .pushbox[hidden]{display:none}
+.pushset{flex:1 1 100%;margin-top:4px}.pushset summary{cursor:pointer;font-weight:800;color:var(--ink)}
+.pushset span{flex:none}.pushset .row{display:flex;flex-wrap:wrap;gap:6px 14px;margin:8px 0}.pushset label{display:inline-flex;align-items:center;gap:5px;cursor:pointer}
+.pushset input[type=time]{font:inherit;padding:3px 6px;border:1px solid var(--edge);border-radius:8px;background:var(--cream);color:var(--ink)}
 .kpi.plk > .pltile{display:block;text-align:left;font:inherit;cursor:pointer;color:inherit;background:var(--panel);border:1px solid var(--edge);border-radius:16px;padding:12px 14px;box-shadow:var(--glow)}
 .kpi.plk > .pltile.hot{border-color:color-mix(in srgb,var(--red) 50%,transparent)}
 .kpi.plk > .pltile.on{border-color:var(--green);box-shadow:0 0 0 2px color-mix(in srgb,var(--green) 35%,transparent)}
@@ -374,7 +377,14 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
   <?php if ($flash): ?><p class="flash"><?= h($flash) ?></p><?php endif; ?>
   <!-- 網頁推播（熊哥 10-13：「有異常狀況可以即時通知」）：斷線、資安事件、新申請單 -->
   <div class="pushbox" id="push-box" hidden><span id="push-msg"></span>
-    <button type="button" id="push-btn">開啟通知</button><button type="button" id="push-test" hidden>送一則測試</button></div>
+    <button type="button" id="push-btn">開啟通知</button><button type="button" id="push-test" hidden>送一則測試</button>
+    <!-- 熊哥 10-15：個人開關要收哪幾類＋勿擾時間（套用到自己所有裝置） -->
+    <details class="pushset" id="push-set" hidden><summary>通知設定（只影響你自己）</summary>
+      <div class="row" id="push-cats"></div>
+      <div class="row"><span>勿擾時段</span><label><input type="time" id="push-qf"></label>～<label><input type="time" id="push-qt"></label>
+        <small>這段時間不跳通知（資安事件除外）；兩格都清空＝不設</small></div>
+      <div class="row"><button type="button" id="push-save">儲存設定</button><span id="push-set-msg"></span></div>
+    </details></div>
   <p class="autoref" id="autoref">每分鐘自動更新・<?= h(date('H:i:s')) ?></p>
   <div class="kpi">
     <a href="#repair" class="<?= count(array_filter($openRep, fn($r) => $r['status'] === 'new')) ? 'hot' : '' ?>"><b><?= count(array_filter($openRep, fn($r) => $r['status'] === 'new')) ?></b><span>報修待處理</span></a>

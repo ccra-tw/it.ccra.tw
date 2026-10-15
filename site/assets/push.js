@@ -7,6 +7,33 @@
   const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
   const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
   box.hidden = false;
+  // 個人通知設定（熊哥 10-15）：要收哪幾類＋勿擾時段，存在帳號上，所有裝置一起套用
+  const set = document.getElementById('push-set');
+  if (set) (async () => {
+    const cats = document.getElementById('push-cats'), qf = document.getElementById('push-qf'), qt = document.getElementById('push-qt');
+    const save = document.getElementById('push-save'), smsg = document.getElementById('push-set-msg');
+    const p = await fetch('/ops/push.php', { credentials: 'same-origin' }).then(r => r.json());
+    cats.textContent = '';
+    for (const [k, name] of Object.entries(p.cats || {})) {
+      const lab = document.createElement('label'), cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.value = k; cb.checked = !(p.off || []).includes(k);
+      if ((p.always || []).includes(k)) { cb.checked = true; cb.disabled = true; }
+      lab.append(cb, name + ((p.always || []).includes(k) ? '（一定會收）' : ''));
+      cats.append(lab);
+    }
+    qf.value = p.quiet_from || ''; qt.value = p.quiet_to || '';
+    set.hidden = false;
+    save.addEventListener('click', async () => {
+      save.disabled = true;
+      try {
+        const off = [...cats.querySelectorAll('input:not(:checked):not(:disabled)')].map(c => c.value);
+        const r = await fetch('/ops/push.php', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ op: 'prefs', off, quiet_from: qf.value, quiet_to: qt.value }) }).then(r => r.json());
+        smsg.textContent = r.ok ? '已儲存，你所有裝置都會照這個設定。' : (r.error || '沒有存成功');
+      } catch (e) { smsg.textContent = '沒有存成功：' + e.message; }
+      finally { save.disabled = false; }
+    });
+  })().catch(() => {});
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
     btn.hidden = true;
     say(ios && !standalone ? 'iPhone／iPad 要先用 Safari 的「分享 → 加入主畫面」，再從主畫面開戰情室，才能開啟通知。'
@@ -26,7 +53,7 @@
     btn.textContent = sub ? '關閉這台裝置的通知' : '開啟通知';
     btn.dataset.on = sub ? '1' : '';
     test.hidden = !sub;
-    say(sub ? '這台裝置會收到斷線、資安事件與新申請單的即時通知。' : '開啟後，有異常或新申請單時這台裝置會跳通知。');
+    say(sub ? '這台裝置會依下面的通知設定，收到斷線、資安事件與新申請單的即時通知。' : '開啟後，有異常或新申請單時這台裝置會跳通知。');
   }
   btn.addEventListener('click', async () => {
     btn.disabled = true;
