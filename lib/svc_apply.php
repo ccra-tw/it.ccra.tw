@@ -11,45 +11,45 @@ const SVC_OPEN = ['review', 'intake', 'doing'];
 
 // 類型設定。director＝是否需主任核准（#2 決定）；fields＝類型專屬欄位（#6 決定），共同欄位不在這裡。
 function svc_types(): array {
-    $until = ['key' => 'until', 'label' => '使用期限', 'type' => 'date', 'required' => false, 'hint' => '不填＝長期，資訊部會定期確認'];
+    $until = ['key' => 'until', 'label' => '要用到哪一天？', 'err' => '使用期限', 'type' => 'date', 'required' => false, 'hint' => '不填就是一直要用，資訊部之後會再問你還需不需要'];
     return [
         // AI 工具（#12）：題目沿用原 /ai-apply/（2026-08-26 定案），核准後由資訊部受理開通；ChatGPT 協會申請中，開放後加進選項
         'ai' => ['name' => 'AI 工具', 'director' => true, 'auto_accept' => 'ituncle@ccra.org.tw', 'fields' => [
-            ['key' => 'tool', 'label' => '申請工具', 'type' => 'select', 'required' => true, 'options' => ['Claude'], 'hint' => 'ChatGPT（含 Codex）協會申請中，開放後會通知大家'],
-            ['key' => 'plan', 'label' => '使用計畫', 'type' => 'textarea', 'required' => true, 'max' => 2000, 'hint' => '例：每週把會議錄音逐字稿整理成重點紀錄與待辦清單'],
-            ['key' => 'why', 'label' => '為什麼 Copilot Chat 不夠用？', 'type' => 'textarea', 'required' => true, 'max' => 2000],
-            ['key' => 'pii', 'label' => '工作會不會處理個資或敏感資料？', 'type' => 'select', 'required' => true, 'options' => ['不會', '會']],
+            ['key' => 'tool', 'label' => '想用哪一個？', 'err' => '申請工具', 'type' => 'select', 'required' => true, 'options' => ['Claude'], 'hint' => 'ChatGPT 協會還在申請，可以用了會通知大家'],
+            ['key' => 'plan', 'label' => '你想拿它做什麼？', 'err' => '使用計畫', 'type' => 'textarea', 'required' => true, 'max' => 2000, 'hint' => '例：每週開完會，請它把會議紀錄整理成重點和待辦事項'],
+            ['key' => 'why', 'label' => '協會現在就能用的 Copilot（微軟的 AI），哪裡不夠用？', 'err' => 'Copilot 不夠用的原因', 'type' => 'textarea', 'required' => true, 'max' => 2000, 'hint' => '沒用過也沒關係，寫「沒用過」就好'],
+            ['key' => 'pii', 'label' => '會不會用到別人的個人資料？（例如姓名、電話、身分證、病況）', 'err' => '是否處理個資', 'type' => 'select', 'required' => true, 'options' => ['不會', '會']],
         ]],
         // 縮址服務（#13）：資訊部直接受理（#2）。後台帳號受理時寫入 shortlink.users，由本機 shortlink_sync 同步到 Cloudflare Access 與 YOURLS
         'shortlink' => ['name' => '縮址服務（ccra.tw 短網址）', 'director' => false, 'fields' => [
-            ['key' => 'need', 'label' => '需要什麼', 'type' => 'select', 'required' => true, 'options' => ['後台帳號（自己建短網址）', '請資訊部代建一個短網址']],
-            ['key' => 'url', 'label' => '目標網址', 'type' => 'text', 'required' => false, 'max' => 500, 'pattern' => '#^https?://\S+$#', 'hint' => '代建時必填，例：https://www.ccra.org.tw/活動頁'],
-            ['key' => 'slug', 'label' => '希望的短網址', 'type' => 'text', 'required' => false, 'max' => 50, 'pattern' => '/^[A-Za-z0-9_-]+$/', 'hint' => '例：1919run → ccra.tw/1919run；只能用英數、- 與 _'],
+            ['key' => 'need', 'label' => '你要哪一種？', 'err' => '需要的服務', 'type' => 'select', 'required' => true, 'options' => ['後台帳號（自己建短網址）', '請資訊部代建一個短網址']],
+            ['key' => 'url', 'label' => '原本很長的網址', 'err' => '目標網址', 'type' => 'text', 'required' => false, 'max' => 500, 'pattern' => '#^https?://\S+$#', 'hint' => '請資訊部代建時一定要填。把網頁上面那一長串網址整個複製貼上'],
+            ['key' => 'slug', 'label' => '想要的短網址', 'err' => '希望的短網址', 'type' => 'text', 'required' => false, 'max' => 50, 'pattern' => '/^[A-Za-z0-9_-]+$/', 'hint' => '例：填 1919run，網址就是 ccra.tw/1919run（只能用英文字母、數字、- 和 _）'],
         ]],
         'email' => ['name' => 'Email 帳號開通', 'director' => true, 'fields' => [
             ['key' => 'name_zh', 'label' => '中文姓名', 'type' => 'text', 'required' => true, 'max' => 50],
-            ['key' => 'name_en', 'label' => '英文姓名', 'type' => 'text', 'required' => true, 'max' => 80, 'hint' => '用來產生帳號，例：Mary Chen'],
+            ['key' => 'name_en', 'label' => '英文姓名', 'type' => 'text', 'required' => true, 'max' => 80, 'hint' => '信箱名稱會用它，例：Mary Chen；沒有英文名就寫護照上的拼音'],
             ['key' => 'start', 'label' => '到職日', 'type' => 'date', 'required' => true, 'past_ok' => true],
-            ['key' => 'groups', 'label' => '需要的群組或共用信箱', 'type' => 'text', 'required' => false, 'max' => 200],
+            ['key' => 'groups', 'label' => '要不要一起收某些大家共用的信箱？', 'err' => '群組或共用信箱', 'type' => 'text', 'required' => false, 'max' => 200],
         ]],
         'google' => ['name' => 'Google Workspace 與服務權限', 'director' => true, 'fields' => [
-            ['key' => 'service', 'label' => '服務', 'type' => 'select', 'required' => true, 'options' => ['Google Workspace 帳號', 'Google Ads', 'Search Console', 'Google Analytics', 'YouTube', '其他']],
-            ['key' => 'level', 'label' => '權限層級', 'type' => 'select', 'required' => true, 'options' => ['檢視', '編輯', '管理']],
-            ['key' => 'account', 'label' => '要加入的帳號', 'type' => 'text', 'required' => false, 'max' => 120, 'hint' => '不填＝用申請對象的協會信箱'],
+            ['key' => 'service', 'label' => '要用哪一個？', 'err' => '服務', 'type' => 'select', 'required' => true, 'options' => ['Google Workspace 帳號', 'Google Ads', 'Search Console', 'Google Analytics', 'YouTube', '其他']],
+            ['key' => 'level', 'label' => '要做到什麼程度？', 'err' => '權限', 'type' => 'select', 'required' => true, 'options' => ['檢視', '編輯', '管理'], 'hint' => '只看＝檢視；要改內容＝編輯；要加人、改設定＝管理'],
+            ['key' => 'account', 'label' => '用哪個信箱登入？', 'err' => '要加入的帳號', 'type' => 'text', 'required' => false, 'max' => 120, 'hint' => '不填就用協會信箱'],
         ]],
         'folder' => ['name' => '共用資料夾', 'director' => false, 'fields' => [
-            ['key' => 'path', 'label' => '資料夾位置', 'type' => 'text', 'required' => true, 'max' => 200, 'hint' => '例：SharePoint 某站台／某資料夾，或網路磁碟路徑'],
-            ['key' => 'perm', 'label' => '權限', 'type' => 'select', 'required' => true, 'options' => ['讀取', '讀寫']],
+            ['key' => 'path', 'label' => '是哪一個資料夾？', 'err' => '資料夾位置', 'type' => 'text', 'required' => true, 'max' => 200, 'hint' => '寫你知道的就好，例如「財務部的報表資料夾」；能截圖更好，之後回信附給資訊部'],
+            ['key' => 'perm', 'label' => '要做到什麼程度？', 'err' => '權限', 'type' => 'select', 'required' => true, 'options' => ['讀取', '讀寫'], 'hint' => '只看＝讀取；要改或放檔案進去＝讀寫'],
             $until,
         ]],
         'vpn'   => ['name' => 'VPN', 'director' => true, 'fields' => [
-            ['key' => 'location', 'label' => '使用地點', 'type' => 'text', 'required' => true, 'max' => 100, 'hint' => '例：住家、出差地點'],
-            ['key' => 'device', 'label' => '使用裝置', 'type' => 'text', 'required' => true, 'max' => 100, 'hint' => '例：協會配發筆電、個人手機'],
+            ['key' => 'location', 'label' => '會在哪裡用？', 'err' => '使用地點', 'type' => 'text', 'required' => true, 'max' => 100, 'hint' => '例：家裡、出差的地方'],
+            ['key' => 'device', 'label' => '用哪一台？', 'err' => '使用裝置', 'type' => 'text', 'required' => true, 'max' => 100, 'hint' => '例：協會給的筆電、自己的手機'],
             $until,
         ]],
         'sysperm' => ['name' => '系統權限', 'director' => true, 'fields' => [
-            ['key' => 'system', 'label' => '系統名稱', 'type' => 'text', 'required' => true, 'max' => 100],
-            ['key' => 'role', 'label' => '需要的角色或功能', 'type' => 'text', 'required' => true, 'max' => 200],
+            ['key' => 'system', 'label' => '是哪一個系統？', 'err' => '系統名稱', 'type' => 'text', 'required' => true, 'max' => 100, 'hint' => '例：1919 系統、收據系統；不知道名字就寫你平常怎麼叫它'],
+            ['key' => 'role', 'label' => '你要在裡面做什麼？', 'err' => '需要的角色或功能', 'type' => 'text', 'required' => true, 'max' => 200, 'hint' => '例：要能新增個案、要能看報表'],
             $until,
         ]],
         'github' => ['name' => 'GitHub 權限', 'director' => true, 'fields' => [
@@ -60,10 +60,10 @@ function svc_types(): array {
             $until,
         ]],
         'dns' => ['name' => '網域指向（DNS）變更', 'director' => false, 'fields' => [
-            ['key' => 'domain', 'label' => '網域', 'type' => 'text', 'required' => true, 'max' => 120, 'hint' => '例：event.ccra.tw'],
-            ['key' => 'rtype', 'label' => '紀錄類型', 'type' => 'select', 'required' => true, 'options' => ['A', 'AAAA', 'CNAME', 'TXT', 'MX', '不確定']],
-            ['key' => 'target', 'label' => '指向目標', 'type' => 'text', 'required' => true, 'max' => 300, 'hint' => '例：IP 位址、另一個網址，或服務商提供的驗證字串'],
-            ['key' => 'when', 'label' => '希望生效日', 'type' => 'date', 'required' => false],
+            ['key' => 'domain', 'label' => '是哪一個網址？', 'err' => '網域', 'type' => 'text', 'required' => true, 'max' => 120, 'hint' => '例：event.ccra.tw'],
+            ['key' => 'rtype', 'label' => '廠商說的類型', 'err' => '紀錄類型', 'type' => 'select', 'required' => true, 'options' => ['A', 'AAAA', 'CNAME', 'TXT', 'MX', '不確定'], 'hint' => '看不懂就選「不確定」'],
+            ['key' => 'target', 'label' => '廠商給你的內容', 'err' => '指向目標', 'type' => 'text', 'required' => true, 'max' => 300, 'hint' => '把廠商信裡那一串數字或文字整段貼過來就好'],
+            ['key' => 'when', 'label' => '希望哪一天好？', 'err' => '希望生效日', 'type' => 'date', 'required' => false],
         ]],
         'firewall' => ['name' => '防火牆異動', 'director' => true, 'fields' => [
             ['key' => 'src', 'label' => '來源', 'type' => 'text', 'required' => true, 'max' => 200, 'hint' => '例：外部任何地方、某辦公室、某台電腦'],
@@ -80,14 +80,14 @@ function svc_fields(string $type, array $in): array {
     $err = []; $out = [];
     foreach (svc_types()[$type]['fields'] ?? [] as $f) {
         $v = trim((string)($in['f'][$f['key']] ?? ''));
-        if ($v === '') { if (!empty($f['required'])) $err[] = ($f['type'] === 'select' ? '請選擇' : '請填寫') . $f['label'] . '。'; continue; }
+        if ($v === '') { if (!empty($f['required'])) $err[] = ($f['type'] === 'select' ? '請選擇' : '請填寫') . ($f['err'] ?? $f['label']) . '。'; continue; }
         if ($f['type'] === 'date') {
-            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $v) || strtotime($v) === false) { $err[] = $f['label'] . '格式不正確。'; continue; }
-            if (empty($f['past_ok']) && $v < date('Y-m-d')) { $err[] = $f['label'] . '不能早於今天。'; continue; }
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $v) || strtotime($v) === false) { $err[] = ($f['err'] ?? $f['label']) . '格式不正確。'; continue; }
+            if (empty($f['past_ok']) && $v < date('Y-m-d')) { $err[] = ($f['err'] ?? $f['label']) . '不能早於今天。'; continue; }
         } elseif ($f['type'] === 'select') {
-            if (!in_array($v, $f['options'], true)) { $err[] = '請選擇' . $f['label'] . '。'; continue; }
-        } elseif (mb_strlen($v) > ($f['max'] ?? 2000)) { $err[] = $f['label'] . '太長（' . ($f['max'] ?? 2000) . ' 字內）。'; continue; }
-        if (!empty($f['pattern']) && !preg_match($f['pattern'], $v)) { $err[] = $f['label'] . '格式不正確。'; continue; }
+            if (!in_array($v, $f['options'], true)) { $err[] = '請選擇' . ($f['err'] ?? $f['label']) . '。'; continue; }
+        } elseif (mb_strlen($v) > ($f['max'] ?? 2000)) { $err[] = ($f['err'] ?? $f['label']) . '太長（' . ($f['max'] ?? 2000) . ' 字內）。'; continue; }
+        if (!empty($f['pattern']) && !preg_match($f['pattern'], $v)) { $err[] = ($f['err'] ?? $f['label']) . '格式不正確。'; continue; }
         $out[$f['key']] = $v;
     }
     return [$err, $out];

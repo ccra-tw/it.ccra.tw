@@ -107,7 +107,7 @@ foreach (svc_types() as $k => $t) {
         if (empty($x['required'])) continue;
         $b = $cnt(); $p = $base; $p['f'][$x['key']] = '';
         $o = req($STAFF, 'apply/index.php', 'POST', $p);
-        ok($cnt() === $b && str_contains($o, $x['type'] === 'select' ? '請選擇' . $x['label'] : '請填寫' . $x['label']), "{$t['name']}：{$x['label']}必填");
+        ok($cnt() === $b && str_contains($o, ($x['type'] === 'select' ? '請選擇' : '請填寫') . ($x['err'] ?? $x['label']) . '。'), "{$t['name']}：{$x['label']}必填");
         if ($x['type'] === 'select') {
             $p['f'][$x['key']] = '不在選項內';
             req($STAFF, 'apply/index.php', 'POST', $p);
@@ -176,7 +176,7 @@ ok($r['status'] === 'doing' && $r['accepted_by'] === 'ituncle@ccra.org.tw', 'AI�
 $o = req($STAFF, 'ai-apply/index.php');
 ok(!str_contains($o, 'name="plan"'), '舊 AI 申請網址不再顯示舊表單（轉到新入口）');
 $o = req($STAFF, 'apply/index.php', 'GET', [], ['type' => 'ai']);
-ok(str_contains($o, '<option value="ai" selected') && str_contains($o, '<textarea id="f_ai_plan"'), '新入口帶 type=ai 會預選 AI 工具並顯示使用計畫');
+ok(str_contains($o, 'name="type" value="ai" checked') && str_contains($o, '<textarea id="f_ai_plan"'), '新入口帶 type=ai 會預選 AI 工具並顯示使用計畫');
 
 echo "縮址併入（#13）
 ";
