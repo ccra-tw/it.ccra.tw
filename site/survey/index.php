@@ -61,7 +61,7 @@ footer{color:var(--sub);font-size:.85rem;text-align:center;padding:0 0 32px}
 </style>
 </head>
 <body>
-<header><div class="wrap"><img src="logo.png" alt=""><b>中華基督教救助協會｜資訊部</b></div></header>
+<header><div class="wrap"><img src="logo.png?v=2" alt=""><b>中華基督教救助協會｜資訊部</b></div></header>
 <main class="wrap">
 <?php if (!$p): ?>
   <h1>找不到這份問卷</h1>
