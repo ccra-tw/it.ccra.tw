@@ -8,6 +8,7 @@ require '/var/www/it-lib/uptime.php';
 require '/var/www/it-lib/zabbix.php';
 require '/var/www/it-lib/graph.php';   // 主任有約取消時撤回行事曆邀請（同 /meet/ 那支的專用 App，只有行事曆權限）
 require '/var/www/it-lib/svc_apply.php';   // 資訊服務申請（v2.0 單一入口，GitHub #7）
+require '/var/www/it-lib/survey.php';   // 軟體與系統使用調查（專屬連結免登入，統計只在戰情室，熊哥 10-16）
 $id = access_identity();
 $email = strtolower($id['email']);
 if (!is_it_staff($email)) { http_response_code(403); exit('戰情室只開放給資訊部帳號。'); }
@@ -392,6 +393,7 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
     <a href="#cafe"><b><?= count($cafePending) ?></b><span>咖啡廳待加入</span></a>
     <a href="#shortlink" class="<?= $slPending ? 'hot' : '' ?>"><b><?= count($slPending) ?></b><span>縮址待核准</span></a>
     <a href="#meet"><b><?= count($meets) ?></b><span>主任有約（今天起）</span></a>
+    <?php $svy = survey_stats(); if ($svy['total']): ?><a href="survey.php"><b><?= count($svy['done']) ?>/<?= $svy['total'] ?></b><span>使用調查已填</span></a><?php endif; ?>
   </div>
 
   <div class="box" id="planner">
