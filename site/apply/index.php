@@ -87,7 +87,7 @@ if (isset($_GET['sent'])) {
       <?php
       // 熊哥 2026-10-15：「申請內容太雜一般人看不懂，需要分類讓使用者好申請」——改成分類卡片＋一句白話說明；送出的 type 值不變
       $CATS = [
-        ['👤', '我需要一個帳號', ['email' => '新同事要來了，要幫他開一個協會信箱', 'google' => '要用 Google 的東西，例如看網站有多少人來、管 YouTube 頻道']],
+        ['👤', '我需要一個帳號', ['email' => '需要一個其他用途的信箱，例如活動、專案或部門共用（新同工的信箱由人事通知資訊部開，不用申請）', 'google' => '要用 Google 的東西，例如看網站有多少人來、管 YouTube 頻道']],
         ['🤖', '我想用 AI 幫忙', ['ai' => '想用 Claude 幫我寫東西、整理資料']],
         ['📁', '我打不開某個檔案或系統', ['folder' => '有一個資料夾我打不開，或打得開卻不能改', 'sysperm' => '工作用的系統（例如 1919 系統）我進不去，或少了某個功能', 'vpn' => '在家或出差時，想用協會裡的電腦或檔案']],
         ['🌐', '網站和網址', ['shortlink' => '想要一個很短、好記的網址，例如 ccra.tw/活動名稱', 'dns' => '廠商說要「設定網址」或「改 DNS」——把他們給你的內容貼過來就好']],
@@ -97,7 +97,7 @@ if (isset($_GET['sent'])) {
       // 保險：新增了類型卻忘了放進分類時，自動列在「其他」，不會從頁面上消失
       $listed = array_merge(...array_map(fn($c) => array_keys($c[2]), $CATS));
       foreach (array_diff(array_keys($TYPES), $listed) as $k) $CATS[count($CATS) - 1][2] = [$k => $TYPES[$k]['name']] + $CATS[count($CATS) - 1][2];
-      $SHOW = ['email' => '開信箱', 'google' => 'Google 服務', 'ai' => '用 AI（Claude）', 'folder' => '資料夾打不開', 'sysperm' => '系統進不去', 'vpn' => '在外面連回協會（VPN）',
+      $SHOW = ['email' => '其他用途信箱', 'google' => 'Google 服務', 'ai' => '用 AI（Claude）', 'folder' => '資料夾打不開', 'sysperm' => '系統進不去', 'vpn' => '在外面連回協會（VPN）',
                'shortlink' => '短網址', 'dns' => '設定網址（DNS）', 'github' => 'GitHub', 'firewall' => '防火牆', 'other' => '其他'];
       ?>
       <p class="q">你想做什麼？點一下最像的那一個。不確定的話，選最下面的「找不到？」就好。</p>
@@ -144,7 +144,7 @@ if (isset($_GET['sent'])) {
       <label class="q">是幫誰申請？</label>
       <div class="pills">
         <label class="pill"><input type="radio" name="for" value="self"<?= $v['for'] !== 'other' ? ' checked' : '' ?>><span>我自己</span></label>
-        <label class="pill"><input type="radio" name="for" value="other"<?= $v['for'] === 'other' ? ' checked' : '' ?>><span>幫別人（例如新同事）</span></label>
+        <label class="pill"><input type="radio" name="for" value="other"<?= $v['for'] === 'other' ? ' checked' : '' ?>><span>幫別人申請</span></label>
       </div>
       <div id="target"<?= $v['for'] === 'other' ? '' : ' hidden' ?>>
         <label class="q" for="target_name">申請對象姓名</label>
@@ -152,12 +152,10 @@ if (isset($_GET['sent'])) {
         <label class="q" for="target_dept">申請對象部門</label>
         <select id="target_dept" name="target_dept"><option value="">請選擇…</option>
           <?php foreach ($DEPTS as $dp): ?><option<?= $v['target_dept'] === $dp ? ' selected' : '' ?>><?= h($dp) ?></option><?php endforeach; ?></select>
-        <label class="q" for="target_start">到職日（新同工才填）</label>
-        <input type="date" id="target_start" name="target_start" value="<?= h($v['target_start']) ?>">
         <p class="hint" style="margin:4px 0 0">會同時知會申請對象所屬部門的主管。</p>
       </div>
       <label class="q" for="purpose">你需要什麼？要拿來做什麼？</label>
-      <textarea id="purpose" name="purpose" maxlength="2000" required placeholder="用自己的話寫就好，例如：下週一有新同事要來，需要信箱"><?= h($v['purpose']) ?></textarea>
+      <textarea id="purpose" name="purpose" maxlength="2000" required placeholder="用自己的話寫就好，例如：年底路跑活動需要一個信箱收報名信"><?= h($v['purpose']) ?></textarea>
       <label class="q" for="wanted_by">希望什麼時候好？（可以不填）</label>
       <input type="date" id="wanted_by" name="wanted_by" min="<?= date('Y-m-d') ?>" value="<?= h($v['wanted_by']) ?>">
       <?php if (is_it_staff($email)): ?><label class="hint" style="display:block;margin:10px 0 0"><input type="checkbox" name="is_test" value="1"<?= !empty($v['is_test']) ? ' checked' : '' ?>> 測試單（資訊部專用：通知只寄給自己，不知會主管與主任、不開 Planner 工單）</label><?php endif; ?>

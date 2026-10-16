@@ -119,10 +119,15 @@ foreach (svc_types() as $k => $t) {
     $r = $d->query("SELECT * FROM req WHERE type = " . $d->quote($k) . " ORDER BY id DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC);
     ok($cnt() === $b + 1 && $r['status'] === ($t['director'] ? 'review' : 'intake'), "{$t['name']}：送出 → " . ($t['director'] ? '待主任核准' : '待受理'));
 }
-$e = ['csrf' => $tok('apply', $STAFF), 'type' => 'email', 'name' => '新同工', 'purpose' => '到職', 'wanted_by' => '',
-      'f' => ['name_zh' => '新同工', 'name_en' => 'New Staff', 'start' => '2020-01-01']];
+// 熊哥 10-16：信箱申請是「其他用途信箱」，不是新同工到職（新同工由人事通知）
+$e = ['csrf' => $tok('apply', $STAFF), 'type' => 'email', 'name' => '同工甲', 'purpose' => '活動收信', 'wanted_by' => '',
+      'f' => ['use' => '路跑活動收報名信', 'users' => '同工甲、同工乙', 'until' => '2020-01-01']];
 $b = $cnt(); req($STAFF, 'apply/index.php', 'POST', $e);
-ok($cnt() === $b + 1, 'Email 到職日可以是過去（補辦）');
+ok($cnt() === $b, '其他用途信箱：使用期限填過去的日期被擋');
+$e['f']['until'] = ''; req($STAFF, 'apply/index.php', 'POST', $e);
+ok($cnt() === $b + 1, '其他用途信箱：長期使用（不填期限）可送出');
+$o = req($STAFF, 'apply/index.php', 'GET');
+ok(!str_contains($o, '新同事要來了') && !str_contains($o, '到職日（新同工才填）') && str_contains($o, '新同工的信箱由人事通知資訊部開'), '申請頁不再把開信箱寫成替新同事開');
 $want = ['ai' => true, 'shortlink' => false, 'email' => true, 'google' => true, 'vpn' => true, 'sysperm' => true, 'github' => true, 'firewall' => true, 'folder' => false, 'dns' => false, 'other' => false];
 $got = array_map(fn($t) => $t['director'], svc_types());
 ok(array_diff_key($want, $got) === [] && array_intersect_key($got, $want) == $want, '主任核准分流符合 #2 決定');

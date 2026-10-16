@@ -26,11 +26,12 @@ function svc_types(): array {
             ['key' => 'url', 'label' => '原本很長的網址', 'err' => '目標網址', 'type' => 'text', 'required' => false, 'max' => 500, 'pattern' => '#^https?://\S+$#', 'hint' => '請資訊部代建時一定要填。把網頁上面那一長串網址整個複製貼上'],
             ['key' => 'slug', 'label' => '想要的短網址', 'err' => '希望的短網址', 'type' => 'text', 'required' => false, 'max' => 50, 'pattern' => '/^[A-Za-z0-9_-]+$/', 'hint' => '例：填 1919run，網址就是 ccra.tw/1919run（只能用英文字母、數字、- 和 _）'],
         ]],
-        'email' => ['name' => 'Email 帳號開通', 'director' => true, 'fields' => [
-            ['key' => 'name_zh', 'label' => '中文姓名', 'type' => 'text', 'required' => true, 'max' => 50],
-            ['key' => 'name_en', 'label' => '英文姓名', 'type' => 'text', 'required' => true, 'max' => 80, 'hint' => '信箱名稱會用它，例：Mary Chen；沒有英文名就寫護照上的拼音'],
-            ['key' => 'start', 'label' => '到職日', 'type' => 'date', 'required' => true, 'past_ok' => true],
-            ['key' => 'groups', 'label' => '要不要一起收某些大家共用的信箱？', 'err' => '群組或共用信箱', 'type' => 'text', 'required' => false, 'max' => 200],
+        // 熊哥 2026-10-16：「開信箱不是為了新同事，新同事是人事部門通知，而是需要其他用途的信箱申請」
+        'email' => ['name' => '其他用途信箱', 'director' => true, 'fields' => [
+            ['key' => 'use', 'label' => '這個信箱要做什麼用？', 'err' => '信箱用途', 'type' => 'text', 'required' => true, 'max' => 200, 'hint' => '例：年底募款活動收報名信、某個專案對外聯絡、部門共用'],
+            ['key' => 'want', 'label' => '想要的信箱名稱（可以不填）', 'err' => '想要的信箱名稱', 'type' => 'text', 'required' => false, 'max' => 80, 'hint' => '例：run2026@ccra.org.tw；不填就由資訊部建議'],
+            ['key' => 'users', 'label' => '誰會使用這個信箱？', 'err' => '使用者', 'type' => 'text', 'required' => true, 'max' => 200, 'hint' => '寫同工姓名，可以多人'],
+            ['key' => 'until', 'label' => '用到什麼時候？（長期使用就不用填）', 'err' => '使用期限', 'type' => 'date', 'required' => false],
         ]],
         'google' => ['name' => 'Google Workspace 與服務權限', 'director' => true, 'fields' => [
             ['key' => 'service', 'label' => '要用哪一個？', 'err' => '服務', 'type' => 'select', 'required' => true, 'options' => ['Google Workspace 帳號', 'Google Ads', 'Search Console', 'Google Analytics', 'YouTube', '其他']],
