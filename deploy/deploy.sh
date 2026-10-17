@@ -18,6 +18,11 @@ for u in it-ccra-deploy.service it-ccra-deploy.timer it-ccra-ccnda.service it-cc
     if ! cmp -s deploy/$u /etc/systemd/system/$u; then cp deploy/$u /etc/systemd/system/$u; RELOAD_UNITS=1; fi
 done
 if [ "${RELOAD_UNITS:-}" ]; then systemctl daemon-reload; systemctl enable --now it-ccra-ccnda.timer it-ccra-deploy.timer it-ccra-push.timer; fi
+# 獨立 PHP 程序池（要先於 nginx 換 socket 生效，否則 nginx 會連不到）
+if ! cmp -s deploy/it-ccra-fpm.conf /etc/php/8.5/fpm/pool.d/it-ccra.conf; then
+    install -m 644 deploy/it-ccra-fpm.conf /etc/php/8.5/fpm/pool.d/it-ccra.conf
+    php-fpm8.5 -t && systemctl reload php8.5-fpm && sleep 2
+fi
 if ! cmp -s deploy/nginx-it.ccra.tw.conf /etc/nginx/sites-available/it.ccra.tw; then
     cp deploy/nginx-it.ccra.tw.conf /etc/nginx/sites-available/it.ccra.tw
     nginx -t && systemctl reload nginx
