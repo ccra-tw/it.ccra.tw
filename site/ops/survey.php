@@ -50,6 +50,16 @@ table{width:100%;border-collapse:collapse} td,th{padding:6px 4px;border-top:1px 
   </div>
 <?php endforeach; ?>
 
+  <h2>依職稱（新人到職預設用）</h2>
+<?php $byTitle = []; foreach ($st['done'] as $p) $byTitle[$p['title'] !== '' ? $p['title'] : '（未填職稱）'][] = $p; ksort($byTitle); ?>
+<?php if (!$byTitle): ?><p>還沒有人填。</p><?php else: ?>
+  <table><tr><th>職稱</th><th>人數</th><th>勾選項目（括號內為勾選人數）</th></tr>
+<?php foreach ($byTitle as $t => $ps): $c = []; foreach ($ps as $p) foreach ($p['items'] as $i) $c[$i] = ($c[$i] ?? 0) + 1; arsort($c); ?>
+    <tr><td><?= h($t) ?></td><td><?= count($ps) ?></td><td><?= h(implode('、', array_map(fn($i, $n) => "$i（{$n}）", array_keys($c), $c))) ?: '—' ?></td></tr>
+<?php endforeach; ?>
+  </table>
+<?php endif; ?>
+
   <h2>「其他」與備註（原文）</h2>
 <?php if (!$st['texts']): ?><p>還沒有人寫。</p><?php else: ?>
   <table><tr><th>同工</th><th>其他軟體／系統</th><th>備註</th></tr>

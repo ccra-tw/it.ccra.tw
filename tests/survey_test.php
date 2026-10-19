@@ -41,13 +41,15 @@ ok($csrf !== '', '表單帶 csrf');
 
 $o = req('', 'survey/index.php', 'POST', ['t' => $t1], ['t' => $t1, 'csrf' => 'bad', 'items' => ['Claude']]);
 ok(strpos($o, '頁面已過期') !== false && survey_answer('tester.one@example.org') === null, 'csrf 不對不收');
-req('', 'survey/index.php', 'POST', ['t' => $t1], ['t' => $t1, 'csrf' => $csrf, 'items' => ['Claude', 'VPN', '駭客工具'], 'other' => " Excel 巨集\n某後台 ", 'note' => 'NAS 要 180']);
+ok(strpos($o, 'name="title"') !== false && strpos($o, 'required') !== false, '有「職稱」欄位且必填（10-19 新增）');
+req('', 'survey/index.php', 'POST', ['t' => $t1], ['t' => $t1, 'csrf' => $csrf, 'items' => ['Claude', 'VPN', '駭客工具'], 'other' => " Excel 巨集\n某後台 ", 'note' => 'NAS 要 180', 'title' => ' 測試社工員 ']);
 $a = survey_answer('tester.one@example.org');
 ok($a && $a['items'] === ['Claude', 'VPN'], '只收題目裡的項目，清單外的丟掉');
+ok(($a['title'] ?? null) === '測試社工員', '職稱照存（去頭尾空白）');
 ok($a['other'] === "Excel 巨集\n某後台" && $a['note'] === 'NAS 要 180', '其他與備註照存（去頭尾空白）');
 $o = req('', 'survey/index.php', 'GET', ['t' => $t1]);
 ok(strpos($o, '你已經填過了') !== false && preg_match('/value="Claude" checked/', $o), '再進來看到已填內容，可修改');
-req('', 'survey/index.php', 'POST', ['t' => $t1], ['t' => $t1, 'csrf' => $csrf, 'items' => ['Zoom']]);
+req('', 'survey/index.php', 'POST', ['t' => $t1], ['t' => $t1, 'csrf' => $csrf, 'items' => ['Zoom'], 'title' => '測試社工員']);
 ok(survey_answer('tester.one@example.org')['items'] === ['Zoom'], '重填以最後一次為準');
 $csrf2 = hash_hmac('sha256', 'survey' . $t2, trim((string)@file_get_contents('/var/lib/it-ccra/form_secret')));
 req('', 'survey/index.php', 'POST', ['t' => $t2], ['t' => $t2, 'csrf' => $csrf, 'items' => ['IG']]);
@@ -59,6 +61,7 @@ ok(strpos($o, '只開放給資訊部') !== false && strpos($o, '測試甲') === 
 $o = req('ituncle@ccra.org.tw', 'ops/survey.php');
 ok(strpos($o, '已填 <b>1</b> 人／名單 <b>2</b> 人') !== false, '已填／名單人數');
 ok(strpos($o, '測試乙（未寄信）') !== false, '未填名單標出還沒寄信的人');
+ok(strpos($o, '依職稱') !== false && strpos($o, '測試社工員') !== false, '統計頁依職稱列出');
 survey_mark_sent('tester.two@example.org');
 $st = survey_stats();
 ok(count($st['count']['Zoom']) === 1 && count($st['count']['Claude']) === 0, '勾選人數照最後一次回覆');

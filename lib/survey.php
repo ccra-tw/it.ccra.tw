@@ -32,6 +32,8 @@ function survey_db(): PDO {
               created_at TEXT, sent_at TEXT, UNIQUE (survey, email))');
     $d->exec('CREATE TABLE IF NOT EXISTS answer (survey TEXT NOT NULL, email TEXT NOT NULL, items TEXT NOT NULL, other TEXT, note TEXT,
               submitted_at TEXT, updated_at TEXT, PRIMARY KEY (survey, email))');
+    // 2026-10-19 加「職稱」：知道各職位用哪些軟體，新人到職就能照職稱預設帳號與權限
+    $d->exec('ALTER TABLE answer ADD COLUMN IF NOT EXISTS title TEXT');
     return $d;
 }
 
@@ -69,14 +71,15 @@ function survey_answer(string $email): ?array {
 }
 
 // 只收題目清單裡的項目（送來的其他值一律丟掉）；可以重填，以最後一次為準
-function survey_save(string $email, array $items, string $other, string $note): void {
+function survey_save(string $email, array $items, string $other, string $note, string $title = ''): void {
     $valid = array_values(array_intersect(survey_items(), $items));
     $other = mb_substr(trim($other), 0, 1000);
     $note = mb_substr(trim($note), 0, 1000);
+    $title = mb_substr(trim($title), 0, 50);
     $now = date('c');
-    survey_db()->prepare('INSERT INTO answer (survey, email, items, other, note, submitted_at, updated_at) VALUES (?,?,?,?,?,?,?)
-        ON CONFLICT (survey, email) DO UPDATE SET items = EXCLUDED.items, other = EXCLUDED.other, note = EXCLUDED.note, updated_at = EXCLUDED.updated_at')
-      ->execute([SURVEY_ID, $email, json_encode($valid, JSON_UNESCAPED_UNICODE), $other, $note, $now, $now]);
+    survey_db()->prepare('INSERT INTO answer (survey, email, items, other, note, title, submitted_at, updated_at) VALUES (?,?,?,?,?,?,?,?)
+        ON CONFLICT (survey, email) DO UPDATE SET items = EXCLUDED.items, other = EXCLUDED.other, note = EXCLUDED.note, title = EXCLUDED.title, updated_at = EXCLUDED.updated_at')
+      ->execute([SURVEY_ID, $email, json_encode($valid, JSON_UNESCAPED_UNICODE), $other, $note, $title, $now, $now]);
 }
 
 // 統計：每一項勾選人數與名單、「其他」與備註原文、已填／未填名單
@@ -94,7 +97,7 @@ function survey_stats(): array {
     foreach ($people as $p) {
         $a = $byEmail[$p['email']] ?? null;
         if (!$a) { $todo[] = $p; continue; }
-        $done[] = $p + ['updated_at' => $a['updated_at']];
+        $done[] = $p + ['updated_at' => $a['updated_at'], 'title' => (string)($a['title'] ?? ''), 'items' => $a['items']];
         foreach ($a['items'] as $i) if (isset($count[$i])) $count[$i][] = $p['name'];
         if ($a['other'] !== '' || $a['note'] !== '') $texts[] = ['name' => $p['name'], 'dept' => $p['dept'], 'other' => $a['other'], 'note' => $a['note']];
     }

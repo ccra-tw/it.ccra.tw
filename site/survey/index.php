@@ -16,7 +16,7 @@ $err = '';
 if ($p && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!hash_equals($csrf, (string)($_POST['csrf'] ?? ''))) $err = '頁面已過期，請重新整理後再送出。';
     else {
-        survey_save($p['email'], (array)($_POST['items'] ?? []), (string)($_POST['other'] ?? ''), (string)($_POST['note'] ?? ''));
+        survey_save($p['email'], (array)($_POST['items'] ?? []), (string)($_POST['other'] ?? ''), (string)($_POST['note'] ?? ''), (string)($_POST['title'] ?? ''));
         header('Location: ./?t=' . rawurlencode($p['token']) . '&sent=1', true, 303);
         exit;
     }
@@ -76,6 +76,12 @@ footer{color:var(--sub);font-size:.85rem;text-align:center;padding:0 0 32px}
   <form method="post" action="./?t=<?= h(rawurlencode($p['token'])) ?>">
     <input type="hidden" name="t" value="<?= h($p['token']) ?>">
     <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
+    <div class="card">
+      <p class="q"><label for="title">你的職稱</label></p>
+      <p class="hint">例如：社工員、會計、組長、主任。資訊部會依職稱整理常用軟體，之後新同工到職就能先準備好。</p>
+      <input id="title" name="title" maxlength="50" required value="<?= h($a['title'] ?? '') ?>" style="width:100%;border:1px solid var(--line);border-radius:10px;padding:10px;font:inherit;background:var(--bg);color:var(--ink)">
+      <p></p>
+    </div>
 <?php foreach (SURVEY_GROUPS as $g => $items): ?>
     <div class="card"><h2><?= h($g) ?></h2>
 <?php foreach ($items as $i): ?>
