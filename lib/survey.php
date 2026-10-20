@@ -10,7 +10,7 @@ const SURVEY_ID = '2026-apps';
 const SURVEY_GROUPS = [
     '一、基本工具' => ['Claude', 'VPN', 'Google Workspace（ccra.tw）'],
     '二、Google 行銷工具權限' => ['Google 廣告', 'GA（Google Analytics）', 'Search Console'],
-    '三、業務系統' => ['1919 急難救助', '食物銀行／新北惜食', '陪讀 CR', '個案管理系統', '收據系統', '請款系統', '感謝禮系統', '諾亞專案', '環台勇士募款系統'],
+    '三、業務系統' => ['1919 急難救助', '食物銀行／新北惜食', '陪讀 CR', '個案管理系統', '收據系統', '捐款金流請款系統', '感謝禮系統', '諾亞專案', '環台勇士募款系統'],
     '四、NAS 與付費軟體' => ['NAS 資料夾權限', 'Adobe', 'Canva', 'Zoom', '防毒軟體'],
     '五、共用帳號' => ['FB 粉專', 'IG', 'LINE 官方帳號', 'YouTube', '官網後台'],
 ];
@@ -18,6 +18,7 @@ const SURVEY_HINTS = [
     'Google Workspace（ccra.tw）' => 'ccra.tw 帳號',
     'NAS 資料夾權限' => '需要特定資料夾，請寫在下方備註',
     '防毒軟體' => '知道自己電腦有裝防毒軟體就勾選（不必寫哪一套）',
+    '捐款金流請款系統' => '捐款服務組在 hq 後台使用；不是財務部的請款',
 ];
 
 function survey_items(): array {
