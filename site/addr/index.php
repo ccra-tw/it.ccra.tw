@@ -32,13 +32,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!preg_match('/\.xlsx?$/i', $n)) { $err = '只接受 Excel 檔（.xlsx／.xls）：' . $n; break; }
     }
     if (!$err) {
-        $job = addr_new_job(STATE_DIR . '/addr-tmp');
-        register_shutdown_function('addr_cleanup', $job);   // 不論後面怎麼結束，暫存一律清掉
-        foreach ($names as $i => $n) move_uploaded_file($f['tmp_name'][$i], "$job/data/" . addr_safe_name($i, $n));
-        $r = addr_run($job);
-        addr_log($email, count($names), $r['ok'], $r['ok'] ? '' : 'rc=' . $r['rc']);
-        if (!$r['ok']) $err = $r['err'];
-        else {
+        $job = addr_new_job();
+        if (!$job) { addr_log($email, count($names), false, 'job'); $err = '系統暫時無法處理，請稍後再試；仍不行請找資訊部（分機 181）。'; }
+    }
+    if (!$err) {
+        register_shutdown_function('addr_finish', $job);   // 正常結束、exit、逾時都會跑；被殺時由 addr-sweep 補清
+        if (!addr_stage($job['dir'], (array)$f['tmp_name'], $names)) {
+            addr_log($email, count($names), false, 'stage');
+            $err = '有檔案上傳不完整，這一批沒有處理，請重新上傳。';
+        } else {
+            $r = addr_run($job['dir']);
+            addr_log($email, count($names), $r['ok'], $r['ok'] ? '' : 'rc=' . $r['rc']);
+            if (!$r['ok']) $err = $r['err'];
+        }
+        if (!$err) {
             header('Content-Type: application/zip');
             header("Content-Disposition: attachment; filename*=UTF-8''" . rawurlencode('地址整理結果_' . date('Ymd_Hi') . '.zip'));
             header('Content-Length: ' . filesize($r['zip']));
@@ -70,7 +77,7 @@ button{padding:10px 20px;font-size:1em}
 <div class="box">
 <h1>捐款名單地址整理</h1>
 <p class="note">上傳含「收據號碼」或「收據編號」欄的 Excel（一次最多 <?= ADDR_MAX_FILES ?> 個、單檔 20MB），系統會補上郵遞區號、縣市區、整理後地址與收據判斷，下載回來是一個壓縮檔：每個檔一份「_地址整理.xlsx」，外加「00_處理摘要與待確認清單.xlsx」。</p>
-<p class="note">🔒 上傳的檔案只在整理當下暫存，下載完成即刪除，主機不保留任何名單。</p>
+<p class="note">🔒 上傳的檔案只在整理當下暫存，下載完成即刪除；萬一處理中斷，主機最多 30 分鐘內也會自動清除。</p>
 <?php if ($err): ?><div class="err"><?= h($err) ?></div><?php endif; ?>
 <form method="post" enctype="multipart/form-data" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='整理中，請稍候…'">
     <input type="hidden" name="csrf" value="<?= h($csrf) ?>">

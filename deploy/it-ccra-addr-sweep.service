@@ -1,0 +1,7 @@
+[Unit]
+Description=it.ccra.tw /addr/ temp cleanup (donor lists left behind by killed workers)
+
+[Service]
+Type=oneshot
+User=www-data
+ExecStart=/usr/bin/php /opt/it.ccra.tw/deploy/addr_sweep.php

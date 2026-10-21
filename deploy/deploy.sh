@@ -14,10 +14,10 @@ V=$(git rev-parse --short HEAD)
 grep -rlE '(site|form|whoami|edgetip|live|footer|push)\.(css|js)\?v=' /var/www/it.ccra.tw | xargs -r sed -i -E "s/(site|form|whoami|edgetip|live|footer|push)\.(css|js)\?v=[A-Za-z0-9]*/\1.\2?v=$V/g"
 install -m 644 lib/*.php /var/www/it-lib/
 # systemd 單元有變才重新載入
-for u in it-ccra-deploy.service it-ccra-deploy.timer it-ccra-ccnda.service it-ccra-ccnda.timer it-ccra-push.service it-ccra-push.timer; do
+for u in it-ccra-deploy.service it-ccra-deploy.timer it-ccra-ccnda.service it-ccra-ccnda.timer it-ccra-push.service it-ccra-push.timer it-ccra-addr-sweep.service it-ccra-addr-sweep.timer; do
     if ! cmp -s deploy/$u /etc/systemd/system/$u; then cp deploy/$u /etc/systemd/system/$u; RELOAD_UNITS=1; fi
 done
-if [ "${RELOAD_UNITS:-}" ]; then systemctl daemon-reload; systemctl enable --now it-ccra-ccnda.timer it-ccra-deploy.timer it-ccra-push.timer; fi
+if [ "${RELOAD_UNITS:-}" ]; then systemctl daemon-reload; systemctl enable --now it-ccra-ccnda.timer it-ccra-deploy.timer it-ccra-push.timer it-ccra-addr-sweep.timer; fi
 # 獨立 PHP 程序池（要先於 nginx 換 socket 生效，否則 nginx 會連不到）
 if ! cmp -s deploy/it-ccra-fpm.conf /etc/php/8.5/fpm/pool.d/it-ccra.conf; then
     install -m 644 deploy/it-ccra-fpm.conf /etc/php/8.5/fpm/pool.d/it-ccra.conf
