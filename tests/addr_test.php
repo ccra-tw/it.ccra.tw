@@ -150,6 +150,41 @@ chmod($sp, 0000);
 chmod($sp, 0700);
 ok(in_array("scan $sp", $failed, true), '專用暫存目錄讀不到：列入失敗（會告警），不當成沒東西');
 addr_cleanup($sp); addr_cleanup($sibling);
+
+echo "使用中判斷（跨程序、看不到的情況）\n";
+$sp = "$root/.upload"; mkdir($sp, 0700, true);
+file_put_contents("$sp/phpHELD", 'x'); touch("$sp/phpHELD", time() - 3600);
+// 另一個程序開著舊檔（不是測試程序自己）
+$holder = proc_open(['python3', '-c', 'import sys,time; f=open(sys.argv[1]); time.sleep(30)', "$sp/phpHELD"], [], $hp); usleep(500000);
+ok(addr_in_use("$sp/phpHELD") === 'busy', '另一個程序開著 → busy');
+[$del, $failed] = addr_sweep($root, ADDR_MAX_AGE, null, ['.upload']);
+ok(file_exists("$sp/phpHELD"), '…補清時保留');
+proc_terminate($holder, 9); proc_close($holder); usleep(300000);
+ok(addr_in_use("$sp/phpHELD") === 'free', '持有的程序結束後 → free');
+// 假的 /proc：我們自己的程序 fd 讀不到 → unknown；別人的程序 fd 讀不到 → 略過
+$fp = "$scratch/fakeproc"; mkdir("$fp/111/fd", 0700, true); mkdir("$fp/222/fd", 0700, true); mkdir("$fp/333/fd", 0700, true);
+symlink(realpath("$sp/phpHELD"), "$fp/333/fd/9");                         // 333 確實開著（測 busy 能被看見）
+chmod("$fp/111/fd", 0000); chmod("$fp/222/fd", 0000);
+$me = posix_geteuid();
+$uidOf = fn($d) => str_ends_with($d, '/222') ? 0 : $me;                   // 222 假裝是 root 的程序
+ok(addr_in_use("$sp/phpHELD", $fp, $uidOf) === 'busy', '假 /proc：有人開著時看得到（busy 優先）');
+unlink("$fp/333/fd/9");
+ok(addr_in_use("$sp/phpHELD", $fp, $uidOf) === 'unknown', '假 /proc：自己的程序 fd 讀不到 → unknown（不當沒人用）');
+$uidOnlyRoot = fn($d) => str_ends_with($d, '/111') || str_ends_with($d, '/222') ? 0 : $me;
+ok(addr_in_use("$sp/phpHELD", $fp, $uidOnlyRoot) === 'free', '假 /proc：讀不到的都是別人的程序 → 略過，不永遠擋住');
+chmod("$fp/111/fd", 0000);
+$cmdOther = fn($d) => "php-fpm: pool it-ccra\0\0";
+$cmdMine  = fn($d) => "php-fpm: pool it-ccra-addr\0\0";
+$cmdNone  = fn($d) => false;
+$only111 = fn($d) => str_ends_with($d, '/222') ? 0 : $me;
+chmod("$fp/222/fd", 0700);
+ok(addr_in_use("$sp/phpHELD", $fp, $only111, $cmdOther) === 'free', '讀不到 fd 的是其他 PHP 池的 worker → 略過');
+ok(addr_in_use("$sp/phpHELD", $fp, $only111, $cmdMine) === 'unknown', '讀不到 fd 的是 /addr/ 本池 worker → unknown');
+ok(addr_in_use("$sp/phpHELD", $fp, $only111, $cmdNone) === 'unknown', '連命令列都讀不到 → unknown');
+chmod("$fp/111/fd", 0700); chmod("$fp/222/fd", 0700);
+ok(addr_in_use("$sp/phpHELD", "$scratch/no-such-proc") === 'unknown', '/proc 本身讀不到 → unknown');
+addr_cleanup($fp);
+addr_cleanup($sp);
 @rmdir($root);
 ok(!is_dir($root), '測試暫存根目錄清乾淨');
 addr_cleanup($scratch);

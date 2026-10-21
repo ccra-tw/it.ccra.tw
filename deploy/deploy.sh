@@ -18,20 +18,7 @@ for u in it-ccra-deploy.service it-ccra-deploy.timer it-ccra-ccnda.service it-cc
     if ! cmp -s deploy/$u /etc/systemd/system/$u; then cp deploy/$u /etc/systemd/system/$u; RELOAD_UNITS=1; fi
 done
 if [ "${RELOAD_UNITS:-}" ]; then systemctl daemon-reload; systemctl enable --now it-ccra-ccnda.timer it-ccra-deploy.timer it-ccra-push.timer it-ccra-addr-sweep.timer; fi
-# 獨立 PHP 程序池（要先於 nginx 換 socket 生效，否則 nginx 會連不到）
-if ! cmp -s deploy/it-ccra-fpm.conf /etc/php/8.5/fpm/pool.d/it-ccra.conf; then
-    install -m 644 deploy/it-ccra-fpm.conf /etc/php/8.5/fpm/pool.d/it-ccra.conf
-    php-fpm8.5 -t && systemctl reload php8.5-fpm && sleep 2
-fi
-# /addr/ 專用：暫存目錄（www-data、0700）與 PHP 程序池
-install -d -o www-data -g www-data -m 0700 /var/lib/it-ccra/addr-tmp /var/lib/it-ccra/addr-tmp/.upload /var/lib/it-ccra/addr-tmp/.nginx-body
-if ! cmp -s deploy/it-ccra-addr-fpm.conf /etc/php/8.5/fpm/pool.d/it-ccra-addr.conf; then
-    install -m 644 deploy/it-ccra-addr-fpm.conf /etc/php/8.5/fpm/pool.d/it-ccra-addr.conf
-    php-fpm8.5 -t && systemctl reload php8.5-fpm && sleep 2
-fi
-if ! cmp -s deploy/nginx-it.ccra.tw.conf /etc/nginx/sites-available/it.ccra.tw; then
-    cp deploy/nginx-it.ccra.tw.conf /etc/nginx/sites-available/it.ccra.tw
-    nginx -t && systemctl reload nginx
-fi
+# PHP 程序池、/addr/ 暫存目錄、nginx：任何一步失敗就還原並以非零結束（不會走到下面印 deployed）
+sh deploy/apply_web_config.sh || exit 1
 logger -t it-ccra-deploy "deployed $(git rev-parse --short HEAD)"
 echo "deployed $(git rev-parse --short HEAD)"

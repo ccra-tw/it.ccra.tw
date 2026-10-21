@@ -17,6 +17,7 @@ const ADDR_REPORT_SUFFIX = '_地址整理.xlsx';
 // /addr/ 專用的 PHP 上傳暫存與 nginx 請求本文暫存（見 deploy/it-ccra-addr-fpm.conf、nginx 設定）。
 // 只有 /addr/ 會寫進這兩處，所以補清只清這裡、不碰其他功能的 /tmp 或 nginx 共用暫存。
 const ADDR_SPOOL_DIRS = ['.upload', '.nginx-body'];
+const ADDR_POOL = 'it-ccra-addr';   // /addr/ 專用 PHP-FPM 池名稱（deploy/it-ccra-addr-fpm.conf）
 
 // 建工單：0700 資料夾＋工單鎖（處理期間持有，補清程序拿不到鎖就不刪）。失敗回 null。
 function addr_new_job(string $root = ADDR_ROOT): ?array {
@@ -130,14 +131,49 @@ function addr_run(string $job, string $tool = ADDR_TOOL, int $deadline = ADDR_DE
     return ['ok' => true, 'zip' => $zip, 'reports' => count($reports)];
 }
 
-// 有沒有任何（同使用者看得到的）程序開著這個檔：掃 /proc/*/fd。看不到 /proc 時保守當成「使用中」。
-function addr_in_use(string $path): bool {
+// 這個檔是否有程序開著。回傳 'busy'（有人開著）、'free'（確定沒人開著）、'unknown'（無法確認）。
+// 小鹿 10/21 第四次互審：「看不到」不可當「沒人用」。逐一掃 /proc/<pid>/fd：
+//   ・程序在掃描中結束（目錄消失）→ 略過
+//   ・fd 目錄讀不到：程序擁有者是我們（www-data）→ 可能就是持有暫存檔的 worker，回 unknown；
+//     擁有者是別人（root 等）→ 不可能持有 www-data 0700 目錄裡的檔（打不開），略過，免得永遠擋住補清
+//   ・/proc 本身讀不到 → unknown
+// $procRoot、$uidOf 可替換，測試用。PHP-FPM worker 預設不可讀 fd（process.dumpable=no），
+// 所以 /addr/ 專用池設 process.dumpable = yes（deploy/it-ccra-addr-fpm.conf），補清才看得到它開著的上傳暫存。
+function addr_in_use(string $path, string $procRoot = '/proc', ?callable $uidOf = null, ?callable $cmdOf = null): string {
     $real = realpath($path);
-    if ($real === false) return false;
-    $fds = @glob('/proc/[0-9]*/fd/*', GLOB_NOSORT);
-    if ($fds === false) return true;
-    foreach ($fds as $fd) if (@readlink($fd) === $real) return true;
-    return false;
+    if ($real === false) return 'free';                                       // 檔已不在
+    $me = posix_geteuid();
+    $uidOf ??= fn(string $pidDir) => @fileowner($pidDir);
+    $cmdOf ??= fn(string $pidDir) => @file_get_contents("$pidDir/cmdline");
+    $pids = @scandir($procRoot);
+    if ($pids === false) return 'unknown';
+    $unknown = false;
+    foreach ($pids as $pid) {
+        if (!ctype_digit($pid)) continue;
+        $pidDir = "$procRoot/$pid";
+        $fdDir = "$pidDir/fd";
+        $fds = @scandir($fdDir);
+        if ($fds === false) {
+            if (!file_exists($pidDir)) continue;                                // 程序已結束
+            $uid = $uidOf($pidDir);
+            if ($uid === false) { if (!file_exists($pidDir)) continue; $unknown = true; continue; }
+            if ($uid === $me) {
+                // 我們的程序但看不到 fd。其他 PHP-FPM 池的 worker（預設不可讀 fd）用自己的 upload_tmp_dir，
+                // 不會寫進 /addr/ 專用暫存，以命令列「php-fpm: pool <名稱>」辨認後略過；本池或認不出來的一律當無法確認。
+                $cmd = $cmdOf($pidDir);
+                if ($cmd !== false && preg_match('/\Aphp-fpm: pool ([\w.-]+)/', str_replace("\0", ' ', $cmd), $m) && $m[1] !== ADDR_POOL) continue;
+                $unknown = true;
+            }
+            continue;                                                           // 別人的程序：打不開我們的檔，略過
+        }
+        foreach ($fds as $fd) {
+            if ($fd === '.' || $fd === '..') continue;
+            $t = @readlink("$fdDir/$fd");
+            if ($t === false) { if (file_exists("$fdDir/$fd")) $unknown = true; continue; }   // 消失＝已關閉；還在卻讀不到＝不確定
+            if ($t === $real) return 'busy';
+        }
+    }
+    return $unknown ? 'unknown' : 'free';
 }
 
 // 補清。回傳 [刪除數, 失敗說明清單]。失敗包括：目錄讀不到、工單鎖開不了、刪不掉。
@@ -167,7 +203,9 @@ function addr_sweep(string $root = ADDR_ROOT, int $maxAge = ADDR_MAX_AGE, ?int $
             if (is_link($p)) { $failed[] = "link $p"; continue; }
             if (is_dir($p)) { $f2 = addr_cleanup_if_stale($p, $now, $maxAge, $deleted); $failed = array_merge($failed, $f2); continue; }
             if ($now - filemtime($p) < $maxAge) continue;
-            if (addr_in_use($p)) continue;                                    // 還有程序開著：不刪
+            $use = addr_in_use($p);
+            if ($use === 'busy') continue;                                      // 還有程序開著：不刪
+            if ($use === 'unknown') { $failed[] = "inuse-unknown $p"; continue; }   // 無法確認：保留並回報
             @unlink($p) ? $deleted++ : $failed[] = $p;
         }
     }
@@ -183,7 +221,10 @@ function addr_cleanup_if_stale(string $dir, int $now, int $maxAge, int &$deleted
         $p = "$dir/$f";
         if (is_link($p)) { $failed[] = "link $p"; continue; }
         if (is_dir($p)) { $failed = array_merge($failed, addr_cleanup_if_stale($p, $now, $maxAge, $deleted)); continue; }
-        if ($now - filemtime($p) < $maxAge || addr_in_use($p)) continue;
+        if ($now - filemtime($p) < $maxAge) continue;
+        $use = addr_in_use($p);
+        if ($use === 'busy') continue;
+        if ($use === 'unknown') { $failed[] = "inuse-unknown $p"; continue; }
         @unlink($p) ? $deleted++ : $failed[] = $p;
     }
     return $failed;
