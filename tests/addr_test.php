@@ -131,11 +131,25 @@ chmod($root, 0000);
 [$del, $failed] = addr_sweep($root, ADDR_MAX_AGE, null, []);
 chmod($root, 0700);
 ok($failed && str_starts_with($failed[0], 'scan '), '補清讀不到根目錄：回報失敗，不當成功');
-$stray = "$scratch/stray"; mkdir($stray, 0700);
-file_put_contents("$stray/phpOLD", 'x'); touch("$stray/phpOLD", time() - 3600);
-file_put_contents("$stray/phpNEW", 'x');
-[$del, $failed] = addr_sweep("$root-none", ADDR_MAX_AGE, null, ["$stray/php*"]);
-ok($del === 1 && !file_exists("$stray/phpOLD") && file_exists("$stray/phpNEW"), 'PHP／nginx 暫存：只清滿 30 分鐘的');
+// 專用上傳暫存（.upload／.nginx-body）：只清滿 30 分鐘、沒人開著的；其他地方一律不碰
+$sp = "$root/.upload"; mkdir($sp, 0700, true);
+$sibling = "$root-other"; mkdir($sibling, 0700, true);                       // 模擬其他功能的暫存（不在清單內）
+file_put_contents("$sp/phpOLD", 'x'); touch("$sp/phpOLD", time() - 3600);
+file_put_contents("$sp/phpNEW", 'x');
+file_put_contents("$sp/phpBUSY", 'x'); touch("$sp/phpBUSY", time() - 3600);
+$busyfh = fopen("$sp/phpBUSY", 'r');                                         // 仍被開著的舊檔
+file_put_contents("$sibling/phpOLD", 'x'); touch("$sibling/phpOLD", time() - 3600);
+[$del, $failed] = addr_sweep($root, ADDR_MAX_AGE, null, ['.upload']);
+ok(!file_exists("$sp/phpOLD") && $failed === [], '專用暫存：滿 30 分鐘、沒人開著的被清');
+ok(file_exists("$sp/phpNEW"), '專用暫存：未滿 30 分鐘的保留');
+ok(file_exists("$sp/phpBUSY"), '專用暫存：仍被程序開著的舊檔保留');
+ok(file_exists("$sibling/phpOLD"), '不在清單內的其他暫存（其他功能）不碰');
+fclose($busyfh);
+chmod($sp, 0000);
+[$del, $failed] = addr_sweep($root, ADDR_MAX_AGE, null, ['.upload']);
+chmod($sp, 0700);
+ok(in_array("scan $sp", $failed, true), '專用暫存目錄讀不到：列入失敗（會告警），不當成沒東西');
+addr_cleanup($sp); addr_cleanup($sibling);
 @rmdir($root);
 ok(!is_dir($root), '測試暫存根目錄清乾淨');
 addr_cleanup($scratch);

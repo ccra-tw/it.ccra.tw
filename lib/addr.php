@@ -4,7 +4,7 @@
 // 🔴 名單含捐款人個資，三道清除：
 //   ①網頁結束時 addr_finish()（register_shutdown_function）
 //   ②php-fpm 被殺、OOM、主機重開時①不會跑 → it-ccra-addr-sweep.timer 每 10 分鐘補清：
-//     addr-tmp 下滿 30 分鐘且工單鎖拿得到的工單，以及 PHP／nginx 留在暫存區、滿 30 分鐘的上傳與回應暫存檔；
+//     addr-tmp 下滿 30 分鐘且工單鎖拿得到的工單，以及 /addr/ 專用上傳暫存（.upload／.nginx-body）裡滿 30 分鐘、沒有程序開著的檔；
 //     掃不到、鎖不開、刪不掉都算失敗 → 紀錄＋推戰情室＋非零結束
 //   ③每次工單都有總期限，整理＋打包超過就對整個程序群組 TERM、再 KILL，確認回收後才返回
 // （小鹿 10/21 兩次互審 32d7733、c8f1602 的各項，本版皆補，見 tests/addr_test.php。）
@@ -14,8 +14,9 @@ const ADDR_MAX_FILES = 10;
 const ADDR_DEADLINE = 300;     // 整理＋打包共用的總秒數
 const ADDR_MAX_AGE = 1800;     // 補清門檻：滿 30 分鐘（排程每 10 分鐘，故中斷後最晚約 40 分鐘清除）
 const ADDR_REPORT_SUFFIX = '_地址整理.xlsx';
-// 補清時一併處理的 PHP／nginx 暫存（皆為 www-data 擁有、正常請求結束就刪；殘留只可能來自被殺的程序）
-const ADDR_STRAY_GLOBS = ['/tmp/php*', '/var/lib/nginx/body/*', '/var/lib/nginx/fastcgi/*/*/*'];
+// /addr/ 專用的 PHP 上傳暫存與 nginx 請求本文暫存（見 deploy/it-ccra-addr-fpm.conf、nginx 設定）。
+// 只有 /addr/ 會寫進這兩處，所以補清只清這裡、不碰其他功能的 /tmp 或 nginx 共用暫存。
+const ADDR_SPOOL_DIRS = ['.upload', '.nginx-body'];
 
 // 建工單：0700 資料夾＋工單鎖（處理期間持有，補清程序拿不到鎖就不刪）。失敗回 null。
 function addr_new_job(string $root = ADDR_ROOT): ?array {
@@ -129,28 +130,61 @@ function addr_run(string $job, string $tool = ADDR_TOOL, int $deadline = ADDR_DE
     return ['ok' => true, 'zip' => $zip, 'reports' => count($reports)];
 }
 
-// 補清。回傳 [刪除數, 失敗說明清單]。失敗包括：根目錄讀不到、工單鎖開不了、刪不掉。
-function addr_sweep(string $root = ADDR_ROOT, int $maxAge = ADDR_MAX_AGE, ?int $now = null, array $strayGlobs = ADDR_STRAY_GLOBS): array {
+// 有沒有任何（同使用者看得到的）程序開著這個檔：掃 /proc/*/fd。看不到 /proc 時保守當成「使用中」。
+function addr_in_use(string $path): bool {
+    $real = realpath($path);
+    if ($real === false) return false;
+    $fds = @glob('/proc/[0-9]*/fd/*', GLOB_NOSORT);
+    if ($fds === false) return true;
+    foreach ($fds as $fd) if (@readlink($fd) === $real) return true;
+    return false;
+}
+
+// 補清。回傳 [刪除數, 失敗說明清單]。失敗包括：目錄讀不到、工單鎖開不了、刪不掉。
+function addr_sweep(string $root = ADDR_ROOT, int $maxAge = ADDR_MAX_AGE, ?int $now = null, array $spool = ADDR_SPOOL_DIRS): array {
     $now ??= time(); $deleted = 0; $failed = [];
-    if (is_dir($root)) {
-        $list = @scandir($root);
-        if ($list === false) $failed[] = "scan $root";
-        foreach (array_diff($list ?: [], ['.', '..']) as $name) {
-            $dir = "$root/$name";
-            if (!is_dir($dir) || is_link($dir) || !preg_match('/\A[0-9a-f]{24}\z/', $name)) continue;   // 只動工單資料夾
-            if ($now - filemtime($dir) < $maxAge) continue;
-            $lock = @fopen("$dir/.lock", 'c');
-            if (!$lock) { $failed[] = "lock $dir"; continue; }                     // 鎖開不了：不刪、當失敗
-            if (!flock($lock, LOCK_EX | LOCK_NB)) { fclose($lock); continue; }    // 還有程式在用
-            $f = addr_cleanup($dir);
-            fclose($lock);
-            $f ? $failed = array_merge($failed, $f) : $deleted++;
+    if (!is_dir($root)) return [0, []];
+    $list = @scandir($root);
+    if ($list === false) return [0, ["scan $root"]];
+    foreach (array_diff($list, ['.', '..']) as $name) {
+        $dir = "$root/$name";
+        if (!is_dir($dir) || is_link($dir) || !preg_match('/\A[0-9a-f]{24}\z/', $name)) continue;   // 只動工單資料夾
+        if ($now - filemtime($dir) < $maxAge) continue;
+        $lock = @fopen("$dir/.lock", 'c');
+        if (!$lock) { $failed[] = "lock $dir"; continue; }                     // 鎖開不了：不刪、當失敗
+        if (!flock($lock, LOCK_EX | LOCK_NB)) { fclose($lock); continue; }    // 還有程式在用
+        $f = addr_cleanup($dir);
+        fclose($lock);
+        $f ? $failed = array_merge($failed, $f) : $deleted++;
+    }
+    foreach ($spool as $sub) {                                                // 專用上傳暫存：單層、只有檔案
+        $dir = "$root/$sub";
+        if (!is_dir($dir)) continue;                                          // 還沒建立（部署時才建）
+        $items = @scandir($dir);
+        if ($items === false) { $failed[] = "scan $dir"; continue; }
+        foreach (array_diff($items, ['.', '..']) as $f) {
+            $p = "$dir/$f";
+            if (is_link($p)) { $failed[] = "link $p"; continue; }
+            if (is_dir($p)) { $f2 = addr_cleanup_if_stale($p, $now, $maxAge, $deleted); $failed = array_merge($failed, $f2); continue; }
+            if ($now - filemtime($p) < $maxAge) continue;
+            if (addr_in_use($p)) continue;                                    // 還有程序開著：不刪
+            @unlink($p) ? $deleted++ : $failed[] = $p;
         }
     }
-    foreach ($strayGlobs as $g) foreach (glob($g) ?: [] as $f) {
-        if (!is_file($f) || is_link($f) || $now - filemtime($f) < $maxAge) continue;
-        if (@fileowner($f) !== posix_geteuid()) continue;                          // 只碰自己（www-data）的暫存
-        @unlink($f) ? $deleted++ : $failed[] = $f;
-    }
     return [$deleted, $failed];
+}
+
+// nginx 的 client_body_temp_path 若設了分層會有子目錄；只清裡面滿期且沒人開著的檔。
+function addr_cleanup_if_stale(string $dir, int $now, int $maxAge, int &$deleted): array {
+    $failed = [];
+    $items = @scandir($dir);
+    if ($items === false) return ["scan $dir"];
+    foreach (array_diff($items, ['.', '..']) as $f) {
+        $p = "$dir/$f";
+        if (is_link($p)) { $failed[] = "link $p"; continue; }
+        if (is_dir($p)) { $failed = array_merge($failed, addr_cleanup_if_stale($p, $now, $maxAge, $deleted)); continue; }
+        if ($now - filemtime($p) < $maxAge || addr_in_use($p)) continue;
+        @unlink($p) ? $deleted++ : $failed[] = $p;
+    }
+    return $failed;
 }

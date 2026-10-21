@@ -23,6 +23,12 @@ if ! cmp -s deploy/it-ccra-fpm.conf /etc/php/8.5/fpm/pool.d/it-ccra.conf; then
     install -m 644 deploy/it-ccra-fpm.conf /etc/php/8.5/fpm/pool.d/it-ccra.conf
     php-fpm8.5 -t && systemctl reload php8.5-fpm && sleep 2
 fi
+# /addr/ 專用：暫存目錄（www-data、0700）與 PHP 程序池
+install -d -o www-data -g www-data -m 0700 /var/lib/it-ccra/addr-tmp /var/lib/it-ccra/addr-tmp/.upload /var/lib/it-ccra/addr-tmp/.nginx-body
+if ! cmp -s deploy/it-ccra-addr-fpm.conf /etc/php/8.5/fpm/pool.d/it-ccra-addr.conf; then
+    install -m 644 deploy/it-ccra-addr-fpm.conf /etc/php/8.5/fpm/pool.d/it-ccra-addr.conf
+    php-fpm8.5 -t && systemctl reload php8.5-fpm && sleep 2
+fi
 if ! cmp -s deploy/nginx-it.ccra.tw.conf /etc/nginx/sites-available/it.ccra.tw; then
     cp deploy/nginx-it.ccra.tw.conf /etc/nginx/sites-available/it.ccra.tw
     nginx -t && systemctl reload nginx
