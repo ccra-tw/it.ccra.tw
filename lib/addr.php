@@ -1,18 +1,21 @@
 <?php
 // 捐款名單地址整理：呼叫繁英姊的 Python 工具（主機 /opt/addr-tool，不在本 repo；
-// 規則與郵遞區號對照表由她維護）。網頁 /addr/、tests/addr_test.php、deploy/addr-sweep.php 共用這裡。
+// 規則與郵遞區號對照表由她維護）。網頁 /addr/、tests/addr_test.php、deploy/addr_sweep.php 共用這裡。
 // 🔴 名單含捐款人個資，三道清除：
-//   ①網頁結束時 addr_cleanup()（register_shutdown_function）
-//   ②php-fpm 被殺、OOM、主機重開時①不會跑 → it-ccra-addr-sweep.timer 每 10 分鐘掃 addr-tmp，
-//     超過 ADDR_MAX_AGE 且工單鎖拿得到（沒有程式在用）的一律刪，刪不掉寫紀錄並以非零結束
-//   ③每次工單都有總期限，整理＋打包超過就強制終止（TERM 後 10 秒 KILL）
-// （小鹿 10/21 互審 32d7733 指出①不足以保證刪除、逾時未涵蓋打包、搬檔失敗仍繼續，本版三項皆補。）
+//   ①網頁結束時 addr_finish()（register_shutdown_function）
+//   ②php-fpm 被殺、OOM、主機重開時①不會跑 → it-ccra-addr-sweep.timer 每 10 分鐘補清：
+//     addr-tmp 下滿 30 分鐘且工單鎖拿得到的工單，以及 PHP／nginx 留在暫存區、滿 30 分鐘的上傳與回應暫存檔；
+//     掃不到、鎖不開、刪不掉都算失敗 → 紀錄＋推戰情室＋非零結束
+//   ③每次工單都有總期限，整理＋打包超過就對整個程序群組 TERM、再 KILL，確認回收後才返回
+// （小鹿 10/21 兩次互審 32d7733、c8f1602 的各項，本版皆補，見 tests/addr_test.php。）
 const ADDR_TOOL = '/opt/addr-tool/tools/build.py';
 const ADDR_ROOT = '/var/lib/it-ccra/addr-tmp';
 const ADDR_MAX_FILES = 10;
 const ADDR_DEADLINE = 300;     // 整理＋打包共用的總秒數
-const ADDR_MAX_AGE = 1800;     // 補清：工單資料夾最多存在 30 分鐘
-const ADDR_OUT_CAP = 65536;    // 子程式輸出最多讀這麼多位元組（只為了排空 pipe，內容不記錄）
+const ADDR_MAX_AGE = 1800;     // 補清門檻：滿 30 分鐘（排程每 10 分鐘，故中斷後最晚約 40 分鐘清除）
+const ADDR_REPORT_SUFFIX = '_地址整理.xlsx';
+// 補清時一併處理的 PHP／nginx 暫存（皆為 www-data 擁有、正常請求結束就刪；殘留只可能來自被殺的程序）
+const ADDR_STRAY_GLOBS = ['/tmp/php*', '/var/lib/nginx/body/*', '/var/lib/nginx/fastcgi/*/*/*'];
 
 // 建工單：0700 資料夾＋工單鎖（處理期間持有，補清程序拿不到鎖就不刪）。失敗回 null。
 function addr_new_job(string $root = ADDR_ROOT): ?array {
@@ -39,11 +42,13 @@ function addr_stage(string $job, array $tmpNames, array $names, ?callable $move 
     return true;
 }
 
-// 刪資料夾；回傳刪不掉的路徑清單（空陣列＝全刪掉）。
+// 刪資料夾；回傳刪不掉的路徑清單（空陣列＝全刪掉）。讀不到目錄內容也算失敗。
 function addr_cleanup(string $dir): array {
     $failed = [];
     if (!is_dir($dir)) return $failed;
-    foreach (array_diff(scandir($dir) ?: [], ['.', '..']) as $f) {
+    $list = @scandir($dir);
+    if ($list === false) return [$dir];
+    foreach (array_diff($list, ['.', '..']) as $f) {
         $p = "$dir/$f";
         if (is_dir($p) && !is_link($p)) $failed = array_merge($failed, addr_cleanup($p));
         elseif (!@unlink($p)) $failed[] = $p;
@@ -59,63 +64,93 @@ function addr_finish(array $job): array {
     return $failed;
 }
 
-// 跑一個子程式，期限內同時排空 stdout／stderr；回傳結束碼（逾時 124）。
+// 對整個程序群組送訊號，直到群組沒有程序或逾時。回傳群組是否已清空。
+// $p 是 proc_open 的程序：每輪呼叫 proc_get_status 收掉已結束的群組首程序，否則它留成殭屍，群組看起來永遠還在。
+function addr_kill_group(int $pgid, $p): bool {
+    foreach ([SIGTERM, SIGKILL] as $sig) {
+        @posix_kill(-$pgid, $sig);
+        for ($i = 0; $i < 50; $i++) {                       // 每種訊號最多等 5 秒
+            if (is_resource($p)) proc_get_status($p);
+            if (!@posix_kill(-$pgid, 0)) return true;          // 群組裡已沒有程序
+            usleep(100000);
+        }
+    }
+    return !@posix_kill(-$pgid, 0);
+}
+
+// 跑一個子程式。setsid 讓它（含 timeout 底下的 python）自成一個程序群組；
+// 「輸出讀完」與「程序結束」分開判斷，期限一到或提前收尾時，對整個群組 TERM→KILL 並確認回收。
+// 回傳結束碼；逾時 124；群組殺不掉 125（呼叫端當失敗處理）。
 function addr_exec(array $cmd, string $cwd, array $env, int $seconds): int {
     if ($seconds <= 0) return 124;
-    $p = proc_open(array_merge(['timeout', '--kill-after=10', (string)$seconds], $cmd),
+    $p = proc_open(array_merge(['setsid', 'timeout', '--kill-after=5', (string)$seconds], $cmd),
                    [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $cwd, $env);
     if (!is_resource($p)) return 127;
+    $pgid = proc_get_status($p)['pid'];                    // setsid 不 fork，pid 即新群組 id
     foreach ([1, 2] as $k) stream_set_blocking($pipes[$k], false);
-    $open = [1 => $pipes[1], 2 => $pipes[2]]; $read = 0;
-    $until = microtime(true) + $seconds + 15;          // timeout 本身＋KILL 後限之外再留一點餘裕
-    while ($open && microtime(true) < $until) {
-        $r = array_values($open); $w = $e = null;
-        if (@stream_select($r, $w, $e, 1) === false) break;
-        foreach ($open as $k => $fh) {
-            $chunk = fread($fh, 8192);
-            if ($chunk !== false && $chunk !== '') $read += strlen($chunk);   // 只計量不保存
-            if (feof($fh)) { fclose($fh); unset($open[$k]); }
-        }
-        if ($read > ADDR_OUT_CAP * 64) break;           // 輸出異常大量：不再讀，交給期限收尾
+    $open = [1 => $pipes[1], 2 => $pipes[2]];
+    $until = microtime(true) + $seconds;
+    $exit = null;
+    while (microtime(true) < $until) {
+        if ($open) {                                         // 有 pipe 就排空（內容丟棄、不記錄）
+            $r = array_values($open); $w = $e = null;
+            if (@stream_select($r, $w, $e, 0, 200000) !== false)
+                foreach ($open as $k => $fh) { while (($c = fread($fh, 65536)) !== false && $c !== ''); if (feof($fh)) { fclose($fh); unset($open[$k]); } }
+        } else usleep(200000);                               // pipe 都關了，程序可能還在跑：繼續等，不提前收尾
+        $st = proc_get_status($p);
+        if (!$st['running']) { $exit = $st['exitcode']; break; }
     }
     foreach ($open as $fh) fclose($fh);
-    $st = proc_get_status($p);
-    if ($st['running']) { proc_terminate($p, 9); }
-    return proc_close($p);
+    $clean = addr_kill_group($pgid, $p);                         // 不論怎麼結束，都確認整個群組沒有殘留
+    $rc = proc_close($p);
+    if (!$clean) { error_log("it.ccra.tw addr: process group $pgid survived KILL"); return 125; }
+    if ($exit === null) return 124;                          // 期限到仍在跑
+    return $exit >= 0 ? $exit : $rc;
 }
 
 // 跑工具並打包。回傳 ['ok'=>true,'zip'=>路徑,'reports'=>N] 或 ['ok'=>false,'err'=>給使用者看的說明,'rc'=>代碼]
-function addr_run(string $job, string $tool = ADDR_TOOL, int $deadline = ADDR_DEADLINE): array {
+function addr_run(string $job, string $tool = ADDR_TOOL, int $deadline = ADDR_DEADLINE, ?string $zipper = null): array {
     $env = ['ADDR_DATA' => "$job/data", 'ADDR_REPORT' => "$job/report", 'PATH' => '/usr/bin:/bin',
             'PYTHONIOENCODING' => 'utf-8', 'PYTHONDONTWRITEBYTECODE' => '1', 'HOME' => $job];
+    $timeout = ['ok' => false, 'err' => '處理超過 5 分鐘被中止，請分批上傳。'];
     $end = time() + $deadline;
     $rc = addr_exec(['python3', $tool], $job, $env, $end - time());
+    if ($rc === 124 || $rc === 137) return $timeout + ['rc' => $rc];
     $reports = glob("$job/report/*.xlsx") ?: [];
-    // 只有摘要、沒有任何「_地址整理.xlsx」＝沒有工作表被處理（多半是缺收據欄），當失敗回報，不讓人下載一份空結果
-    $done = array_filter($reports, fn($f) => !str_starts_with(basename($f), '00_'));
-    if ($rc === 124 || $rc === 137) return ['ok' => false, 'rc' => $rc, 'err' => '處理超過 5 分鐘被中止，請分批上傳。'];
+    // 一定要有「_地址整理.xlsx」：只有摘要＝沒有工作表被處理（多半缺收據欄），不讓人下載空結果
+    $done = array_filter($reports, fn($f) => str_ends_with(basename($f), ADDR_REPORT_SUFFIX));
     if ($rc !== 0 || !$done)
         return ['ok' => false, 'rc' => $rc, 'err' => '整理失敗，請確認檔案裡有「收據號碼」或「收據編號」欄位；仍不行請找資訊部（分機 181）。'];
     $zip = "$job/out.zip";
-    $zrc = addr_exec(array_merge(['python3', '-m', 'zipfile', '-c', $zip], array_map('basename', $reports)), "$job/report", $env, $end - time());
-    if ($zrc === 124 || $zrc === 137) return ['ok' => false, 'rc' => $zrc, 'err' => '處理超過 5 分鐘被中止，請分批上傳。'];
+    $zcmd = $zipper ? ['python3', $zipper, $zip] : ['python3', '-m', 'zipfile', '-c', $zip];
+    $zrc = addr_exec(array_merge($zcmd, array_map('basename', $reports)), "$job/report", $env, $end - time());
+    if ($zrc === 124 || $zrc === 137) return $timeout + ['rc' => $zrc];
     if ($zrc !== 0 || !is_file($zip)) return ['ok' => false, 'rc' => $zrc, 'err' => '打包結果失敗，請再試一次。'];
     return ['ok' => true, 'zip' => $zip, 'reports' => count($reports)];
 }
 
-// 補清：刪掉 $root 底下超過 $maxAge 秒、且工單鎖拿得到的資料夾。回傳 [刪除數, 刪不掉的路徑清單]。
-function addr_sweep(string $root = ADDR_ROOT, int $maxAge = ADDR_MAX_AGE, ?int $now = null): array {
+// 補清。回傳 [刪除數, 失敗說明清單]。失敗包括：根目錄讀不到、工單鎖開不了、刪不掉。
+function addr_sweep(string $root = ADDR_ROOT, int $maxAge = ADDR_MAX_AGE, ?int $now = null, array $strayGlobs = ADDR_STRAY_GLOBS): array {
     $now ??= time(); $deleted = 0; $failed = [];
-    if (!is_dir($root)) return [0, []];
-    foreach (array_diff(scandir($root) ?: [], ['.', '..']) as $name) {
-        $dir = "$root/$name";
-        if (!is_dir($dir) || is_link($dir) || !preg_match('/\A[0-9a-f]{24}\z/', $name)) continue;   // 只動工單資料夾
-        if ($now - filemtime($dir) < $maxAge) continue;
-        $lock = @fopen("$dir/.lock", 'c');
-        if ($lock && !flock($lock, LOCK_EX | LOCK_NB)) { fclose($lock); continue; }   // 還有程式在用
-        $f = addr_cleanup($dir);
-        if ($lock) fclose($lock);
-        $f ? $failed = array_merge($failed, $f) : $deleted++;
+    if (is_dir($root)) {
+        $list = @scandir($root);
+        if ($list === false) $failed[] = "scan $root";
+        foreach (array_diff($list ?: [], ['.', '..']) as $name) {
+            $dir = "$root/$name";
+            if (!is_dir($dir) || is_link($dir) || !preg_match('/\A[0-9a-f]{24}\z/', $name)) continue;   // 只動工單資料夾
+            if ($now - filemtime($dir) < $maxAge) continue;
+            $lock = @fopen("$dir/.lock", 'c');
+            if (!$lock) { $failed[] = "lock $dir"; continue; }                     // 鎖開不了：不刪、當失敗
+            if (!flock($lock, LOCK_EX | LOCK_NB)) { fclose($lock); continue; }    // 還有程式在用
+            $f = addr_cleanup($dir);
+            fclose($lock);
+            $f ? $failed = array_merge($failed, $f) : $deleted++;
+        }
+    }
+    foreach ($strayGlobs as $g) foreach (glob($g) ?: [] as $f) {
+        if (!is_file($f) || is_link($f) || $now - filemtime($f) < $maxAge) continue;
+        if (@fileowner($f) !== posix_geteuid()) continue;                          // 只碰自己（www-data）的暫存
+        @unlink($f) ? $deleted++ : $failed[] = $f;
     }
     return [$deleted, $failed];
 }

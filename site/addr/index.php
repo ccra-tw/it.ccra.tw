@@ -15,6 +15,11 @@ if (!is_it_staff($email) && ($who['dept'] ?? '') !== '捐款服務中心') {
 }
 function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 $secret = trim((string)@file_get_contents(STATE_DIR . '/form_secret'));
+if (strlen($secret) < 16) {             // 金鑰讀不到或太短：CSRF 會變成可預測，寧可停用（小鹿互審）
+    error_log('it.ccra.tw addr: form_secret missing or too short, refusing');
+    http_response_code(503);
+    exit('系統設定異常，暫時無法使用，請通知資訊部（分機 181）。');
+}
 $csrf = hash_hmac('sha256', 'addr' . $email . date('Y-m-d'), $secret);
 function addr_log($email, $n, $ok, $msg = '') {
     error_log(sprintf('it.ccra.tw addr: %s files=%d ok=%s %s', $email, $n, $ok ? 'yes' : 'no', $msg));
@@ -76,8 +81,8 @@ button{padding:10px 20px;font-size:1em}
 <body>
 <div class="box">
 <h1>捐款名單地址整理</h1>
-<p class="note">上傳含「收據號碼」或「收據編號」欄的 Excel（一次最多 <?= ADDR_MAX_FILES ?> 個、單檔 20MB），系統會補上郵遞區號、縣市區、整理後地址與收據判斷，下載回來是一個壓縮檔：每個檔一份「_地址整理.xlsx」，外加「00_處理摘要與待確認清單.xlsx」。</p>
-<p class="note">🔒 上傳的檔案只在整理當下暫存，下載完成即刪除；萬一處理中斷，主機最多 30 分鐘內也會自動清除。</p>
+<p class="note">上傳含「收據號碼」或「收據編號」欄的 Excel（一次最多 <?= ADDR_MAX_FILES ?> 個、單檔 20MB、整批合計 60MB），系統會補上郵遞區號、縣市區、整理後地址與收據判斷，下載回來是一個壓縮檔：每個檔一份「_地址整理.xlsx」，外加「00_處理摘要與待確認清單.xlsx」。</p>
+<p class="note">🔒 上傳的檔案只在整理當下暫存，下載完成即刪除；萬一處理中斷，暫存滿 30 分鐘後會由每 10 分鐘一次的排程補清；清除失敗會通知資訊部。</p>
 <?php if ($err): ?><div class="err"><?= h($err) ?></div><?php endif; ?>
 <form method="post" enctype="multipart/form-data" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='整理中，請稍候…'">
     <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
