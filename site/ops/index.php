@@ -9,6 +9,7 @@ require '/var/www/it-lib/zabbix.php';
 require '/var/www/it-lib/graph.php';   // 主任有約取消時撤回行事曆邀請（同 /meet/ 那支的專用 App，只有行事曆權限）
 require '/var/www/it-lib/svc_apply.php';   // 資訊服務申請（v2.0 單一入口，GitHub #7）
 require '/var/www/it-lib/survey.php';   // 軟體與系統使用調查（專屬連結免登入，統計只在戰情室，熊哥 10-16）
+require '/var/www/it-lib/devprojects.php';   // 開發案狀態（熊哥 10-21：比照 CCNDA 戰情室，GitHub #18）
 $id = access_identity();
 $email = strtolower($id['email']);
 if (!is_it_staff($email)) { http_response_code(403); exit('戰情室只開放給資訊部帳號。'); }
@@ -298,6 +299,16 @@ function barcls($v) { return $v === null ? '' : ($v >= 90 ? 'hi' : ($v >= 75 ? '
 .tag.new{background:var(--mist);color:var(--teal-d);border-color:transparent}
 .tag.doing{background:color-mix(in srgb,var(--yellow) 22%,var(--panel));border-color:transparent}
 .tag.done{background:color-mix(in srgb,var(--green) 16%,var(--panel));color:var(--green);border-color:transparent}
+/* 開發案狀態（GitHub #18） */
+.dp-proj{padding:10px 0;border-top:1px solid var(--edge)}.dp-proj:first-of-type{border-top:0}
+.dp-head{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline}
+.dp-items{list-style:none;margin:6px 0 0;padding:0}.dp-items li{padding:5px 0}
+.dp-note{font-size:13px;color:var(--muted,#666);margin:2px 0 0 4px;overflow-wrap:anywhere}
+.dp-warn{color:var(--red);font-weight:700}
+.tag.dp-dev,.tag.dp-review{background:var(--mist);color:var(--teal-d);border-color:transparent}
+.tag.dp-confirm,.tag.dp-waiting,.tag.dp-deploy{background:color-mix(in srgb,var(--yellow) 22%,var(--panel));border-color:transparent}
+.tag.dp-blocked{background:color-mix(in srgb,var(--red) 16%,var(--panel));color:var(--red);border-color:transparent}
+.tag.dp-done{background:color-mix(in srgb,var(--green) 16%,var(--panel));color:var(--green);border-color:transparent}
 .ttl{font-weight:800}
 .meta{color:var(--muted);font-size:13px;margin-top:3px}
 .desc{margin:6px 0 0;font-size:14px;color:var(--ink-2);white-space:pre-wrap}
@@ -453,6 +464,12 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
     })();
     </script>
     <?php endif; ?>
+  </div>
+
+  <?php [$dpData, $dpWarn] = devprojects_data(); ?>
+  <div class="box" id="devprojects">
+    <div class="sec"><h2>🧩 開發案狀態</h2><small><?= $dpData ? '更新於 ' . h(substr((string)($dpData['updated_at'] ?? ''), 11, 5)) . '・每小時更新' : '' ?>・項目＝未結的 GitHub issue 與對應 Planner 票</small></div>
+    <?= devprojects_render($dpData, $dpWarn) ?>
   </div>
 
   <a class="box hostbox <?= $bad ? 'bad' : 'good' ?>" href="/status/" id="hosts">
