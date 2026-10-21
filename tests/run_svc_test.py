@@ -14,5 +14,5 @@ subprocess.run(ssh + [f"rm -rf {T} && mkdir -p {T}"], check=True)
 subprocess.run(["tar", "-C", ROOT, "-cf", "-", "lib", "site", "tests"], stdout=open(os.path.join(os.environ.get("TEMP", "/tmp"), "itccra-test.tar"), "wb"), check=True)
 subprocess.run(["scp", "-q", "-i", KEY, os.path.join(os.environ.get("TEMP", "/tmp"), "itccra-test.tar"), f"{HOST}:{T}/t.tar"], check=True)
 cmd = (f"cd {T} && tar -xf t.tar && grep -rl /var/www/it-lib/ site | xargs sed -i 's#/var/www/it-lib/#{T}/lib/#g' && "
-       f"chmod -R a+rX {T} && sudo -n -u www-data php {T}/tests/svc_apply_test.php {T}/site {T}/lib; rc=$?; sudo -n -u www-data php {T}/tests/push_prefs_test.php {T}/site {T}/lib || rc=1; sudo -n -u www-data php {T}/tests/survey_test.php {T}/site {T}/lib || rc=1; rm -rf {T}; exit $rc")
+       f"chmod -R a+rX {T} && sudo -n -u www-data php {T}/tests/svc_apply_test.php {T}/site {T}/lib; rc=$?; sudo -n -u www-data php {T}/tests/push_prefs_test.php {T}/site {T}/lib || rc=1; sudo -n -u www-data php {T}/tests/survey_test.php {T}/site {T}/lib || rc=1; sudo -n -u www-data php {T}/tests/addr_test.php {T}/site {T}/lib || rc=1; rm -rf {T}; exit $rc")
 sys.exit(subprocess.run(ssh + [cmd]).returncode)
