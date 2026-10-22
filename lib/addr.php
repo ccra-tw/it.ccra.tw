@@ -68,8 +68,13 @@ function addr_finish(array $job): array {
 
 // 對整個程序群組送訊號，直到群組沒有程序或逾時。回傳群組是否已清空。
 // $p 是 proc_open 的程序：每輪呼叫 proc_get_status 收掉已結束的群組首程序，否則它留成殭屍，群組看起來永遠還在。
+// 訊號用數字常數：SIGTERM／SIGKILL 由 pcntl 提供，命令列 PHP 有、php-fpm 沒有（10/22 繁英姊第一次實際上傳就因此 500，
+// 測試全在命令列跑所以沒抓到）。Linux 上 TERM=15、KILL=9。
+const ADDR_SIG_TERM = 15;
+const ADDR_SIG_KILL = 9;
+
 function addr_kill_group(int $pgid, $p): bool {
-    foreach ([SIGTERM, SIGKILL] as $sig) {
+    foreach ([ADDR_SIG_TERM, ADDR_SIG_KILL] as $sig) {
         @posix_kill(-$pgid, $sig);
         for ($i = 0; $i < 50; $i++) {                       // 每種訊號最多等 5 秒
             if (is_resource($p)) proc_get_status($p);

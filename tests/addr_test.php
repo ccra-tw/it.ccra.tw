@@ -189,5 +189,11 @@ addr_cleanup($sp);
 ok(!is_dir($root), '測試暫存根目錄清乾淨');
 addr_cleanup($scratch);
 
+echo "php-fpm 相容（10/22 實際上傳 500）
+";
+$src = preg_replace('#//[^
+]*#', '', file_get_contents($LIB . '/addr.php'));   // 註解裡提到 SIGTERM 不算
+ok(!preg_match('/(?<![A-Z_])SIG(TERM|KILL|INT|HUP)(?![A-Z_])|pcntl_/', $src), 'lib/addr.php 不用 pcntl 常數或函式（php-fpm 沒有 pcntl，命令列測試抓不到）');
+
 echo "$n 項，失敗 $fail\n";
 exit($fail ? 1 : 0);
