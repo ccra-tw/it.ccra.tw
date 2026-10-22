@@ -20,6 +20,13 @@ $out = ['pcntl' => extension_loaded('pcntl'), 'posix' => extension_loaded('posix
 $t = microtime(true);
 $rc = addr_exec(['sleep', '30'], sys_get_temp_dir(), ['PATH' => '/usr/bin:/bin'], 1);
 $out['rc'] = $rc; $out['secs'] = round(microtime(true) - $t, 1);
+// 小鹿 10/22：sleep 收到 TERM 就結束，走不到 KILL。這支忽略 TERM（exec 後仍維持忽略），逼 addr_kill_group 送 KILL
+$t = microtime(true);
+$out['rc2'] = addr_exec(['sh', '-c', 'trap "" TERM; exec sleep 3017'], sys_get_temp_dir(), ['PATH' => '/usr/bin:/bin'], 1);
+$out['secs2'] = round(microtime(true) - $t, 1);
+$left = 0;
+foreach (glob('/proc/[0-9]*/cmdline') ?: [] as $f) { $c = @file_get_contents($f); if ($c !== false && str_contains($c, "sleep\0" . "3017")) $left++; }
+$out['left2'] = $left;
 echo json_encode($out);
 """
 
@@ -80,9 +87,14 @@ def main():
         ok(bool(r), "php-fpm 有回 JSON（沒有 Fatal）" + ("" if r else "：" + (body + err.decode("utf-8", "replace"))[:300]))
         ok(r.get("sapi") == "fpm-fcgi", "真的在 php-fpm 裡執行（sapi=%s）" % r.get("sapi"))
         ok(r.get("posix") is True, "fpm 有 posix")
-        print("  ℹ️ fpm pcntl=%s（false 就是命令列測試抓不到的差異）" % r.get("pcntl"))
+        # 環境前提：池裡沒有 pcntl 才測得到 10/22 那個差異；哪天池裝了 pcntl，這項會紅，提醒改留一個停用 pcntl 的回歸案例
+        ok(r.get("pcntl") is False, "fpm 沒有 pcntl（本測試的前提；變了要改測法）")
         ok(r.get("rc") == 124, "逾時回 124（走過 addr_kill_group）")
         ok(r.get("secs", 99) < 15, "1 秒逾時＋收尾在 15 秒內結束（實際 %s 秒）" % r.get("secs"))
+        ok(r.get("rc2") == 124, "忽略 TERM 的程序：逾時仍回 124（KILL 分支收得掉，不是 125）")
+        ok(r.get("secs2", 0) >= 4, "…有等滿 TERM 的 5 秒＝真的走到 KILL（實際 %s 秒）" % r.get("secs2"))
+        ok(r.get("secs2", 99) < 15,"…TERM 等 5 秒後 KILL，15 秒內結束（實際 %s 秒）" % r.get("secs2"))
+        ok(r.get("left2") == 0, "…群組沒有殘留程序（剩 %s 個）" % r.get("left2"))
         print("%d 項，失敗 %d" % (n, fail))
         sys.exit(1 if fail else 0)
     finally:

@@ -181,6 +181,14 @@ chmod("$fp/222/fd", 0700);
 ok(addr_in_use("$sp/phpHELD", $fp, $only111, $cmdOther) === 'free', '讀不到 fd 的是其他 PHP 池的 worker → 略過');
 ok(addr_in_use("$sp/phpHELD", $fp, $only111, $cmdMine) === 'unknown', '讀不到 fd 的是 /addr/ 本池 worker → unknown');
 ok(addr_in_use("$sp/phpHELD", $fp, $only111, $cmdNone) === 'unknown', '連命令列都讀不到 → unknown');
+// 10/22 偶發 unknown 的候選來源：其他池剛 fork 出、還沒改名的 worker 仍顯示 master 的命令列
+$cmdMaster = fn($d) => "php-fpm: master process (/etc/php/8.3/fpm/php-fpm.conf)\0";
+ok(addr_in_use("$sp/phpHELD", $fp, $only111, $cmdMaster, $why) === 'unknown', '讀不到 fd 且命令列還是 master（剛 fork）→ unknown');
+ok(count($why) === 1 && str_contains($why[0], 'cmd=fpm-master') && !str_contains($why[0], '/etc/'), '…記下原因（類別，不記命令列原文）');
+$calls = 0;
+$cmdForking = function ($d) use (&$calls) { return ++$calls === 1 ? "php-fpm: master process\0" : "php-fpm: pool it-ccra\0"; };
+ok(addr_in_use_settled("$sp/phpHELD", $fp, $only111, $cmdForking, 1000) === 'free', '重掃：第二次看清是其他池 worker → free（有依據才改判）');
+ok(addr_in_use_settled("$sp/phpHELD", $fp, $only111, $cmdMine, 1000) === 'unknown', '重掃：仍是本池 worker → 維持 unknown');
 chmod("$fp/111/fd", 0700); chmod("$fp/222/fd", 0700);
 ok(addr_in_use("$sp/phpHELD", "$scratch/no-such-proc") === 'unknown', '/proc 本身讀不到 → unknown');
 addr_cleanup($fp);
