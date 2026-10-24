@@ -3,6 +3,7 @@
 // 類型設定、資料表、狀態轉移集中在這裡：申請頁、戰情室、測試都呼叫同一組函式，新增類型只改 svc_types()。
 // 這台不寄信：確認信、Planner 工單、完成通知由資訊部本機維運腳本讀取後處理（先記後寄）。
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/prereview.php';   // 申請單預審（#19）
 
 const SVC_DIRECTOR = 'black@ccra.org.tw';   // 需主任核准的類型只有這個帳號能核准
 // 狀態：review 待主任核准 → intake 待受理 → doing 處理中 → done 已完成；review 也可能 → rejected 未核准
@@ -109,6 +110,7 @@ function svc_db(): PDO {
         ack_notified_at TEXT, decision_notified_at TEXT, done_notified_at TEXT,
         first_response_at TEXT, is_test BOOLEAN NOT NULL DEFAULT FALSE)');
     $d->exec('ALTER TABLE req ADD COLUMN IF NOT EXISTS head_note TEXT');   // 主管知會結果（#11）：已知會誰／查無主管
+    $d->exec('ALTER TABLE req ADD COLUMN IF NOT EXISTS pre_verdict TEXT');   // 送出當下的預審建議（#19）：approve／director／return／skip，規則日後改了也留得住當時判斷
     return $d;
 }
 
@@ -157,7 +159,10 @@ function svc_submit(array $who, array $in): array {
                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?::jsonb,?) RETURNING id');
     $st->execute([date('c'), $type, $status, strtolower($who['email']), $name, (string)($who['dept'] ?? ''),
                   $forSelf ? 'true' : 'false', $tName, $tDept, $tStart, $purpose, $wanted !== '' ? $wanted : null, json_encode((object)$fields, JSON_UNESCAPED_UNICODE), !empty($in['is_test']) ? 'true' : 'false']);
-    return [[], (int)$st->fetchColumn()];
+    $id = (int)$st->fetchColumn();
+    $new = $d->query('SELECT * FROM req WHERE id = ' . $id)->fetch(PDO::FETCH_ASSOC);
+    $d->prepare('UPDATE req SET pre_verdict = ? WHERE id = ?')->execute([svc_prereview($new)['verdict'], $id]);
+    return [[], $id];
 }
 
 // 主任核准／不核准（需主任核准類 review → intake 交資訊部受理，或 → rejected）。只有 SVC_DIRECTOR 能做。

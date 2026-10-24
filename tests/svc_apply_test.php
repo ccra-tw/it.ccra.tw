@@ -38,6 +38,7 @@ $r = $row(1);
 ok($r && $r['status'] === 'intake' && $r['type'] === 'other' && $r['applicant_email'] === $STAFF, '「其他」類直接進待受理，申請人正確');
 req($STAFF, 'apply/index.php', 'POST', $good);
 ok($cnt() === 1, '同人同類同對象重送不重複');
+ok(($row(1)['pre_verdict'] ?? '') === 'approve', '送出時寫入預審建議（其他類＝建議核准）');
 $o = req($STAFF, 'apply/index.php', 'GET', [], ['sent' => '1']);
 ok(str_contains($o, 'S' . date('ymd') . '-001') && str_contains($o, '待受理'), '送出後顯示申請編號與狀態');
 $o = req($STAFF2, 'apply/index.php', 'GET', [], ['sent' => '1']);
@@ -46,6 +47,8 @@ ok(!str_contains($o, 'S' . date('ymd') . '-001'), '別人看不到我的申請�
 echo "戰情室\n";
 $o = req($OUT, 'ops/index.php');
 ok(str_contains($o, '戰情室只開放給資訊部帳號'), '非資訊部帳號被擋');
+$o = req($STAFF, 'ops/index.php');
+ok(str_contains($o, '預審：建議核准') && str_contains($o, '判斷屬於哪一類'), '待受理的單顯示預審建議與理由');
 req($STAFF, 'ops/index.php', 'POST', ['csrf' => 'bad', 'act' => 'svc', 'do' => 'accept', 'id' => 1]);
 ok($row(1)['status'] === 'intake', 'CSRF 錯誤不受理');
 req($STAFF, 'ops/index.php', 'POST', ['csrf' => $tok('ops', $STAFF), 'act' => 'svc', 'do' => 'accept', 'id' => 1]);
