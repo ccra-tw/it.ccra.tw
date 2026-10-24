@@ -3,6 +3,7 @@
 // 用法：php tests/svc_apply_test.php <site 目錄> <lib 目錄>（由 tests/run_svc_test.py 準備好暫存副本後呼叫）
 $SITE = $argv[1]; $LIB = $argv[2];
 putenv('ITCCRA_TEST_DB=1');
+date_default_timezone_set('Asia/Taipei');  // 與頁面（access.php）同時區；否則台北 00:00～08:00 測試算出的 CSRF 日期與頁面差一天
 require $LIB . '/svc_apply.php';
 require $LIB . '/itstaff.php';
 $secret = trim((string)file_get_contents('/var/lib/it-ccra/form_secret'));
@@ -256,7 +257,10 @@ ok(count($h) === 4 && $h[3]['src'] === 'legacy' && str_starts_with($h[3]['no'], 
 ok(count(svc_history('歷史')) === 5, '同工歷年（姓名）也找得到「代他申請」的單');
 ok(svc_history('') === [] && svc_history('查無此人') === [], '空白與查無回空');
 $st = svc_stats('2026-09');
-ok(($st['vpn'] ?? null) === ['total' => 2, 'done' => 1, 'rejected' => 1, 'open' => 0, 'resp_h' => 3.0, 'fin_h' => 24.0], '月報：測試單排除、平均回應 3 小時、完成 24 小時');
+ok(($st['vpn'] ?? null) === ['total' => 2, 'done' => 1, 'rejected' => 1, 'open' => 0, 'pre_mismatch' => 0, 'resp_h' => 3.0, 'fin_h' => 24.0], '月報：測試單排除、平均回應 3 小時、完成 24 小時');
+$d->exec("UPDATE req SET pre_verdict = 'approve' WHERE type = 'vpn' AND status = 'rejected' AND is_test = FALSE");
+ok((svc_stats('2026-09')['vpn']['pre_mismatch'] ?? null) === 1, '月報：建議核准卻未核准計入預審不一致');
+$d->exec("UPDATE req SET pre_verdict = NULL WHERE type = 'vpn'");
 ok(($st['ai']['total'] ?? 0) === 1 && ($st['ai']['fin_h'] ?? null) === 6.0 && $st['folder']['open'] === 1 && $st['folder']['resp_h'] === null, '月報含舊紀錄；沒回應的不算進平均');
 ok(svc_stats('2026-08') === [], '沒申請的月份為空');
 // 戰情室畫面（篩選、歷年、月報）在測試資料表下開不起整頁（其他區塊的表不存在），改在上線後以正式資料唯讀 GET 驗證

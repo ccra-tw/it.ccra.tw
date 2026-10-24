@@ -274,9 +274,12 @@ function svc_stats(string $ym): array {
     foreach (svc_all() as $r) {
         if ($r['is_test'] || !str_starts_with(date('Y-m', strtotime($r['created_at'])), $ym)) continue;
         $t = &$by[$r['type']];
-        $t ??= ['total' => 0, 'done' => 0, 'rejected' => 0, 'open' => 0, 'resp' => [], 'fin' => []];
+        $t ??= ['total' => 0, 'done' => 0, 'rejected' => 0, 'open' => 0, 'pre_mismatch' => 0, 'resp' => [], 'fin' => []];
         $t['total']++;
         if ($r['status'] === 'done') $t['done']++; elseif ($r['status'] === 'rejected') $t['rejected']++; else $t['open']++;
+        // 預審與最後結果不一致（#19）：建議核准卻未核准、建議退回補件卻完成了；舊紀錄沒有 pre_verdict 不計
+        $pv = $r['pre_verdict'] ?? null;
+        if (($pv === PRE_APPROVE && $r['status'] === 'rejected') || ($pv === PRE_RETURN && $r['status'] === 'done')) $t['pre_mismatch']++;
         if (($h = $hours($r['created_at'], $r['first_response_at'])) !== null) $t['resp'][] = $h;
         if ($r['status'] === 'done' && ($h = $hours($r['created_at'], $r['done_at'])) !== null) $t['fin'][] = $h;
         unset($t);

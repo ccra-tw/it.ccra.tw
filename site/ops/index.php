@@ -596,8 +596,8 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
     <details id="svc-stat"<?= isset($_GET['sm']) ? ' open' : '' ?>><summary>月報統計（<?= h($svcMonth) ?>，不含測試單）</summary>
       <form method="get" action="./#svc-stat" class="act"><input type="month" name="sm" value="<?= h($svcMonth) ?>"><button>切換月份</button></form>
       <?php if (!$svcStats): ?><p class="empty">這個月沒有申請。</p><?php else: ?>
-      <table class="svct"><tr><th>類型</th><th>件數</th><th>已完成</th><th>未核准</th><th>處理中</th><th>平均首次回應</th><th>平均完成</th></tr>
-        <?php foreach ($svcStats as $k => $s): ?><tr><td><?= h($SVT[$k]['name'] ?? $k) ?></td><td><?= $s['total'] ?></td><td><?= $s['done'] ?></td><td><?= $s['rejected'] ?></td><td><?= $s['open'] ?></td>
+      <table class="svct"><tr><th>類型</th><th>件數</th><th>已完成</th><th>未核准</th><th>處理中</th><th title="建議核准卻未核准，或建議退回補件卻完成">預審不一致</th><th>平均首次回應</th><th>平均完成</th></tr>
+        <?php foreach ($svcStats as $k => $s): ?><tr><td><?= h($SVT[$k]['name'] ?? $k) ?></td><td><?= $s['total'] ?></td><td><?= $s['done'] ?></td><td><?= $s['rejected'] ?></td><td><?= $s['open'] ?></td><td><?= (int)($s['pre_mismatch'] ?? 0) ?></td>
           <td><?= $s['resp_h'] === null ? '—' : h($s['resp_h']) . ' 小時' ?></td><td><?= $s['fin_h'] === null ? '—' : h($s['fin_h']) . ' 小時' ?></td></tr><?php endforeach; ?>
       </table><?php endif; ?>
     </details>
