@@ -12,6 +12,27 @@ function zbx_call($method, $params, $token) {
     return $j['result'];
 }
 
+// 主機可用狀態：有代理／SNMP 介面就看介面；只有 ICMP（沒裝代理的 NAS、交換器）介面永遠是 0 未知，改看 icmpping（1 通／0 不通）。
+// 熊哥 2026-11-02「設備監控有一堆狀況」：11/01 新加的 13 台 ping-only 主機被畫成「狀態未知」。
+function zbx_avail(array $interfaces, $ping) {
+    $av = 0;
+    foreach ($interfaces as $i) $av = max($av, (int)$i['available']);
+    foreach ($interfaces as $i) if ((int)$i['available'] === 2) $av = 2;
+    if ($av === 0 && $ping !== null) $av = ((int)$ping === 1) ? 1 : 2;
+    return $av;
+}
+
+// 主機上有哪些網站（熊哥 2026-11-02：「哪一個網站在哪一台主機，在主機展開的時候可以看到」）。
+// STATE_DIR/host_sites.json 由大蘇本機每天從 IIS 綁定／nginx server_name 抓好推上來：{"updated_at":..., "hosts":{"<Zabbix hostid>":["網址",...]}}
+function zbx_sites($file = null) {
+    $file = $file ?? STATE_DIR . '/host_sites.json';
+    $j = is_file($file) ? json_decode((string)@file_get_contents($file), true) : null;
+    if (!is_array($j) || !is_array($j['hosts'] ?? null)) return [[], ''];
+    $out = [];
+    foreach ($j['hosts'] as $hid => $list) if (is_array($list)) $out[(string)$hid] = array_values(array_filter($list, 'is_string'));
+    return [$out, (string)($j['updated_at'] ?? '')];
+}
+
 function zabbix_hosts() {
     $cache = STATE_DIR . '/zabbix_cache.json';
     if (is_file($cache) && time() - filemtime($cache) < 60) return [json_decode(file_get_contents($cache), true), ''];
@@ -20,7 +41,7 @@ function zabbix_hosts() {
         $hosts = zbx_call('host.get', ['output' => ['hostid', 'host', 'name'], 'filter' => ['status' => 0],
             'selectInterfaces' => ['type', 'available', 'error'], 'selectHostGroups' => ['name']], $token);
         $ids = array_column($hosts, 'hostid');
-        $keys = ['system.cpu.util', 'vm.memory.utilization', 'vm.memory.util', 'vfs.fs.dependent.size[/,pused]', 'vfs.fs.dependent.size[C:,pused]', 'icmppingsec'];
+        $keys = ['system.cpu.util', 'vm.memory.utilization', 'vm.memory.util', 'vfs.fs.dependent.size[/,pused]', 'vfs.fs.dependent.size[C:,pused]', 'icmppingsec', 'icmpping'];
         $items = zbx_call('item.get', ['hostids' => $ids, 'output' => ['hostid', 'key_', 'lastvalue', 'lastclock'],
             'filter' => ['key_' => $keys]], $token);
         $probs = zbx_call('problem.get', ['hostids' => $ids, 'output' => ['eventid', 'name', 'severity', 'clock', 'objectid'],
@@ -31,10 +52,10 @@ function zabbix_hosts() {
         foreach ($trig as $t) $t2h[$t['triggerid']] = $t['hosts'][0]['hostid'] ?? null;
         $out = [];
         foreach ($hosts as $h) {
-            $av = 0;
-            foreach ($h['interfaces'] as $i) $av = max($av, (int)$i['available']);
-            foreach ($h['interfaces'] as $i) if ((int)$i['available'] === 2) $av = 2;
-            $row = ['hostid' => $h['hostid'], 'name' => $h['name'], 'group' => $h['hostgroups'][0]['name'] ?? '', 'avail' => $av,
+            $ping = null;
+            foreach ($items as $it) if ($it['hostid'] === $h['hostid'] && $it['key_'] === 'icmpping' && $it['lastclock']) $ping = $it['lastvalue'];
+            $row = ['hostid' => $h['hostid'], 'name' => $h['name'], 'group' => $h['hostgroups'][0]['name'] ?? '',
+                'avail' => zbx_avail($h['interfaces'], $ping), 'ping_only' => $ping !== null && !array_filter($h['interfaces'], fn($i) => (int)$i['available'] !== 0),
                 'cpu' => null, 'mem' => null, 'disk' => null, 'problems' => []];
             foreach ($items as $it) {
                 if ($it['hostid'] !== $h['hostid'] || !$it['lastclock']) continue;
