@@ -13,7 +13,7 @@ $vers = json_decode((string)@file_get_contents(__DIR__ . '/versions.json'), true
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>版本升級紀錄｜CCRA 資訊服務</title>
+<title>版本紀錄｜CCRA 資訊服務</title>
 <link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="/img/favicon-32.png">
 <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
@@ -42,7 +42,7 @@ $vers = json_decode((string)@file_get_contents(__DIR__ . '/versions.json'), true
   <img class="word word-light" src="/img/textlogo_black.png" alt="中華基督教救助協會">
   <img class="word word-dark" src="/img/textlogo_white.png" alt="中華基督教救助協會"></a>
   <span class="sep" aria-hidden="true"></span>
-  <div class="title">版本升級紀錄<small>Release notes</small></div>
+  <div class="title">版本紀錄<small>Release notes</small></div>
 </div></header>
 <main class="wrap">
   <p class="rule">版本號依序是 <b>升級服務．大修．小修</b>。
