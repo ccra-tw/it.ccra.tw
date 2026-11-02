@@ -253,6 +253,7 @@ $isNet = fn($x) => $x['group'] === '網路設備';
 $zbHosts = array_values(array_filter($zh, fn($x) => !$isNet($x)));
 $zbNet = array_values(array_filter($zh, $isNet));
 $zbBad = count(array_filter($zh, fn($x) => $x['avail'] !== 1 || $x['problems']));
+[$zbSites, $zbSitesAt] = zbx_sites();   // 熊哥 11-02：主機展開看得到上面的網站
 const SEV = [0 => '未分類', 1 => '資訊', 2 => '警告', 3 => '一般', 4 => '嚴重', 5 => '災難'];
 function pct($v) { return $v === null ? '—' : $v . '%'; }
 function barcls($v) { return $v === null ? '' : ($v >= 90 ? 'hi' : ($v >= 75 ? 'mid' : '')); }
@@ -326,7 +327,15 @@ details summary{cursor:pointer;color:var(--muted);font-size:14px;margin-top:8px}
 .empty{color:var(--muted);margin:0}
 a.hostbox{display:block;text-decoration:none;color:inherit}
 a.hostbox:hover{border-color:var(--teal)}
-a.hostbox.bad{border-color:color-mix(in srgb,var(--red) 55%,var(--edge))}
+a.hostbox.bad,div.hostbox.bad{border-color:color-mix(in srgb,var(--red) 55%,var(--edge))}
+.hostbox .sec a{color:inherit;text-decoration:none}.hostbox .sec a:hover{color:var(--teal)}
+details.zh{margin-top:6px;border-bottom:1px dashed var(--edge);padding-bottom:6px}
+details.zh summary{cursor:pointer;list-style:none;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:14px}
+details.zh summary::-webkit-details-marker{display:none}
+details.zh summary .dot{width:9px;height:9px;border-radius:50%;background:#2e9e6a;flex:none}
+details.zh.badh summary .dot{background:var(--red)}
+details.zh .zsites{margin:6px 0 0 17px;padding:0;list-style:none;font-size:13px}
+details.zh .zsites a{color:var(--teal);word-break:break-all}
 .hostsum{margin:8px 0 0;font-size:15px}
 .hostsum b{font-size:22px;font-weight:900}
 .hostsum b.red{color:var(--red)}
@@ -483,8 +492,8 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
   </a>
 
   <!-- 設備監控（Zabbix；熊哥 10-04 定名，不叫主機監控）：一張卡、左右兩欄（左主機、右防火牆），有問題的才列出來（熊哥 10-04） -->
-  <a class="box hostbox <?= $zbBad ? 'bad' : 'good' ?>" href="https://mon.ccra.tw/" target="_blank" rel="noopener" id="servers">
-    <div class="sec" style="margin:0"><h2><?= $zbBad ? '🔴' : '🟢' ?> 設備監控</h2><small>Zabbix<?= $zb ? '　更新於 ' . h(date('H:i', $zb['at'])) : '' ?>　點這裡看詳情 →</small></div>
+  <div class="box hostbox <?= $zbBad ? 'bad' : 'good' ?>" id="servers">
+    <div class="sec" style="margin:0"><h2><?= $zbBad ? '🔴' : '🟢' ?> 設備監控</h2><small><a href="https://mon.ccra.tw/" target="_blank" rel="noopener">Zabbix<?= $zb ? '　更新於 ' . h(date('H:i', $zb['at'])) : '' ?>　點這裡看詳情 →</a></small></div>
     <?php if (!$zb): ?><p class="err"><?= h($zbErr) ?></p>
     <?php else: ?>
     <div class="zcols">
@@ -493,16 +502,21 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
       <div class="zcol">
         <p class="zhead"><?= h($ctitle) ?></p>
         <p class="hostsum" style="margin-top:2px"><b><?= count($list) - $nb ?></b> 正常　<b class="<?= $nb ? 'red' : '' ?>"><?= $nb ?></b> 有狀況</p>
-        <?php foreach ($list as $x): if ($x['avail'] === 1 && !$x['problems']) continue; ?>
-          <p class="hostbad" style="display:block;margin-top:8px"><span class="tag high"><?= h($x['name']) ?></span><br>
-            <span class="meta" style="margin:0"><?= $x['avail'] === 2 ? '連不到' : ($x['avail'] === 0 ? '狀態未知' : '') ?><?php foreach (array_slice($x['problems'], 0, 2) as $p) echo h(SEV[$p['severity']] ?? '') . '：' . h($p['name']) . '　'; ?></span></p>
+        <?php foreach ($list as $x): $isBad = $x['avail'] !== 1 || $x['problems']; $sites = $zbSites[(string)$x['hostid']] ?? []; ?>
+          <details class="zh <?= $isBad ? 'badh' : '' ?>"<?= $isBad ? ' open' : '' ?>>
+            <summary><span class="dot"></span><?= h($x['name']) ?><?php if ($sites): ?> <span class="meta" style="margin:0">（<?= count($sites) ?> 個網站）</span><?php endif; ?></summary>
+            <?php if ($isBad): ?><p class="meta" style="margin:4px 0 0 17px"><?= $x['avail'] === 2 ? (!empty($x['ping_only']) ? 'ping 不通' : '連不到') : ($x['avail'] === 0 ? '狀態未知' : '') ?><?php foreach (array_slice($x['problems'], 0, 2) as $p) echo h(SEV[$p['severity']] ?? '') . '：' . h($p['name']) . '　'; ?></p><?php endif; ?>
+            <p class="meta" style="margin:4px 0 0 17px"><?= !empty($x['ping_only']) ? '只做 ping 監控' : 'CPU ' . pct($x['cpu']) . '　記憶體 ' . pct($x['mem']) . '　磁碟 ' . pct($x['disk']) ?></p>
+            <?php if ($sites): ?><ul class="zsites"><?php foreach ($sites as $s): ?><li><a href="https://<?= h($s) ?>" target="_blank" rel="noopener"><?= h($s) ?></a></li><?php endforeach; ?></ul><?php endif; ?>
+          </details>
         <?php endforeach; ?>
       </div>
       <?php endforeach; ?>
     </div>
+    <?php if ($zbSitesAt): ?><p class="meta">網站對照更新於 <?= h($zbSitesAt) ?>（各主機 IIS／nginx 設定每日自動抓取）</p><?php endif; ?>
     <?php if ($zbErr): ?><p class="meta"><?= h($zbErr) ?></p><?php endif; ?>
     <?php endif; ?>
-  </a>
+  </div>
 
   <div class="box" id="repair">
     <div class="sec"><h2>🛠️ 資訊報修</h2><small>未完成在前，越急越前面；新報修貼 Teams 報修頻道並開 Planner 任務（資訊部共同事務），指派後掛上負責人</small></div>
