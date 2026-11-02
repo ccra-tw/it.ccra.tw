@@ -578,7 +578,7 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
       <?php endif; ?></div>
     <?php endforeach; ?>
 
-    <details id="svc-who"<?= $svcWho !== '' ? ' open' : '' ?>><summary>依同工查歷年申請（含 v2.0 前的 AI、縮址申請）</summary>
+    <details id="svc-who"<?= $svcWho !== '' ? ' open' : '' ?>><summary>依同工查歷年申請</summary>
       <form method="get" action="./#svc-who" class="act"><input type="text" name="who" value="<?= h($svcWho) ?>" maxlength="120" placeholder="協會 email 或姓名"><button>查詢</button></form>
       <?php if ($svcWho !== '' && !$svcHist): ?><p class="empty">查無「<?= h($svcWho) ?>」的申請。</p><?php endif; ?>
       <?php if ($svcHist): ?><table class="svct"><tr><th>編號</th><th>類型</th><th>申請人／對象</th><th>送出</th><th>狀態</th><th>核准人</th><th>完成</th></tr>
