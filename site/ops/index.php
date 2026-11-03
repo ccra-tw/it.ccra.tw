@@ -10,6 +10,7 @@ require '/var/www/it-lib/graph.php';   // 主任有約取消時撤回行事曆�
 require '/var/www/it-lib/svc_apply.php';   // 資訊服務申請（v2.0 單一入口，GitHub #7）
 require '/var/www/it-lib/survey.php';   // 軟體與系統使用調查（專屬連結免登入，統計只在戰情室，熊哥 10-16）
 require '/var/www/it-lib/devprojects.php';   // 開發案狀態（熊哥 10-21：比照 CCNDA 戰情室，GitHub #18）
+require '/var/www/it-lib/hostlog.php';   // 主機操作紀錄（熊哥 11-03：每次主機操作都要留紀錄，設備監控展開看得到最近幾筆）
 $id = access_identity();
 $email = strtolower($id['email']);
 if (!is_it_staff($email)) { http_response_code(403); exit('戰情室只開放給資訊部帳號。'); }
@@ -254,6 +255,9 @@ $zbHosts = array_values(array_filter($zh, fn($x) => !$isNet($x)));
 $zbNet = array_values(array_filter($zh, $isNet));
 $zbBad = count(array_filter($zh, fn($x) => $x['avail'] !== 1 || $x['problems']));
 [$zbSites, $zbSitesAt] = zbx_sites();   // 熊哥 11-02：主機展開看得到上面的網站
+// 主機操作紀錄：各主機最新 5 筆，以 Zabbix 主機技術名稱（host）對 hostlog.entry.host，不分大小寫（熊哥 11-03）
+try { $zbLogs = hostlog_latest_by_host(array_map(fn($x) => $x['host'] ?? $x['name'], $zh), 5); }
+catch (Throwable $e) { error_log('hostlog: ' . $e->getMessage()); $zbLogs = []; }
 const SEV = [0 => '未分類', 1 => '資訊', 2 => '警告', 3 => '一般', 4 => '嚴重', 5 => '災難'];
 function pct($v) { return $v === null ? '—' : $v . '%'; }
 function barcls($v) { return $v === null ? '' : ($v >= 90 ? 'hi' : ($v >= 75 ? 'mid' : '')); }
@@ -493,7 +497,7 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
 
   <!-- 設備監控（Zabbix；熊哥 10-04 定名，不叫主機監控）：一張卡、左右兩欄（左主機、右防火牆），有問題的才列出來（熊哥 10-04） -->
   <div class="box hostbox <?= $zbBad ? 'bad' : 'good' ?>" id="servers">
-    <div class="sec" style="margin:0"><h2><?= $zbBad ? '🔴' : '🟢' ?> 設備監控</h2><small><a href="https://mon.ccra.tw/" target="_blank" rel="noopener">Zabbix<?= $zb ? '　更新於 ' . h(date('H:i', $zb['at'])) : '' ?>　點這裡看詳情 →</a></small></div>
+    <div class="sec" style="margin:0"><h2><?= $zbBad ? '🔴' : '🟢' ?> 設備監控</h2><small><a href="https://mon.ccra.tw/" target="_blank" rel="noopener">Zabbix<?= $zb ? '　更新於 ' . h(date('H:i', $zb['at'])) : '' ?>　點這裡看詳情 →</a>　<a href="hostlog.php">📝 主機操作紀錄 →</a></small></div>
     <?php if (!$zb): ?><p class="err"><?= h($zbErr) ?></p>
     <?php else: ?>
     <div class="zcols">
@@ -508,6 +512,10 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
             <?php if ($isBad): ?><p class="meta" style="margin:4px 0 0 17px"><?= $x['avail'] === 2 ? (!empty($x['ping_only']) ? 'ping 不通' : '連不到') : ($x['avail'] === 0 ? '狀態未知' : '') ?><?php foreach (array_slice($x['problems'], 0, 2) as $p) echo h(SEV[$p['severity']] ?? '') . '：' . h($p['name']) . '　'; ?></p><?php endif; ?>
             <p class="meta" style="margin:4px 0 0 17px"><?= !empty($x['ping_only']) ? '只做 ping 監控' : 'CPU ' . pct($x['cpu']) . '　記憶體 ' . pct($x['mem']) . '　磁碟 ' . pct($x['disk']) ?></p>
             <?php if ($sites): ?><ul class="zsites"><?php foreach ($sites as $s): ?><li><a href="https://<?= h($s) ?>" target="_blank" rel="noopener"><?= h($s) ?></a></li><?php endforeach; ?></ul><?php endif; ?>
+            <?php $hk = (string)($x['host'] ?? $x['name']); $logs = $zbLogs[strtolower($hk)] ?? []; ?>
+            <p class="meta" style="margin:6px 0 0 17px">最近操作：<?php if (!$logs): ?>尚無紀錄<?php endif; ?></p>
+            <?php if ($logs): ?><ul class="zsites zlogs"><?php foreach ($logs as $l): ?><li><?= h($l['ts_local'] ?: ($l['ts_note'] ?: $l['created_local'])) ?>　<?= h($l['kind']) ?>　<?= h(mb_strimwidth(preg_replace('/\s+/u', ' ', $l['what']), 0, 60, '…', 'UTF-8')) ?></li><?php endforeach; ?></ul><?php endif; ?>
+            <p class="meta" style="margin:2px 0 0 17px"><a href="hostlog.php?host=<?= h(rawurlencode($hk)) ?>">看這台的全部操作紀錄 →</a></p>
           </details>
         <?php endforeach; ?>
       </div>

@@ -54,7 +54,7 @@ function zabbix_hosts() {
         foreach ($hosts as $h) {
             $ping = null;
             foreach ($items as $it) if ($it['hostid'] === $h['hostid'] && $it['key_'] === 'icmpping' && $it['lastclock']) $ping = $it['lastvalue'];
-            $row = ['hostid' => $h['hostid'], 'name' => $h['name'], 'group' => $h['hostgroups'][0]['name'] ?? '',
+            $row = ['hostid' => $h['hostid'], 'host' => $h['host'], 'name' => $h['name'], 'group' => $h['hostgroups'][0]['name'] ?? '',
                 'avail' => zbx_avail($h['interfaces'], $ping), 'ping_only' => $ping !== null && !array_filter($h['interfaces'], fn($i) => (int)$i['available'] !== 0),
                 'cpu' => null, 'mem' => null, 'disk' => null, 'problems' => []];
             foreach ($items as $it) {
