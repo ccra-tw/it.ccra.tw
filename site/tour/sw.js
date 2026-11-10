@@ -1,7 +1,7 @@
 // 離線用：把網頁本身與地圖程式庫存在手機裡，沒訊號也能打開；路線檔存在 localStorage。
 // 地圖圖磚只快取「看過的」那些（不預先大量下載，符合 OpenStreetMap 圖磚使用政策）。
 // 網頁有改版就把 APP 的版本號加一，手機才會換掉舊的網頁快取（圖磚快取保留）
-const APP = 'tour-app-v2', TILES = 'tour-tiles-v1';
+const APP = 'tour-app-v5', TILES = 'tour-tiles-v1';
 const SHELL = ['./', './index.html',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js'];

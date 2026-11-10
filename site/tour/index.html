@@ -29,6 +29,7 @@
   <label class="btn">開啟路線檔（GPX）<input id="file" type="file" accept=".gpx,application/gpx+xml"></label>
   <button id="follow">跟隨我的位置</button>
   <button id="rec">開始記錄</button>
+  <button id="end" style="display:none;background:#8e44ad">結束這段並下載</button>
   <button id="dl" style="display:none">下載記錄（GPX）</button>
   <button id="clr" style="display:none;background:#6c757d">清除記錄</button>
   <div id="warn" style="display:none;flex:1 1 100%;background:#fdecea;color:#b3261e;border-radius:6px;padding:6px 8px;font-weight:600"></div>
@@ -109,38 +110,67 @@ document.getElementById('file').addEventListener('change', e => {
 document.getElementById('follow').addEventListener('click', () => { follow = true; if (me) map.setView(me.getLatLng(), 16); });
 map.on('dragstart', () => follow = false);
 
-// 只往前推進：在目前已走位置之後的一段範圍內找最近點，避免折返路段跳號
-function advance(pos){
+// 點到線段的距離（公尺）與投影比例：GPX 點常相隔幾十公尺，只量到「最近的點」會把走在路線上誤判成偏離
+function segDist(p, a, b){
+  const k = Math.cos(p[0] * Math.PI / 180), R = 6371000 * Math.PI / 180;
+  const ax = (a[1] - p[1]) * k * R, ay = (a[0] - p[0]) * R, bx = (b[1] - p[1]) * k * R, by = (b[0] - p[0]) * R;
+  const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+  const t = L2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / L2)) : 0;
+  return Math.hypot(ax + t * dx, ay + t * dy);
+}
+const ON_ROUTE = 25, MAX_ACC = 30;     // 25 公尺內才算在路線上；定位誤差大於 30 公尺的那一刻不推進（沐恩 11/10：走旁邊的路卻畫成藍色）
+// 只往前推進：在目前已走位置之後的一段範圍內找最近線段，避免折返路段跳號
+function advance(pos, acc){
   if (!pts.length) return null;
   let best = -1, bestD = Infinity;
+  const near = (from, to) => { for (let i = from; i < to; i++){ const d = i + 1 < pts.length ? segDist(pos, pts[i], pts[i + 1]) : dist(pos, pts[i]); if (d < bestD + 0.01){ bestD = Math.min(bestD, d); best = i; } } };   // 剛好在點上時兩段都是 0：取後一段，進度才會推到這個點
   const end = Math.min(pts.length, doneIdx + 400);
-  for (let i = doneIdx; i < end; i++){ const d = dist(pos, pts[i]); if (d < bestD){ bestD = d; best = i; } }
-  if (bestD > 200){                                   // 附近找不到（中途才打開、重新整理）→ 往後整段找一次
-    for (let i = end; i < pts.length; i++){ const d = dist(pos, pts[i]); if (d < bestD){ bestD = d; best = i; } }
-  }
-  if (best >= 0 && bestD < 60) doneIdx = best;      // 60 公尺內才算在路線上
+  near(doneIdx, end);
+  if (bestD > 200) near(end, pts.length);              // 附近找不到（中途才打開、重新整理）→ 往後整段找一次
+  if (best >= 0 && bestD <= ON_ROUTE && !(acc > MAX_ACC)) doneIdx = Math.max(doneIdx, best);
   blue.setLatLngs(pts.slice(0, doneIdx + 1));
   return bestD;
 }
+// 偏離警告看「整條路線」最近的線段（含已走過的部分）：回到走過的紅線上不可誤報偏離（大沈第九輪）
+function routeDist(pos){
+  let d = Infinity;
+  for (let i = 0; i < pts.length; i++){ const x = i + 1 < pts.length ? segDist(pos, pts[i], pts[i + 1]) : dist(pos, pts[i]); if (x < d) d = x; }
+  return d;
+}
+// 遲滯：連續 2 次超過 30 公尺才亮偏離警告，回到 20 公尺內才熄，避免在門檻邊緣反覆跳動
+const OFF_ON = ON_ROUTE + 5, OFF_CLEAR = ON_ROUTE - 5;
+let offHits = 0, offShown = false;
+function updateOff(d){
+  if (d > OFF_ON) { offHits++; if (offHits >= 2) offShown = true; }
+  else { offHits = 0; if (d <= OFF_CLEAR) offShown = false; }   // 中間沒超標就不算「連續」；已亮的警告要回到 20 公尺內才熄（大沈第十輪）
+  setWarn('off', offShown ? `⚠ 偏離路線約 ${Math.round(d)} 公尺，請回到紅線` : null);
+}
+// 實際走過的軌跡（細虛線，只存在這次開啟的記憶體裡）：偏離路線時一眼看得出自己走在哪
+let track = [], trackLine = L.polyline([], {color:'#1f6feb', weight:3, opacity:.7, dashArray:'4 6'}).addTo(map), accCircle = null, firstFix = true;
 if ('geolocation' in navigator){
   navigator.geolocation.watchPosition(p => {
-    const pos = [p.coords.latitude, p.coords.longitude];
+    const pos = [p.coords.latitude, p.coords.longitude], acc = p.coords.accuracy;
     if (!me) me = L.circleMarker(pos, {radius:9, color:'#fff', weight:3, fillColor:'#1f6feb', fillOpacity:1}).addTo(map);
     me.setLatLng(pos);
-    if (follow) map.setView(pos, Math.max(map.getZoom(), 15));
+    if (!accCircle) accCircle = L.circle(pos, {radius: acc || 0, color:'#1f6feb', weight:1, fillOpacity:.08, interactive:false}).addTo(map);
+    accCircle.setLatLng(pos); accCircle.setRadius(acc || 0);
+    if (follow) map.setView(pos, firstFix ? 17 : Math.max(map.getZoom(), 16));   // 騎乘時看得到路口：預設放大到街道等級
+    firstFix = false;
+    if (!(acc > MAX_ACC)) { const last = track[track.length - 1]; if (!last || dist(last, pos) >= 5) { track.push(pos); if (track.length > 5000) track.shift(); trackLine.setLatLngs(track); } }
     recordPoint(p);
-    const off = advance(pos);
+    const off = advance(pos, acc);
     if (pts.length){
       const doneKm = totalKm(pts, doneIdx), all = totalKm(pts, pts.length);
-      info.textContent = `已走 ${doneKm.toFixed(1)}／${all.toFixed(1)} 公里` + (off != null && off > 60 ? `（離路線約 ${Math.round(off)} 公尺）` : '');
+      info.textContent = `已走 ${doneKm.toFixed(1)}／${all.toFixed(1)} 公里` + (acc > MAX_ACC ? `（定位誤差約 ${Math.round(acc)} 公尺，等待更準的位置）` : '');
+      if (!(acc > MAX_ACC)) updateOff(routeDist(pos));
     }
-  }, err => { info.textContent = '無法取得定位：' + err.message; }, {enableHighAccuracy:true, maximumAge:5000, timeout:20000});
+  }, err => { info.textContent = '無法取得定位：' + err.message; }, {enableHighAccuracy:true, maximumAge:0, timeout:15000});
 }
 try { const saved = localStorage.getItem('route'); if (saved && !loadRoute(saved, false)) setWarn('gpx', '手機裡存的路線讀不出來，請重新開啟 GPX 檔。'); } catch(e) {}
 
 // 探路記錄：按「開始記錄」後，把走過的點存起來（存在手機裡，沒訊號也照記），可下載成 GPX 傳給資訊部
 let recOn = false, rec = [], recLine = L.polyline([], {color:'#2a9d3c', weight:5}).addTo(map), wake = null;
-const recBtn = document.getElementById('rec'), dlBtn = document.getElementById('dl'), clrBtn = document.getElementById('clr');
+const recBtn = document.getElementById('rec'), dlBtn = document.getElementById('dl'), clrBtn = document.getElementById('clr'), endBtn = document.getElementById('end');
 let downloaded = false, exportedLen = 0;   // exportedLen：上次下載時已匯出的點數（存不進手機時，用來判斷這份記錄是否已備份）
 // 讀回手機裡的舊記錄：先驗結構再用；壞掉的原始內容另存 rec_backup，不靜默覆寫，也不讓初始化中斷
 (function restoreRec(){
@@ -194,12 +224,12 @@ function saveRec(){
 }
 function recordPoint(p){
   if (!recOn) return;
-  if (p.coords.accuracy > 50) return;                       // 定位誤差太大的點不記
+  if (p.coords.accuracy > MAX_ACC) return;                  // 定位誤差大於 30 公尺的點不記（與藍線、虛線同一門檻）
   const pt = [p.coords.latitude, p.coords.longitude, Date.now()];
   const last = rec[rec.length - 1];
   if (last && dist(last, pt) < 8) return;                   // 原地不動不重複記
   rec.push(pt); recLine.addLatLng([pt[0], pt[1]]); saveRec();
-  dlBtn.style.display = '';
+  dlBtn.style.display = ''; endBtn.style.display = '';
   downloaded = false; clrBtn.style.display = 'none';        // 下載之後又記了新點：要重新下載才能清
 }
 recBtn.addEventListener('click', async () => {
@@ -215,9 +245,17 @@ dlBtn.addEventListener('click', () => {
   const gpx = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="CCRA 環台前導路線" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>探路記錄 ${new Date().toLocaleDateString('zh-TW')}</name><trkseg>\n${pts}\n</trkseg></trk></gpx>`;
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([gpx], {type:'application/gpx+xml'}));
-  a.download = `探路記錄_${new Date().toISOString().slice(0,10)}.gpx`; a.click();
+  const nw = new Date(), pad = n => String(n).padStart(2, '0');   // 一天可能分好幾段：檔名帶到分鐘，不會互相蓋掉
+  a.download = `探路記錄_${nw.getFullYear()}-${pad(nw.getMonth() + 1)}-${pad(nw.getDate())}_${pad(nw.getHours())}${pad(nw.getMinutes())}.gpx`; a.click();
   downloaded = true; exportedLen = rec.length; clrBtn.style.display = ''; setWarn('mode', null);
   info.textContent = '已送出下載。請先到手機的「下載」或「檔案」確認那個 GPX 檔打得開，再決定要不要按「清除記錄」。';
+});
+// 結束這段（沐恩 11/10：探路一天可能看超過一天的路，要能結束一段再下載）：停止記錄＋下載，確認檔案後再清除開始新的一段
+endBtn.addEventListener('click', () => {
+  if (recOn) { recOn = false; try { if (wake) { wake.release(); wake = null; } } catch(e) {} }
+  recBtn.textContent = '開始記錄'; recBtn.style.background = '#1f6feb';
+  dlBtn.click();
+  info.textContent = `這段已結束並下載（${rec.length} 個點）。請先到手機「下載」或「檔案」確認 GPX 打得開，再按「清除記錄」開始新的一段。`;
 });
 clrBtn.addEventListener('click', () => {
   if (!downloaded) return;
@@ -227,7 +265,7 @@ clrBtn.addEventListener('click', () => {
   catch(e) { setWarn('clr', '清除失敗，記錄仍保留在手機裡（可再下載）。請稍後再試一次。'); return; }
   setWarn('clr', null); setWarn('rec', null); setWarn('restore', null); setWarn('restoreTime', null);
   rec = []; recLine.setLatLngs([]); exportedLen = 0;      // 新一段記錄從 0 算起，沒下載前不算已備份
-  dlBtn.style.display = 'none'; clrBtn.style.display = 'none'; downloaded = false;
+  dlBtn.style.display = 'none'; clrBtn.style.display = 'none'; endBtn.style.display = 'none'; downloaded = false;
   info.textContent = '記錄已清除。';
 });
 // 兩種模式（沐恩 11/10）：騎乘＝活動當天只看路線、位置、已走公里數；探路＝才有開始記錄、下載、清除。
@@ -238,6 +276,7 @@ function applyMode(m){
   mRide.classList.toggle('on', !scout); mScout.classList.toggle('on', scout);
   recBtn.style.display = scout ? '' : 'none';
   dlBtn.style.display = scout && rec.length ? '' : 'none';
+  endBtn.style.display = scout && rec.length ? '' : 'none';
   clrBtn.style.display = scout && downloaded ? '' : 'none';
   if (scout) { if (!map.hasLayer(recLine)) recLine.addTo(map); } else if (map.hasLayer(recLine)) map.removeLayer(recLine);
   try { localStorage.setItem('mode', m); } catch(e) {}
