@@ -14,11 +14,17 @@
   button,label.btn{border:0;border-radius:8px;padding:8px 12px;font-size:15px;background:#1f6feb;color:#fff}
   #info{flex:1 1 100%;color:#333}
   input[type=file]{display:none}
+  #modes{display:flex;gap:0;flex:1 1 100%}
+  #modes button{flex:1;border-radius:0;background:#e9eef5;color:#333}
+  #modes button:first-child{border-radius:8px 0 0 8px}
+  #modes button:last-child{border-radius:0 8px 8px 0}
+  #modes button.on{background:#1f6feb;color:#fff;font-weight:700}
 </style>
 </head>
 <body>
 <div id="map"></div>
 <div id="bar">
+  <div id="modes"><button id="mRide">騎乘模式（活動當天）</button><button id="mScout">探路模式</button></div>
   <b id="title">環台前導路線</b>
   <label class="btn">開啟路線檔（GPX）<input id="file" type="file" accept=".gpx,application/gpx+xml"></label>
   <button id="follow">跟隨我的位置</button>
@@ -135,7 +141,7 @@ try { const saved = localStorage.getItem('route'); if (saved && !loadRoute(saved
 // 探路記錄：按「開始記錄」後，把走過的點存起來（存在手機裡，沒訊號也照記），可下載成 GPX 傳給資訊部
 let recOn = false, rec = [], recLine = L.polyline([], {color:'#2a9d3c', weight:5}).addTo(map), wake = null;
 const recBtn = document.getElementById('rec'), dlBtn = document.getElementById('dl'), clrBtn = document.getElementById('clr');
-let downloaded = false;
+let downloaded = false, exportedLen = 0;   // exportedLen：上次下載時已匯出的點數（存不進手機時，用來判斷這份記錄是否已備份）
 // 讀回手機裡的舊記錄：先驗結構再用；壞掉的原始內容另存 rec_backup，不靜默覆寫，也不讓初始化中斷
 (function restoreRec(){
   let raw = null;
@@ -210,7 +216,7 @@ dlBtn.addEventListener('click', () => {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([gpx], {type:'application/gpx+xml'}));
   a.download = `探路記錄_${new Date().toISOString().slice(0,10)}.gpx`; a.click();
-  downloaded = true; clrBtn.style.display = '';
+  downloaded = true; exportedLen = rec.length; clrBtn.style.display = ''; setWarn('mode', null);
   info.textContent = '已送出下載。請先到手機的「下載」或「檔案」確認那個 GPX 檔打得開，再決定要不要按「清除記錄」。';
 });
 clrBtn.addEventListener('click', () => {
@@ -220,10 +226,38 @@ clrBtn.addEventListener('click', () => {
   try { localStorage.removeItem('rec'); if (localStorage.getItem('rec') !== null) throw new Error('still there'); }
   catch(e) { setWarn('clr', '清除失敗，記錄仍保留在手機裡（可再下載）。請稍後再試一次。'); return; }
   setWarn('clr', null); setWarn('rec', null); setWarn('restore', null); setWarn('restoreTime', null);
-  rec = []; recLine.setLatLngs([]);
+  rec = []; recLine.setLatLngs([]); exportedLen = 0;      // 新一段記錄從 0 算起，沒下載前不算已備份
   dlBtn.style.display = 'none'; clrBtn.style.display = 'none'; downloaded = false;
   info.textContent = '記錄已清除。';
 });
+// 兩種模式（沐恩 11/10）：騎乘＝活動當天只看路線、位置、已走公里數；探路＝才有開始記錄、下載、清除。
+// 預設騎乘（避免當天誤按記錄）；手機裡已有探路記錄時預設探路。選擇記在手機裡。
+const mRide = document.getElementById('mRide'), mScout = document.getElementById('mScout');
+function applyMode(m){
+  const scout = m === 'scout';
+  mRide.classList.toggle('on', !scout); mScout.classList.toggle('on', scout);
+  recBtn.style.display = scout ? '' : 'none';
+  dlBtn.style.display = scout && rec.length ? '' : 'none';
+  clrBtn.style.display = scout && downloaded ? '' : 'none';
+  if (scout) { if (!map.hasLayer(recLine)) recLine.addTo(map); } else if (map.hasLayer(recLine)) map.removeLayer(recLine);
+  try { localStorage.setItem('mode', m); } catch(e) {}
+}
+mRide.addEventListener('click', () => {
+  // 存不進手機的點：下載備份過（且之後沒有新點）就可以切換；警告照留，因為手機裡確實還沒存到
+  if (warns.rec && rec.length > exportedLen) { setWarn('mode', '有探路記錄還沒存進手機，請先在探路模式按「下載記錄」備份，再切換到騎乘模式。'); return; }
+  if (recOn) {                                              // 記錄中切換：先暫停，記錄照留在手機裡
+    recOn = false; recBtn.textContent = '繼續記錄'; recBtn.style.background = '#1f6feb';
+    try { if (wake) { wake.release(); wake = null; } } catch(e) {}
+  }
+  setWarn('mode', null); applyMode('ride');
+  info.textContent = '騎乘模式：照紅線走，走過的路段會自動變藍，不需要按開始。';
+});
+mScout.addEventListener('click', () => {
+  setWarn('mode', null); applyMode('scout');
+  info.textContent = rec.length ? `探路模式：手機裡有 ${rec.length} 個探路點，可繼續記錄或下載。` : '探路模式：按「開始記錄」把騎過的路存下來，回來後按「下載記錄」。';
+});
+(function(){ let m = null; try { m = localStorage.getItem('mode'); } catch(e) {}
+  applyMode(m === 'scout' || m === 'ride' ? m : (rec.length ? 'scout' : 'ride')); })();
 // 離線：註冊 service worker（需 https 網址；本機 file:// 開啟時會略過）
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(() => {});
 window.addEventListener('offline', () => { info.textContent += '（目前沒有網路：路線與定位照常，沒看過的地圖區塊會是空白）'; });
