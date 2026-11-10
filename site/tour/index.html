@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>環台前導路線（試用版）</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  html,body{margin:0;height:100%;font-family:system-ui,"Microsoft JhengHei",sans-serif}
+  #map{position:absolute;inset:0}
+  #bar{position:absolute;z-index:1000;left:8px;right:8px;top:8px;background:#fff;border-radius:10px;
+       box-shadow:0 2px 8px rgba(0,0,0,.25);padding:8px 10px;font-size:15px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  #bar b{font-size:16px}
+  button,label.btn{border:0;border-radius:8px;padding:8px 12px;font-size:15px;background:#1f6feb;color:#fff}
+  #info{flex:1 1 100%;color:#333}
+  input[type=file]{display:none}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="bar">
+  <b id="title">環台前導路線</b>
+  <label class="btn">開啟路線檔（GPX）<input id="file" type="file" accept=".gpx,application/gpx+xml"></label>
+  <button id="follow">跟隨我的位置</button>
+  <button id="rec">開始記錄</button>
+  <button id="dl" style="display:none">下載記錄（GPX）</button>
+  <button id="clr" style="display:none;background:#6c757d">清除記錄</button>
+  <div id="warn" style="display:none;flex:1 1 100%;background:#fdecea;color:#b3261e;border-radius:6px;padding:6px 8px;font-weight:600"></div>
+  <div id="info">紅線＝要走的路線；藍線＝已經走過的部分；綠線＝探路記錄。</div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const map = L.map('map', {zoomControl:false}).setView([25.05,121.52], 12);
+L.control.zoom({position:'bottomright'}).addTo(map);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'© OpenStreetMap'}).addTo(map);
+
+let pts = [], red = null, blue = null, me = null, follow = true, doneIdx = 0;
+const info = document.getElementById('info');
+
+// 持續顯示的警告：不會被下一次定位訊息蓋掉，直到問題排除才清掉
+const warnBox = document.getElementById('warn'), warns = {};
+function setWarn(key, msg){
+  if (msg) warns[key] = msg; else delete warns[key];
+  const all = Object.values(warns);
+  warnBox.textContent = all.join(' ');
+  warnBox.style.display = all.length ? '' : 'none';
+}
+// 先完整驗證，任何一點不合格就整份不收（回傳 {error}），不動到現有路線
+function parseGpx(text){
+  const xml = new DOMParser().parseFromString(text, 'application/xml');
+  if (xml.getElementsByTagName('parsererror').length) return {error:'這不是有效的 GPX 檔（格式錯誤），請換一個 GPX 檔。'};
+  const nodes = [...xml.querySelectorAll('trkpt, rtept')];
+  if (!nodes.length) return {error:'這個檔案裡沒有路線點，請換一個 GPX 檔。'};
+  const out = [];
+  for (const n of nodes){
+    const sLa = (n.getAttribute('lat') || '').trim(), sLo = (n.getAttribute('lon') || '').trim();
+    const la = sLa === '' ? NaN : Number(sLa), lo = sLo === '' ? NaN : Number(sLo);   // 缺屬性／空白不可變成 0
+    if (!Number.isFinite(la) || !Number.isFinite(lo) || la < -90 || la > 90 || lo < -180 || lo > 180)
+      return {error:`檔案裡有無效座標（第 ${out.length + 1} 個點），請換一個 GPX 檔。原本的路線沒有變動。`};
+    out.push([la, lo]);
+  }
+  const name = (xml.querySelector('trk > name, rte > name, metadata > name') || {}).textContent;
+  return {name, pts: out};
+}
+function dist(a,b){ // meters
+  const R=6371000, toR=x=>x*Math.PI/180;
+  const dLa=toR(b[0]-a[0]), dLo=toR(b[1]-a[1]);
+  const h=Math.sin(dLa/2)**2+Math.cos(toR(a[0]))*Math.cos(toR(b[0]))*Math.sin(dLo/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+function totalKm(p, upto){ let s=0; for(let i=1;i<=upto && i<p.length;i++) s+=dist(p[i-1],p[i]); return s/1000; }
+// save=false：從手機裡讀回已存的路線時用，不再寫一次
+function loadRoute(text, save = true){
+  const r = parseGpx(text);
+  if (r.error){ setWarn('gpx', r.error); return false; }
+  // 新圖層先畫好，成功了才換掉舊的；中途出錯就保留原本路線
+  let newRed, newBlue;
+  try {
+    newRed = L.polyline(r.pts, {color:'#e5383b', weight:6, opacity:.85});
+    newBlue = L.polyline([], {color:'#1f6feb', weight:7});
+    newRed.addTo(map); newBlue.addTo(map);
+  } catch(e) {
+    if (newRed) map.removeLayer(newRed); if (newBlue) map.removeLayer(newBlue);
+    setWarn('gpx', '這個 GPX 檔畫不出來，請換一個 GPX 檔。原本的路線沒有變動。');
+    return false;
+  }
+  if (red) map.removeLayer(red); if (blue) map.removeLayer(blue);
+  red = newRed; blue = newBlue; pts = r.pts; doneIdx = 0;
+  setWarn('gpx', null);
+  map.fitBounds(red.getBounds(), {padding:[30,30]});
+  document.getElementById('title').textContent = r.name || '環台前導路線';
+  info.textContent = `全程 ${totalKm(pts, pts.length).toFixed(1)} 公里，${pts.length} 個點。`;
+  if (save){
+    try { localStorage.setItem('route', text); setWarn('route', null); }
+    catch(e) { setWarn('route', '路線沒能存進手機：這次可以看，但重新整理或沒網路重開時要再開一次 GPX 檔。'); }
+  }
+  return true;
+}
+document.getElementById('file').addEventListener('change', e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  f.text().then(t => loadRoute(t)).catch(() => setWarn('gpx', '檔案讀不出來，請換一個 GPX 檔。原本的路線沒有變動。'));
+});
+document.getElementById('follow').addEventListener('click', () => { follow = true; if (me) map.setView(me.getLatLng(), 16); });
+map.on('dragstart', () => follow = false);
+
+// 只往前推進：在目前已走位置之後的一段範圍內找最近點，避免折返路段跳號
+function advance(pos){
+  if (!pts.length) return null;
+  let best = -1, bestD = Infinity;
+  const end = Math.min(pts.length, doneIdx + 400);
+  for (let i = doneIdx; i < end; i++){ const d = dist(pos, pts[i]); if (d < bestD){ bestD = d; best = i; } }
+  if (bestD > 200){                                   // 附近找不到（中途才打開、重新整理）→ 往後整段找一次
+    for (let i = end; i < pts.length; i++){ const d = dist(pos, pts[i]); if (d < bestD){ bestD = d; best = i; } }
+  }
+  if (best >= 0 && bestD < 60) doneIdx = best;      // 60 公尺內才算在路線上
+  blue.setLatLngs(pts.slice(0, doneIdx + 1));
+  return bestD;
+}
+if ('geolocation' in navigator){
+  navigator.geolocation.watchPosition(p => {
+    const pos = [p.coords.latitude, p.coords.longitude];
+    if (!me) me = L.circleMarker(pos, {radius:9, color:'#fff', weight:3, fillColor:'#1f6feb', fillOpacity:1}).addTo(map);
+    me.setLatLng(pos);
+    if (follow) map.setView(pos, Math.max(map.getZoom(), 15));
+    recordPoint(p);
+    const off = advance(pos);
+    if (pts.length){
+      const doneKm = totalKm(pts, doneIdx), all = totalKm(pts, pts.length);
+      info.textContent = `已走 ${doneKm.toFixed(1)}／${all.toFixed(1)} 公里` + (off != null && off > 60 ? `（離路線約 ${Math.round(off)} 公尺）` : '');
+    }
+  }, err => { info.textContent = '無法取得定位：' + err.message; }, {enableHighAccuracy:true, maximumAge:5000, timeout:20000});
+}
+try { const saved = localStorage.getItem('route'); if (saved && !loadRoute(saved, false)) setWarn('gpx', '手機裡存的路線讀不出來，請重新開啟 GPX 檔。'); } catch(e) {}
+
+// 探路記錄：按「開始記錄」後，把走過的點存起來（存在手機裡，沒訊號也照記），可下載成 GPX 傳給資訊部
+let recOn = false, rec = [], recLine = L.polyline([], {color:'#2a9d3c', weight:5}).addTo(map), wake = null;
+const recBtn = document.getElementById('rec'), dlBtn = document.getElementById('dl'), clrBtn = document.getElementById('clr');
+let downloaded = false;
+// 讀回手機裡的舊記錄：先驗結構再用；壞掉的原始內容另存 rec_backup，不靜默覆寫，也不讓初始化中斷
+(function restoreRec(){
+  let raw = null;
+  try { raw = localStorage.getItem('rec'); } catch(e) { raw = null; }
+  if (raw === null || raw === '') { rec = []; return; }
+  const okPt = p => Array.isArray(p) && p.length >= 2 &&
+    Number.isFinite(p[0]) && Number.isFinite(p[1]) && p[0] >= -90 && p[0] <= 90 && p[1] >= -180 && p[1] <= 180 &&
+    (p[2] === undefined || p[2] === null || Number.isFinite(p[2]));  // 時間壞掉不丟點，下面改成「無時間」
+  let data = null;
+  try { data = JSON.parse(raw); } catch(e) { data = null; }
+  const backup = () => { try { localStorage.setItem('rec_backup', raw); return true; } catch(e) { return false; } };
+  if (!Array.isArray(data)) {
+    rec = [];
+    const saved = backup();
+    setWarn('restore', saved ? '手機裡的舊探路記錄格式損毀，讀不出來；原始內容已另存備份（按「下載損毀備份」可取回），可以照常開始新的記錄。'
+                             : '手機裡的舊探路記錄格式損毀，讀不出來，也無法另存備份；請先按「下載損毀備份」取回原始內容，再開始新的記錄。');
+    window._recRaw = raw;
+    return;
+  }
+  const good = data.filter(okPt);
+  const okTime = t => Number.isFinite(t) && Number.isFinite(new Date(t).getTime());
+  let badTime = 0;
+  rec = good.map(p => { if (p[2] !== undefined && p[2] !== null && !okTime(p[2])) badTime++; return [p[0], p[1], okTime(p[2]) ? p[2] : null]; });
+  if (good.length !== data.length) {
+    const saved = backup(); window._recRaw = raw;
+    setWarn('restore', `手機裡的舊探路記錄有 ${data.length - good.length} 個點損毀，已略過；保留可用的 ${good.length} 個點。` +
+      (saved ? '原始內容已另存備份。' : '原始內容無法另存備份，請先按「下載損毀備份」取回。'));
+  }
+  if (badTime) {
+    if (!window._recRaw) { backup(); window._recRaw = raw; }
+    setWarn('restoreTime', `有 ${badTime} 個點的時間損毀，已保留位置、下載時不帶時間。`);
+  }
+})();
+recLine.setLatLngs(rec.map(r => [r[0], r[1]]));
+if (window._recRaw) {
+  const bk = document.createElement('button');
+  bk.textContent = '下載損毀備份'; bk.style.background = '#6c757d';
+  bk.addEventListener('click', () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([window._recRaw], {type:'text/plain'}));
+    a.download = `探路記錄_損毀備份_${new Date().toISOString().slice(0,10)}.txt`; a.click();
+  });
+  document.getElementById('bar').insertBefore(bk, warnBox);
+}
+dlBtn.style.display = rec.length ? '' : 'none';
+// 回傳是否真的存進手機；失敗時記憶體裡的點照留（可下載），並持續警告
+function saveRec(){
+  try { localStorage.setItem('rec', JSON.stringify(rec)); setWarn('rec', null); return true; }
+  catch(e) { setWarn('rec', `⚠ 有 ${rec.length} 個點尚未存入手機，請立即按「下載記錄」備份，不要關閉或重新整理這個頁面。`); return false; }
+}
+function recordPoint(p){
+  if (!recOn) return;
+  if (p.coords.accuracy > 50) return;                       // 定位誤差太大的點不記
+  const pt = [p.coords.latitude, p.coords.longitude, Date.now()];
+  const last = rec[rec.length - 1];
+  if (last && dist(last, pt) < 8) return;                   // 原地不動不重複記
+  rec.push(pt); recLine.addLatLng([pt[0], pt[1]]); saveRec();
+  dlBtn.style.display = '';
+  downloaded = false; clrBtn.style.display = 'none';        // 下載之後又記了新點：要重新下載才能清
+}
+recBtn.addEventListener('click', async () => {
+  recOn = !recOn;
+  recBtn.textContent = recOn ? '暫停記錄' : '繼續記錄';
+  recBtn.style.background = recOn ? '#c0392b' : '#1f6feb';
+  try { if (recOn && 'wakeLock' in navigator) wake = await navigator.wakeLock.request('screen'); else if (wake) { wake.release(); wake = null; } } catch(e) {}
+  info.textContent = recOn ? '記錄中：請保持這個畫面開著（螢幕不要關）。' : `已記錄 ${rec.length} 個點，${(rec.reduce((s,r,i)=> i? s+dist(rec[i-1],r):0,0)/1000).toFixed(1)} 公里。`;
+});
+dlBtn.addEventListener('click', () => {
+  const iso = t => { const d = new Date(t); return Number.isFinite(d.getTime()) ? d.toISOString() : null; };
+  const pts = rec.map(r => { const t = r[2] == null ? null : iso(r[2]); return `<trkpt lat="${r[0].toFixed(6)}" lon="${r[1].toFixed(6)}">${t ? `<time>${t}</time>` : ''}</trkpt>`; }).join('\n');
+  const gpx = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="CCRA 環台前導路線" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>探路記錄 ${new Date().toLocaleDateString('zh-TW')}</name><trkseg>\n${pts}\n</trkseg></trk></gpx>`;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([gpx], {type:'application/gpx+xml'}));
+  a.download = `探路記錄_${new Date().toISOString().slice(0,10)}.gpx`; a.click();
+  downloaded = true; clrBtn.style.display = '';
+  info.textContent = '已送出下載。請先到手機的「下載」或「檔案」確認那個 GPX 檔打得開，再決定要不要按「清除記錄」。';
+});
+clrBtn.addEventListener('click', () => {
+  if (!downloaded) return;
+  if (!confirm(`要清掉手機裡這 ${rec.length} 個點嗎？\n請先確認下載的 GPX 檔已經打得開，清掉就找不回來。`)) return;
+  // 先清手機裡存的，成功了才清畫面與記憶體；失敗就整份保留、照樣可下載
+  try { localStorage.removeItem('rec'); if (localStorage.getItem('rec') !== null) throw new Error('still there'); }
+  catch(e) { setWarn('clr', '清除失敗，記錄仍保留在手機裡（可再下載）。請稍後再試一次。'); return; }
+  setWarn('clr', null); setWarn('rec', null); setWarn('restore', null); setWarn('restoreTime', null);
+  rec = []; recLine.setLatLngs([]);
+  dlBtn.style.display = 'none'; clrBtn.style.display = 'none'; downloaded = false;
+  info.textContent = '記錄已清除。';
+});
+// 離線：註冊 service worker（需 https 網址；本機 file:// 開啟時會略過）
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(() => {});
+window.addEventListener('offline', () => { info.textContent += '（目前沒有網路：路線與定位照常，沒看過的地圖區塊會是空白）'; });
+</script>
+</body>
+</html>
