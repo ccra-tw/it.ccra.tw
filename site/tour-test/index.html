@@ -281,7 +281,7 @@ dlBtn.addEventListener('click', () => {
   const iso = t => { const d = new Date(t); return Number.isFinite(d.getTime()) ? d.toISOString() : null; };
   const pts = rec.map(r => { const t = r[2] == null ? null : iso(r[2]); return `<trkpt lat="${r[0].toFixed(6)}" lon="${r[1].toFixed(6)}">${t ? `<time>${t}</time>` : ''}</trkpt>`; }).join('\n');
   const esc = t => String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  const wx = wpts.map(w => { const t = w[2] == null ? null : iso(w[2]); return `<wpt lat="${w[0].toFixed(6)}" lon="${w[1].toFixed(6)}">${t ? `<time>${t}</time>` : ''}<name>${esc(w[3])}</name></wpt>`; }).join('\n');
+  const wx = wpts.map(w => { const t = w[2] == null ? null : iso(w[2]); return `<wpt lat="${w[0].toFixed(6)}" lon="${w[1].toFixed(6)}">${t ? `<time>${t}</time>` : ''}<name>${esc(cleanName(w[3]) || '記錄點')}</name></wpt>`; }).join('\n');
   const gpx = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="CCRA 環台前導路線" xmlns="http://www.topografix.com/GPX/1/1">${wx ? '\n' + wx + '\n' : ''}<trk><name>探路記錄 ${new Date().toLocaleDateString('zh-TW')}</name><trkseg>\n${pts}\n</trkseg></trk></gpx>`;
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([gpx], {type:'application/gpx+xml'}));
@@ -312,12 +312,15 @@ clrBtn.addEventListener('click', () => {
 // 不需要先開路線檔，也不需要先按「開始記錄」。存在手機裡，與探路記錄一起清除。
 const markBtn = document.getElementById('mark'), wptLayer = L.layerGroup().addTo(map);
 let wpts = [];
-function drawWpts(){ wptLayer.clearLayers(); wpts.forEach(w => L.circleMarker([w[0], w[1]], {radius:8, color:'#fff', weight:2, fillColor:'#e07a00', fillOpacity:1}).bindTooltip(w[3], {permanent:true, direction:'top', offset:[0,-8]}).addTo(wptLayer)); }
+// 名稱清理：去掉 XML 1.0 不允許的控制字元與孤立的代理字元（大沈第十二輪：U+0001 會讓下載的 GPX 解析失敗），新增、讀回、匯出都走這一支
+function cleanName(t){ return String(t).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\uFFFE\uFFFF]/g, '').replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '').trim().slice(0, 100); }
+// 名稱一律當純文字顯示：tooltip 給 DOM 元素、用 textContent（大沈第十二輪：直接給字串，Leaflet 會當 HTML 執行）
+function drawWpts(){ wptLayer.clearLayers(); wpts.forEach(w => { const el = document.createElement('span'); el.textContent = w[3]; L.circleMarker([w[0], w[1]], {radius:8, color:'#fff', weight:2, fillColor:'#e07a00', fillOpacity:1}).bindTooltip(el, {permanent:true, direction:'top', offset:[0,-8]}).addTo(wptLayer); }); }
 function saveWpts(){ try { localStorage.setItem('wpts', JSON.stringify(wpts)); setWarn('wpt', null); return true; } catch(e) { setWarn('wpt', `⚠ 有 ${wpts.length} 個記錄點尚未存入手機，請先按「下載記錄」備份。`); return false; } }
 (function(){ let d = null; try { d = JSON.parse(localStorage.getItem('wpts') || '[]'); } catch(e) { d = null; }
   if (!Array.isArray(d)) { setWarn('wpt', '手機裡的記錄點讀不出來，已略過。'); d = []; }
   wpts = d.filter(w => Array.isArray(w) && Number.isFinite(w[0]) && Number.isFinite(w[1]) && Math.abs(w[0]) <= 90 && Math.abs(w[1]) <= 180 && typeof w[3] === 'string')
-          .map(w => [w[0], w[1], Number.isFinite(w[2]) ? w[2] : null, w[3].slice(0, 100)]);
+          .map(w => [w[0], w[1], Number.isFinite(w[2]) ? w[2] : null, cleanName(w[3]) || '記錄點']);
   drawWpts(); })();
 markBtn.addEventListener('click', () => {
   if (!lastFix || Date.now() - lastFix.t > 60000) { setWarn('mark', '還沒拿到目前位置，請等藍點出現再按。'); return; }
@@ -326,10 +329,10 @@ markBtn.addEventListener('click', () => {
   const at = lastFix.pos;                                      // 先記下按的那一刻的位置，輸入文字時人在移動也不影響
   const txt = prompt('這裡是什麼地方？（例如：休息點－7-11 ○○店、補給點、廁所）', '休息點');
   if (txt === null) return;
-  const name = txt.trim().slice(0, 100) || '記錄點';
+  const name = cleanName(txt) || '記錄點';
   wpts.push([at[0], at[1], Date.now(), name]); saveWpts(); drawWpts();
   dlBtn.style.display = ''; endBtn.style.display = ''; downloaded = false; clrBtn.style.display = 'none';
-  info.textContent = `已記下「${name}」（共 ${wpts.length} 個記錄點）。`;
+  info.textContent = `已記下「${name}」（共 ${wpts.length} 個記錄點）。`;   // textContent，不會當 HTML
 });
 // 兩種模式（沐恩 11/10）：騎乘＝活動當天只看路線、位置、已走公里數；探路＝才有開始記錄、下載、清除。
 // 預設騎乘（避免當天誤按記錄）；手機裡已有探路記錄時預設探路。選擇記在手機裡。
