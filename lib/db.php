@@ -13,6 +13,9 @@ function itdb(string $schema): PDO {
     if (!preg_match('/^[a-z_]+$/', $schema)) throw new InvalidArgumentException('bad schema');
     // 測試接縫：命令列且 ITCCRA_TEST_DB=1 時一律改用 <schema>_test，測試資料不進正式表
     if (PHP_SAPI === 'cli' && getenv('ITCCRA_TEST_DB') === '1') $schema .= '_test';
+    // 網頁測試環境（/receipt-test/）：nginx 以 fastcgi_param 設 ITCCRA_DB_SUFFIX=_test，只對 receipt 生效。
+    // 這個值只能由伺服器設定（瀏覽器送的標頭會變成 HTTP_*，蓋不到它）；其他 schema 一律照舊用正式表。
+    elseif ($schema === 'receipt' && itdb_web_test()) $schema .= '_test';
     if (isset($conns[$schema])) return $conns[$schema];
     $c = json_decode((string)file_get_contents(PG_CONF), true);
     $d = new PDO("pgsql:host={$c['host']};dbname={$c['db']}", $c['user'], $c['pass'],
@@ -20,6 +23,11 @@ function itdb(string $schema): PDO {
     $d->exec("CREATE SCHEMA IF NOT EXISTS $schema");
     $d->exec("SET search_path TO $schema");
     return $conns[$schema] = $d;
+}
+
+// 是否為網頁測試環境（nginx 在 /receipt-test/ 設 fastcgi_param ITCCRA_DB_SUFFIX _test）
+function itdb_web_test(?string $sapi = null, ?array $server = null): bool {   // 參數只給測試用
+    return ($sapi ?? PHP_SAPI) !== 'cli' && (($server ?? $_SERVER)['ITCCRA_DB_SUFFIX'] ?? '') === '_test';
 }
 
 // 取代 SQLite 的 PRAGMA table_info：回傳欄位名稱陣列

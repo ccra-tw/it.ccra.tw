@@ -17,6 +17,13 @@ ok(throws(fn() => rcpt_no('X', '2026-09-14', 1)), '未知字軌擋下');
 ok(rcpt_range_text('物(115)09140001', '物(115)09145089') === '物(115)09140001~5089', '起訖字串與文中報關單號相同寫法');
 ok(rcpt_range_text('物(115)09140001', '物(115)09140001') === '物(115)09140001', '只有一張時不加 ~');
 
+echo "網頁測試環境判斷（/receipt-test/）\n";
+ok(itdb_web_test('fpm-fcgi', ['ITCCRA_DB_SUFFIX' => '_test']) === true, 'nginx 設了 _test → 測試環境');
+ok(itdb_web_test('fpm-fcgi', []) === false, '沒設 → 正式環境');
+ok(itdb_web_test('fpm-fcgi', ['HTTP_ITCCRA_DB_SUFFIX' => '_test']) === false, '瀏覽器送同名標頭（變成 HTTP_*）蓋不到');
+ok(itdb_web_test('fpm-fcgi', ['ITCCRA_DB_SUFFIX' => 'x']) === false, '值不是 _test 不算');
+ok(itdb_web_test('cli', ['ITCCRA_DB_SUFFIX' => '_test']) === false, '命令列不吃這個值（命令列另用 ITCCRA_TEST_DB）');
+
 echo "民國日期\n";
 ok(rcpt_roc_to_date('115/09/14') === '2026-09-14', '115/09/14');
 ok(rcpt_roc_to_date('115/9/4') === '2026-09-04', '115/9/4');

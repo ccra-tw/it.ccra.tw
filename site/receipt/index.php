@@ -202,7 +202,7 @@ button{padding:8px 16px;font-size:1em}
 </head>
 <body>
 <div class="box">
-<h1>物資捐贈收據</h1>
+<h1>物資捐贈收據<?php if (itdb_web_test()): ?> <span class="tag" style="background:#fde68a">測試環境・假資料</span><?php endif; ?></h1>
 <nav><a href="./">批次清單</a><?php if ($canEdit): ?><a href="./?a=new">＋新增批次</a><?php endif; ?><a href="./?a=search">查詢捐物人</a>
 <span class="tag"><?= $canEdit ? '開收據' : '唯讀' ?></span></nav>
 <?php if ($err): ?><div class="err"><?= h($err) ?></div><?php endif; ?>
