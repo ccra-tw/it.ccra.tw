@@ -57,7 +57,7 @@ if ($go && $rows && $role === 'edit') {
         if ($d->inTransaction()) $d->rollBack();
         $ref = rcpt_log_db_error($e, 'print');
         http_response_code(500);
-        exit("列印紀錄寫入失敗，這次沒有列印，請重新整理再試；仍不行請通知資訊部（代碼 $ref）。");
+        exit("列印紀錄寫入失敗，這次沒有列印，請重新整理再試；仍不行請通知資訊部（代碼 {$ref}）。");
     }
 }
 $date = rcpt_date_to_roc($b['in_date']);
