@@ -197,6 +197,8 @@ th{background:#f3f4f6}
 .bad{background:#fff1f2}
 .dup{background:#fde68a}
 nav a{margin-right:14px}
+/* 手機（大沈 R-itsu-1112-01：390px 寬時表格 813px、「存」在畫面外）：窄螢幕每筆一張卡片，欄名由 data-l 帶出 */
+@media (max-width:700px){table.rows,.rows tbody,.rows tr,.rows td{display:block;width:auto}.rows tr.hd{display:none}.rows tr{border:1px solid #ddd;border-radius:8px;margin:10px 0;padding:6px 10px}.rows td{border:none;padding:3px 0}.rows td[data-l]::before{content:attr(data-l) '：';font-weight:700;color:#555}.rows td.n{text-align:left}.rows input[type=text]{width:100%!important;box-sizing:border-box;margin:2px 0}.rows button{padding:8px 18px}}
 label{display:block;margin:8px 0 2px;font-weight:700}
 input[type=text],select,textarea{width:100%;padding:6px;font-size:1em;box-sizing:border-box}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:0 16px}
@@ -262,12 +264,13 @@ button{padding:8px 16px;font-size:1em}
     $rows = $d->query('SELECT * FROM donation WHERE batch_id = ' . $id . ' ORDER BY row_no')->fetchAll(PDO::FETCH_ASSOC);
     $dup = $rows ? rcpt_dup_orders($d, array_column($rows, 'order_no'), $id) : [];
     $inb = rcpt_dup_in_batch($d, $id);
+    $fmiss = $b['track'] === '食' ? array_column(rcpt_food_missing($d, $id), 1, 0) : [];   // 食字軌缺品名／單位的列（列號 => 說明）
     $qty = array_sum(array_column($rows, 'qty'));
     $nY = count(array_filter($rows, fn($r) => $r['send'])); $itemQty = $items ? max(array_map(fn($i) => (float)$i['qty'], $items)) : 0; ?>
 <h2><?= h($b['source']) ?>（<?= h($b['track']) ?>）｜收貨 <?= h(rcpt_date_to_roc($b['in_date'])) ?>｜進貨單 <?= h($b['po_no'] ?: '未填') ?>
 <?php if ($canEdit): ?><a href="./?a=edit&id=<?= $id ?>" style="font-size:.6em">編輯</a><?php endif; ?></h2>
 <p>筆數 <b><?= count($rows) ?></b>　數量合計 <b><?= $qty ?></b><?php if ($itemQty): ?>（進貨單 <?= 0 + $itemQty ?><?= abs($qty - $itemQty) > 0.001 ? ' ⚠️ 不符' : ' ✅' ?>）<?php endif; ?>
-　寄發 <b><?= $nY ?></b>　不寄 <b><?= count($rows) - $nY ?></b><?php if ($dup): ?>　<span class="dup">⚠️ 訂單編號已開過收據 <?= count($dup) ?> 筆</span><?php endif; ?><?php if ($inb): ?>　<span class="dup">⚠️ 名單內訂單編號重複 <?= count($inb) ?> 個</span><?php endif; ?></p>
+　寄發 <b><?= $nY ?></b>　不寄 <b><?= count($rows) - $nY ?></b><?php if ($dup): ?>　<span class="dup">⚠️ 訂單編號已開過收據 <?= count($dup) ?> 筆</span><?php endif; ?><?php if ($fmiss): ?>　<span class="dup">⚠️ 食字軌品名／單位不完整 <?= count($fmiss) ?> 列，不能配號</span><?php endif; ?><?php if ($inb): ?>　<span class="dup">⚠️ 名單內訂單編號重複 <?= count($inb) ?> 個</span><?php endif; ?></p>
 <?php if ($b['status'] !== 'draft'): ?>
 <p class="ok">收據起訖（請會計填入文中進貨單「報關單號」）：<b><?= h(rcpt_range_text($b['first_no'], $b['last_no'])) ?></b>
 　<a href="./print.php?id=<?= $id ?>">列印收據</a></p>
@@ -282,20 +285,20 @@ button{padding:8px 16px;font-size:1em}
 <input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="assign">
 <p><button type="submit">檢核完成，配號（<?= count($rows) ?> 筆）</button></p></form>
 <?php endif; endif; ?>
-<table><tr><th>#</th><th>收據編號</th><th>訂單編號</th><th>收件人</th><th>郵遞區號／縣市區／地址</th><th class="n">數量</th><th>寄發</th><th>檢核說明</th><th>寄出日期</th><?php if ($canEdit): ?><th></th><?php endif; ?></tr>
+<table class="rows"><tr class="hd"><th>#</th><th>收據編號</th><th>訂單編號</th><th>收件人</th><th>郵遞區號／縣市區／地址</th><?php if ($b['track'] === '食'): ?><th>品名</th><?php endif; ?><th class="n">數量</th><th>寄發</th><th>檢核說明</th><th>寄出日期</th><?php if ($canEdit): ?><th></th><?php endif; ?></tr>
 <?php foreach ($rows as $r): $isDup = isset($dup[$r['order_no']]) || isset($inb[$r['order_no']]); $fid = 'f' . (int)$r['id']; ?>
 <tr id="r<?= (int)$r['id'] ?>" class="<?= $isDup ? 'dup' : (!$r['send'] ? 'bad' : '') ?>">
-<td><?= (int)$r['row_no'] ?></td><td><?= h($r['receipt_no']) ?></td><td><?= h($r['order_no']) ?><?= isset($dup[$r['order_no']]) ? '<br>已開：' . h($dup[$r['order_no']][1]) : '' ?><?= isset($inb[$r['order_no']]) ? '<br>名單內重複' : '' ?></td>
+<td data-l="#"><?= (int)$r['row_no'] ?></td><td data-l="收據編號"><?= h($r['receipt_no']) ?></td><td data-l="訂單編號"><?= h($r['order_no']) ?><?= isset($dup[$r['order_no']]) ? '<br>已開：' . h($dup[$r['order_no']][1]) : '' ?><?= isset($inb[$r['order_no']]) ? '<br>名單內重複' : '' ?></td>
 <?php if ($canEdit): ?>
-<td><input form="<?= $fid ?>" type="text" name="name" value="<?= h($r['name']) ?>" style="width:7em"></td>
-<td><input form="<?= $fid ?>" type="text" name="zip" value="<?= h($r['zip']) ?>" style="width:5em"> <input form="<?= $fid ?>" type="text" name="city" value="<?= h($r['city']) ?>" style="width:9em"> <input form="<?= $fid ?>" type="text" name="address" value="<?= h($r['address']) ?>" style="width:16em"><br><small><?= h($r['raw_addr']) ?></small></td>
-<td class="n"><?= (int)$r['qty'] ?></td><td><input form="<?= $fid ?>" type="checkbox" name="send" <?= $r['send'] ? 'checked' : '' ?>></td><td><?= h($r['check_note']) ?></td>
-<td><input form="<?= $fid ?>" type="text" name="mailed_on" value="<?= $r['mailed_on'] ? h(rcpt_date_to_roc($r['mailed_on'])) : '' ?>" placeholder="115/11/12" style="width:7em"></td>
+<td data-l="收件人"><input form="<?= $fid ?>" type="text" name="name" value="<?= h($r['name']) ?>" style="width:7em"></td>
+<td data-l="地址"><input form="<?= $fid ?>" type="text" name="zip" value="<?= h($r['zip']) ?>" style="width:5em"> <input form="<?= $fid ?>" type="text" name="city" value="<?= h($r['city']) ?>" style="width:9em"> <input form="<?= $fid ?>" type="text" name="address" value="<?= h($r['address']) ?>" style="width:16em"><br><small><?= h($r['raw_addr']) ?></small></td>
+<?php if ($b['track'] === '食'): ?><td data-l="品名" class="<?= isset($fmiss[(int)$r['row_no']]) ? 'bad' : '' ?>"><?= h($r['product']) ?><?= isset($fmiss[(int)$r['row_no']]) ? '<br><small>' . h($fmiss[(int)$r['row_no']]) . '</small>' : '' ?></td><?php endif; ?><td data-l="數量" class="n"><?= (int)$r['qty'] ?></td><td data-l="寄發"><input form="<?= $fid ?>" type="checkbox" name="send" <?= $r['send'] ? 'checked' : '' ?>></td><td data-l="檢核說明"><?= h($r['check_note']) ?></td>
+<td data-l="寄出日期"><input form="<?= $fid ?>" type="text" name="mailed_on" value="<?= $r['mailed_on'] ? h(rcpt_date_to_roc($r['mailed_on'])) : '' ?>" placeholder="115/11/12" style="width:7em"></td>
 <td><form id="<?= $fid ?>" method="post" action="./?a=batch&id=<?= $id ?>"><input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="row"><input type="hidden" name="rid" value="<?= (int)$r['id'] ?>"><button>存</button></form>
 <?php if ($r['receipt_no']): ?><a href="./print.php?id=<?= $id ?>&one=<?= (int)$r['id'] ?>">補印</a><?php endif; ?></td>
 <?php else: ?>
-<td><?= h($r['name']) ?></td><td><?= h($r['zip'] . ' ' . $r['city'] . $r['address']) ?></td><td class="n"><?= (int)$r['qty'] ?></td><td><?= $r['send'] ? 'Y' : 'N' ?></td><td><?= h($r['check_note']) ?></td>
-<td><?= $r['mailed_on'] ? h(rcpt_date_to_roc($r['mailed_on'])) : '' ?></td>
+<td data-l="收件人"><?= h($r['name']) ?></td><td data-l="地址"><?= h($r['zip'] . ' ' . $r['city'] . $r['address']) ?></td><?php if ($b['track'] === '食'): ?><td data-l="品名" class="<?= isset($fmiss[(int)$r['row_no']]) ? 'bad' : '' ?>"><?= h($r['product']) ?><?= isset($fmiss[(int)$r['row_no']]) ? '<br><small>' . h($fmiss[(int)$r['row_no']]) . '</small>' : '' ?></td><?php endif; ?><td data-l="數量" class="n"><?= (int)$r['qty'] ?></td><td data-l="寄發"><?= $r['send'] ? 'Y' : 'N' ?></td><td data-l="檢核說明"><?= h($r['check_note']) ?></td>
+<td data-l="寄出日期"><?= $r['mailed_on'] ? h(rcpt_date_to_roc($r['mailed_on'])) : '' ?></td>
 <?php endif; ?></tr>
 <?php endforeach; ?>
 </table>
@@ -311,9 +314,9 @@ button{padding:8px 16px;font-size:1em}
     } ?>
 <form method="get"><input type="hidden" name="a" value="search"><label>姓名、電話、收據編號或訂單編號（完整比對）</label>
 <input type="text" name="q" value="<?= h($q) ?>"> <button>查詢</button></form>
-<?php if ($q !== ''): ?><table><tr><th>收貨日期</th><th>來源</th><th>收據編號</th><th>訂單編號</th><th>姓名</th><th>電話</th><th>地址</th><th class="n">數量</th><th>寄發</th><th>寄出日期</th><th></th></tr>
-<?php foreach ($res as $r): ?><tr><td><?= h(rcpt_date_to_roc($r['in_date'])) ?></td><td><?= h($r['source']) ?></td><td><?= h($r['receipt_no']) ?></td><td><?= h($r['order_no']) ?></td><td><?= h($r['name']) ?></td>
-<td><?= h(trim($r['mobile'] . ' ' . $r['phone'])) ?></td><td><?= h($r['zip'] . ' ' . $r['city'] . $r['address']) ?></td><td class="n"><?= (int)$r['qty'] ?></td><td><?= $r['send'] ? 'Y' : 'N' ?></td><td><?= $r['mailed_on'] ? h(rcpt_date_to_roc($r['mailed_on'])) : '' ?></td>
+<?php if ($q !== ''): ?><table class="rows"><tr class="hd"><th>收貨日期</th><th>來源</th><th>收據編號</th><th>訂單編號</th><th>姓名</th><th>電話</th><th>地址</th><th class="n">數量</th><th>寄發</th><th>寄出日期</th><th></th></tr>
+<?php foreach ($res as $r): ?><tr><td data-l="收貨日期"><?= h(rcpt_date_to_roc($r['in_date'])) ?></td><td data-l="來源"><?= h($r['source']) ?></td><td data-l="收據編號"><?= h($r['receipt_no']) ?></td><td data-l="訂單編號"><?= h($r['order_no']) ?></td><td data-l="姓名"><?= h($r['name']) ?></td>
+<td data-l="電話"><?= h(trim($r['mobile'] . ' ' . $r['phone'])) ?></td><td data-l="地址"><?= h($r['zip'] . ' ' . $r['city'] . $r['address']) ?></td><td data-l="數量" class="n"><?= (int)$r['qty'] ?></td><td data-l="寄發"><?= $r['send'] ? 'Y' : 'N' ?></td><td data-l="寄出日期"><?= $r['mailed_on'] ? h(rcpt_date_to_roc($r['mailed_on'])) : '' ?></td>
 <td><?php if ($r['receipt_no']): ?><a href="./print.php?id=<?= (int)$r['batch_id'] ?>&one=<?= (int)$r['id'] ?>">看收據／補印</a><?php endif; ?></td></tr>
 <?php endforeach; if (!$res): ?><tr><td colspan="10">查無資料。</td></tr><?php endif; ?></table><?php endif; ?>
 <?php endif; ?>

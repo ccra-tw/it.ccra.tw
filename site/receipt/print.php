@@ -14,6 +14,8 @@ $id = (int)($_GET['id'] ?? 0);
 $s = $d->prepare('SELECT * FROM batch WHERE id = ?'); $s->execute([$id]);
 $b = $s->fetch(PDO::FETCH_ASSOC);
 if (!$b || $b['status'] !== 'numbered') { http_response_code(404); exit('找不到已配號的批次。'); }
+// 食字軌：品名或單位缺的收據不印（配號時已擋；這裡再擋一次，避免配號前就存在的舊批次或日後資料被改）
+if ($b['track'] === '食' && ($miss = rcpt_food_missing($d, $id))) { http_response_code(409); exit(h(rcpt_food_missing_text($miss)) . '。這個批次已配號，請通知資訊部協助補正。'); }
 $one = (int)($_GET['one'] ?? 0);
 $scope = $_GET['scope'] ?? 'send';           // send＝只印要寄的；all＝全部
 $from = (int)($_GET['from'] ?? 0); $to = (int)($_GET['to'] ?? 0);
@@ -124,7 +126,7 @@ body{margin:0;font-family:"Microsoft JhengHei","微軟正黑體","Noto Sans TC",
 <input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="mailed"><input type="hidden" name="ids" value="<?= h(implode(',', array_column($rows, 'id'))) ?>">
 寄出後：這 <?= count($rows) ?> 張標記寄出日期 <input name="mailed_on" value="<?= h(rcpt_date_to_roc(date('Y-m-d'))) ?>" style="width:7em"> <button>標記已寄出</button></form>
 <?php endif; ?>
-<small>列印設定：A4、邊界「無」、縮放 100%、不要印頁首頁尾。第一次請用白紙試印，疊在預印紙上對光檢查。<a href="./?a=batch&id=<?= $id ?>">回批次</a></small>
+<small>列印設定：A4、邊界「無」、縮放 100%、不要印頁首頁尾。<?php if ($b['track'] !== '食'): ?>第一次請用白紙試印，疊在預印紙上對光檢查。<?php endif; ?><a href="./?a=batch&id=<?= $id ?>">回批次</a></small>
 </div>
 <?php if ($go && $rows): ?><script>addEventListener('load', () => print());</script><?php endif; ?>
 <?php foreach ($rows as $r): if ($b['track'] === '食'): ?>

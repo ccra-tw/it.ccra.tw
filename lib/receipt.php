@@ -132,6 +132,27 @@ function rcpt_max_seq(PDO $d, string $track, string $date): int {
 
 // 配號：批次內依 row_no 順序，從同字軌同日的下一號接續。整批在一個交易內完成，失敗全部不動。
 // 已配過號的批次不再配（回 false）；配完寫 first_no／last_no（給會計回填文中「報關單號」）。
+// 食字軌收據要印品名與單位（單位查進貨明細 batch_item）。回傳有問題的列：[[row_no, 說明], ...]
+// 不替使用者猜品名：缺的就擋下，請補名單重匯（大沈 R-itsu-1112-01：缺商品資料仍可配號、印出空白明細）
+function rcpt_food_missing(PDO $d, int $batchId): array {
+    $s = $d->prepare("SELECT dn.row_no, dn.product, bi.unit FROM donation dn
+        LEFT JOIN batch_item bi ON bi.batch_id = dn.batch_id AND bi.name = dn.product
+        WHERE dn.batch_id = ? ORDER BY dn.row_no");
+    $s->execute([$batchId]);
+    $out = [];
+    foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        if (trim((string)$r['product']) === '') $out[] = [(int)$r['row_no'], '缺品名'];
+        elseif (trim((string)$r['unit']) === '') $out[] = [(int)$r['row_no'], '品名「' . $r['product'] . '」不在進貨明細，對不到單位'];
+    }
+    return $out;
+}
+
+function rcpt_food_missing_text(array $miss): string {
+    $parts = array_map(fn($m) => "第 {$m[0]} 列{$m[1]}", array_slice($miss, 0, 5));
+    return '食字軌收據要印品名與單位，有 ' . count($miss) . ' 列不完整（' . implode('；', $parts) . (count($miss) > 5 ? '…' : '')
+         . '）。請在名單補上「商品名稱」欄（品名要和進貨明細相同），或補齊進貨明細的品名與單位，再重新匯入';
+}
+
 function rcpt_assign(PDO $d, int $batchId, string $who): array {
     $d->beginTransaction();
     try {
@@ -153,6 +174,7 @@ function rcpt_assign(PDO $d, int $batchId, string $who): array {
         $on->execute([$batchId]);
         $dup = rcpt_dup_orders($d, $on->fetchAll(PDO::FETCH_COLUMN), $batchId);
         if ($dup) throw new RuntimeException('有 ' . count($dup) . ' 筆訂單編號已經開過收據（' . implode('、', array_slice(array_map(fn($v) => $v[1], $dup), 0, 5)) . (count($dup) > 5 ? '…' : '') . '），請把它們從名單拿掉、重新匯入後再配號');
+        if ($batch['track'] === '食' && ($miss = rcpt_food_missing($d, $batchId))) throw new RuntimeException(rcpt_food_missing_text($miss));
         $start = rcpt_max_seq($d, $batch['track'], $batch['in_date']) + 1;
         if ($start + count($ids) - 1 > 9999) throw new RangeException('這一天的流水號會超過 9999，請先確認');
         $u = $d->prepare('UPDATE donation SET seq = ?, receipt_no = ?, updated_by = ?, updated_at = now() WHERE id = ?');

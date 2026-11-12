@@ -50,7 +50,7 @@ $p = req($E, ['a' => 'batch', 'id' => $bid]);
 ok(str_contains($p, '數量合計 <b>3</b>') && str_contains($p, '✅'), '數量合計與進貨單相符顯示 ✅');
 
 echo "匯入（平台原始檔，經地址整理程式）\n";
-req($E, ['a' => 'new'], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch', 'source' => '家庭雲端', 'in_date' => '115/09/20', 'items' => '']);
+req($E, ['a' => 'new'], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch', 'source' => '家庭雲端', 'in_date' => '115/09/20', 'items' => 'F01,生活用品,2,箱,100']);
 $b3 = (int)$d->query('SELECT max(id) FROM batch')->fetchColumn();
 xlsx($tmp, [['平台訂單編號', '收件人', '電話', '地址', '商品', '數量'], ['F-1', '林測試', '0911', '新北市永和區保生路1號', '生活用品', 1], ['F-2', '無名', '', '無名', '生活用品', 1]]);
 $o = req($E, ['a' => 'batch', 'id' => $b3], 'POST', ['csrf' => $csrf($E), 'do' => 'import'], ['file' => ['name' => 'raw.xlsx', 'tmp_name' => $tmp, 'error' => 0]]);
@@ -105,6 +105,39 @@ ok(substr_count($s2, 'class="page"') === 2 && !str_contains($s2, '李測試'), '
 req($E, ['a' => 'batch', 'id' => $b3], 'POST', ['csrf' => $csrf($E), 'do' => 'assign']);
 $fp = preq($E, ['id' => $b3, 'scope' => 'all']);
 ok(str_contains($fp, 'class="page food"') && str_contains($fp, '食(115)09200001') && str_contains($fp, 'stamp.php?k=chair') && str_contains($fp, '民國 115 年 9 月 20 日'), '食字軌整張白紙版面：編號、印章、收貨日期');
+
+ok(!str_contains($fp, '對光檢查') && str_contains($s1, '對光檢查'), '「疊在預印紙上對光」提示只在物字軌出現');
+ok(str_contains($fp, '生活用品') && str_contains($fp, '<td>箱</td>'), '食字軌收據印出品名與進貨明細的單位');
+
+echo "食字軌缺品名／單位不得配號、不得列印\n";
+$FH = ['訂單編號', '收件人', '送貨地點', '訂單數量', 'zip', 'city', 'address', '收據'];
+req($E, ['a' => 'new'], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch', 'source' => '家庭雲端', 'in_date' => '115/10/20', 'items' => 'A01,測試米,3,包,198']);
+$b9 = (int)$d->query('SELECT max(id) FROM batch')->fetchColumn();
+xlsx($tmp, [$FH, ['G-1', '庚測試', 'x', 1, '100', '臺北市中正區', '庚路1號', 'Y'], ['G-2', '辛測試', 'x', 2, '100', '臺北市中正區', '辛路1號', 'Y']]);
+req($E, ['a' => 'batch', 'id' => $b9], 'POST', ['csrf' => $csrf($E), 'do' => 'import'], ['file' => ['name' => 'g.xlsx', 'tmp_name' => $tmp, 'error' => 0]]);
+$pg = req($E, ['a' => 'batch', 'id' => $b9]);
+ok(str_contains($pg, '品名／單位不完整 2 列') && str_contains($pg, '<th>品名</th>'), '名單沒有商品欄：批次頁顯示品名欄與「不完整 2 列」警告');
+$o9 = req($E, ['a' => 'batch', 'id' => $b9], 'POST', ['csrf' => $csrf($E), 'do' => 'assign']);
+ok(str_contains($o9, '第 1 列缺品名') && str_contains($o9, '第 2 列缺品名') && $d->query("SELECT status FROM batch WHERE id=$b9")->fetchColumn() === 'draft'
+   && (int)$d->query("SELECT count(*) FROM donation WHERE batch_id=$b9 AND receipt_no IS NOT NULL")->fetchColumn() === 0, '缺品名：配號被擋、指出列號、沒有開出任何收據');
+xlsx($tmp, [array_merge($FH, ['商品名稱']), ['G-1', '庚測試', 'x', 1, '100', '臺北市中正區', '庚路1號', 'Y', '測試米'], ['G-2', '辛測試', 'x', 2, '100', '臺北市中正區', '辛路1號', 'Y', '別的米']]);
+req($E, ['a' => 'batch', 'id' => $b9], 'POST', ['csrf' => $csrf($E), 'do' => 'import'], ['file' => ['name' => 'g.xlsx', 'tmp_name' => $tmp, 'error' => 0]]);
+$o9 = req($E, ['a' => 'batch', 'id' => $b9], 'POST', ['csrf' => $csrf($E), 'do' => 'assign']);
+ok(str_contains($o9, '第 2 列品名「別的米」不在進貨明細') && !str_contains($o9, '第 1 列') && $d->query("SELECT status FROM batch WHERE id=$b9")->fetchColumn() === 'draft', '品名不在進貨明細（對不到單位）：擋下並只指出那一列');
+xlsx($tmp, [array_merge($FH, ['商品名稱']), ['G-1', '庚測試', 'x', 1, '100', '臺北市中正區', '庚路1號', 'Y', '測試米'], ['G-2', '辛測試', 'x', 2, '100', '臺北市中正區', '辛路1號', 'Y', '測試米']]);
+req($E, ['a' => 'batch', 'id' => $b9], 'POST', ['csrf' => $csrf($E), 'do' => 'import'], ['file' => ['name' => 'g.xlsx', 'tmp_name' => $tmp, 'error' => 0]]);
+req($E, ['a' => 'batch', 'id' => $b9], 'POST', ['csrf' => $csrf($E), 'do' => 'assign']);
+$f9 = preq($E, ['id' => $b9, 'scope' => 'all', 'part' => 'all']);
+ok($d->query("SELECT status FROM batch WHERE id=$b9")->fetchColumn() === 'numbered' && substr_count($f9, '<td>測試米</td>') === 2 && substr_count($f9, '<td>包</td>') === 2, '補上品名後可配號，兩張收據都印出品名與單位');
+$d->exec("UPDATE donation SET product = '' WHERE batch_id = $b9 AND order_no = 'G-2'");
+$f9 = preq($E, ['id' => $b9, 'scope' => 'all', 'part' => 'all']);
+ok(!str_contains($f9, 'class="page food"') && str_contains($f9, '第 2 列缺品名'), '已配號後品名被清空：列印頁拒絕輸出收據');
+$pl = (int)$d->query("SELECT count(*) FROM print_log WHERE batch_id=$b9")->fetchColumn();
+preq($E, ['id' => $b9, 'scope' => 'all', 'part' => 'all', 'go' => '1']);
+ok((int)$d->query("SELECT count(*) FROM print_log WHERE batch_id=$b9")->fetchColumn() === $pl, '拒絕列印時也不寫列印紀錄');
+
+echo "手機版面\n";
+ok(str_contains($pg, 'table class="rows"') && str_contains($pg, '@media (max-width:700px)') && str_contains($pg, 'data-l="寄出日期"') && str_contains($pg, 'data-l="收件人"'), '批次表在窄螢幕改卡片（欄名標籤、儲存鍵留在卡片內）');
 
 echo "配號後修改與寄出日期\n";
 $rid = (int)$d->query("SELECT id FROM donation WHERE batch_id=$bid AND order_no='O-2'")->fetchColumn();
