@@ -8,7 +8,9 @@ cd "$REPO"
 git fetch -q origin main
 [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] && [ "${1:-}" != "--force" ] && exit 0
 git reset -q --hard origin/main
-rsync -a --delete site/ /var/www/it.ccra.tw/
+rsync -a --delete --exclude=/receipt-test site/ /var/www/it.ccra.tw/
+# 收據系統網頁測試環境：同一套程式，nginx 在這個路徑改用 receipt_test 資料（見 nginx 設定與 lib/db.php）
+ln -sfn receipt /var/www/it.ccra.tw/receipt-test
 # 靜態檔帶版本號（?v=提交雜湊），避免 Cloudflare／瀏覽器拿舊的 CSS（10-03 熊哥看到舊樣式）
 V=$(git rev-parse --short HEAD)
 grep -rlE '(site|form|whoami|edgetip|live|footer|push)\.(css|js)\?v=' /var/www/it.ccra.tw | xargs -r sed -i -E "s/(site|form|whoami|edgetip|live|footer|push)\.(css|js)\?v=[A-Za-z0-9]*/\1.\2?v=$V/g"
