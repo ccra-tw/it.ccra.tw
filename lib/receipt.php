@@ -115,6 +115,11 @@ function rcpt_assign(PDO $d, int $batchId, string $who): array {
         $rows->execute([$batchId]);
         $ids = $rows->fetchAll(PDO::FETCH_COLUMN);
         if (!$ids) throw new RuntimeException('批次沒有任何明細');
+        // 業務單位 11/12 選（乙）：訂單編號已在別批開過收據的，一律擋下不能開——整批不配號，要先把那幾筆從名單拿掉
+        $on = $d->prepare("SELECT order_no FROM donation WHERE batch_id = ? AND order_no <> ''");
+        $on->execute([$batchId]);
+        $dup = rcpt_dup_orders($d, $on->fetchAll(PDO::FETCH_COLUMN), $batchId);
+        if ($dup) throw new RuntimeException('有 ' . count($dup) . ' 筆訂單編號已經開過收據（' . implode('、', array_slice(array_map(fn($v) => $v[1], $dup), 0, 5)) . (count($dup) > 5 ? '…' : '') . '），請把它們從名單拿掉、重新匯入後再配號');
         $start = rcpt_max_seq($d, $batch['track'], $batch['in_date']) + 1;
         if ($start + count($ids) - 1 > 9999) throw new RangeException('這一天的流水號會超過 9999，請先確認');
         $u = $d->prepare('UPDATE donation SET seq = ?, receipt_no = ?, updated_by = ?, updated_at = now() WHERE id = ?');

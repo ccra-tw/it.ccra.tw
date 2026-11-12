@@ -72,6 +72,8 @@ xlsx($tmp, [['訂單編號', '收件人', '送貨地點', '訂單數量', 'zip',
 req($E, ['a' => 'batch', 'id' => $b2], 'POST', ['csrf' => $csrf($E), 'do' => 'import'], ['file' => ['name' => 'l.xlsx', 'tmp_name' => $tmp, 'error' => 0]]);
 $p = req($E, ['a' => 'batch', 'id' => $b2]);
 ok(str_contains($p, '已開過收據 1 筆') && str_contains($p, '已開：物(115)09140001'), '重複的訂單編號標出、列出已開的收據號');
+$o = req($E, ['a' => 'batch', 'id' => $b2], 'POST', ['csrf' => $csrf($E), 'do' => 'assign']);
+ok(str_contains($o, '已經開過收據') && $d->query("SELECT status FROM batch WHERE id=$b2")->fetchColumn() === 'draft', '有重複訂單編號時一律擋下不能配號（業務單位選乙）');
 
 echo "查詢\n";
 $p = req('vw@test', ['a' => 'search', 'q' => 'O-1']);
