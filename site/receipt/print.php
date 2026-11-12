@@ -93,6 +93,11 @@ body{margin:0;font-family:"Microsoft JhengHei","微軟正黑體","Noto Sans TC",
 <button>更新預覽</button>
 <?php if ($role === 'edit'): ?><button name="go" value="1">記錄並列印</button><?php endif; ?>
 </form>
+<?php if ($role === 'edit' && $rows): $csrf = hash_hmac('sha256', 'receipt' . $email . date('Y-m-d'), trim((string)@file_get_contents(STATE_DIR . '/form_secret'))); ?>
+<form method="post" action="./?a=batch&id=<?= $id ?>" style="margin:6px 0">
+<input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="mailed"><input type="hidden" name="ids" value="<?= h(implode(',', array_column($rows, 'id'))) ?>">
+寄出後：這 <?= count($rows) ?> 張標記寄出日期 <input name="mailed_on" value="<?= h(rcpt_date_to_roc(date('Y-m-d'))) ?>" style="width:7em"> <button>標記已寄出</button></form>
+<?php endif; ?>
 <small>列印設定：A4、邊界「無」、縮放 100%、不要印頁首頁尾。第一次請用白紙試印，疊在預印紙上對光檢查。<a href="./?a=batch&id=<?= $id ?>">回批次</a></small>
 </div>
 <?php if ($go && $rows): ?><script>addEventListener('load', () => print());</script><?php endif; ?>

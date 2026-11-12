@@ -102,6 +102,18 @@ $s1 = preq($E, ['id' => $b4]); $s2 = preq($E, ['id' => $b4, 'part' => 'multi']);
 ok(substr_count($s1, 'class="page"') === 1 && str_contains($s1, '李測試'), '預設單張份：只印 1 張（李）');
 ok(substr_count($s2, 'class="page"') === 2 && !str_contains($s2, '李測試'), '多張份：同地址同收件人的 2 張（陳）');
 
+echo "配號後修改與寄出日期\n";
+$rid = (int)$d->query("SELECT id FROM donation WHERE batch_id=$bid AND order_no='O-2'")->fetchColumn();
+req($E, ['a' => 'batch', 'id' => $bid], 'POST', ['csrf' => $csrf($E), 'do' => 'row', 'rid' => $rid, 'name' => '林來電', 'zip' => '234', 'city' => '新北市永和區', 'address' => '保生路1號', 'send' => 'on', 'mailed_on' => '115/11/20']);
+$r = $d->query("SELECT name, send, receipt_no, mailed_on FROM donation WHERE id=$rid")->fetch(PDO::FETCH_ASSOC);
+ok($r['name'] === '林來電' && $r['send'] === true && $r['receipt_no'] === '物(115)09140002' && $r['mailed_on'] === '2026-11-20', '配號後可改收件人、地址、改成要寄、填寄出日期，收據編號不變');
+ok(str_contains((string)$d->query("SELECT detail FROM audit WHERE action='edit_after_number' ORDER BY id DESC LIMIT 1")->fetchColumn(), 'send: N → Y'), '配號後修改留改前改後紀錄');
+ok(str_contains(req('vw@test', ['a' => 'batch', 'id' => $bid], 'POST', ['csrf' => $csrf('vw@test'), 'do' => 'row', 'rid' => $rid, 'name' => 'x']), '只能查詢'), '唯讀者不能改');
+$ids = implode(',', $d->query("SELECT id FROM donation WHERE batch_id=$b4")->fetchAll(PDO::FETCH_COLUMN));
+req($E, ['a' => 'batch', 'id' => $b4], 'POST', ['csrf' => $csrf($E), 'do' => 'mailed', 'ids' => $ids, 'mailed_on' => '115/11/21']);
+ok((int)$d->query("SELECT count(*) FROM donation WHERE batch_id=$b4 AND mailed_on='2026-11-21'")->fetchColumn() === 3, '整份標記寄出日期');
+ok(str_contains(preq($E, ['id' => $b4, 'part' => 'all']), 'value="mailed"'), '列印頁有「標記已寄出」');
+
 echo "查詢\n";
 $p = req('vw@test', ['a' => 'search', 'q' => 'O-1']);
 ok(str_contains($p, '物(115)09140001'), '唯讀者可用訂單編號查到');

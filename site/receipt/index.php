@@ -110,14 +110,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $d->commit();
                 header("Location: ./?a=batch&id=$id&ok=imported"); exit;
             }
-            if ($do === 'row') {           // 檢核畫面改單筆：寄發與否、地址
+            if ($do === 'row') {           // 改單筆：草稿時檢核用；配號後也可改（業務單位 11/12：原本不要收據、後來來電索取），收據編號不變、留改前改後
                 $b = batch_get($d, $id);
                 if (!$b) throw new RuntimeException('找不到批次');
                 $rid = (int)$_POST['rid'];
-                $d->prepare('UPDATE donation SET send = ?, zip = ?, city = ?, address = ?, updated_by = ?, updated_at = now() WHERE id = ? AND batch_id = ?')
-                  ->execute([isset($_POST['send']) ? 'true' : 'false', trim($_POST['zip'] ?? ''), trim($_POST['city'] ?? ''), trim($_POST['address'] ?? ''), $email, $rid, $id]);
-                rcpt_audit($d, $email, 'edit_row', $id, "row $rid");
+                $s0 = $d->prepare('SELECT name, zip, city, address, send, mailed_on FROM donation WHERE id = ? AND batch_id = ?'); $s0->execute([$rid, $id]);
+                $old = $s0->fetch(PDO::FETCH_ASSOC);
+                if (!$old) throw new RuntimeException('找不到這一筆');
+                $mail = trim($_POST['mailed_on'] ?? '');
+                $mailDate = $mail === '' ? null : rcpt_roc_to_date($mail);
+                if ($mail !== '' && !$mailDate) throw new RuntimeException('寄出日期格式不對（例：115/11/12）');
+                $newv = ['name' => trim($_POST['name'] ?? $old['name']), 'zip' => trim($_POST['zip'] ?? ''), 'city' => trim($_POST['city'] ?? ''),
+                         'address' => trim($_POST['address'] ?? ''), 'send' => isset($_POST['send']), 'mailed_on' => $mailDate];
+                if ($newv['name'] === '') throw new RuntimeException('收件人不能空白');
+                $d->prepare('UPDATE donation SET name = ?, send = ?, zip = ?, city = ?, address = ?, mailed_on = ?, updated_by = ?, updated_at = now() WHERE id = ? AND batch_id = ?')
+                  ->execute([$newv['name'], $newv['send'] ? 'true' : 'false', $newv['zip'], $newv['city'], $newv['address'], $newv['mailed_on'], $email, $rid, $id]);
+                $chg = [];
+                foreach ($newv as $k => $v) {
+                    $o = $old[$k];
+                    $os = $k === 'send' ? ($o ? 'Y' : 'N') : (string)$o; $vs = $k === 'send' ? ($v ? 'Y' : 'N') : (string)$v;
+                    if ($os !== $vs) $chg[] = "$k: $os → $vs";
+                }
+                rcpt_audit($d, $email, $b['status'] === 'draft' ? 'edit_row' : 'edit_after_number', $id, "row $rid " . implode('；', $chg));
                 header("Location: ./?a=batch&id=$id&ok=row#r$rid"); exit;
+            }
+            if ($do === 'mailed') {        // 整份標寄出日期（列印頁送來這份的 id）
+                $date = rcpt_roc_to_date($_POST['mailed_on'] ?? '');
+                if (!$date) throw new RuntimeException('寄出日期格式不對（例：115/11/12）');
+                $ids = array_values(array_filter(array_map('intval', explode(',', (string)($_POST['ids'] ?? '')))));
+                if (!$ids) throw new RuntimeException('沒有要標記的收據');
+                $in = implode(',', array_fill(0, count($ids), '?'));
+                $u = $d->prepare("UPDATE donation SET mailed_on = ?, updated_by = ?, updated_at = now() WHERE batch_id = ? AND id IN ($in)");
+                $u->execute(array_merge([$date, $email, $id], $ids));
+                rcpt_audit($d, $email, 'mailed', $id, $u->rowCount() . " 張 $date");
+                header("Location: ./?a=batch&id=$id&ok=mailed"); exit;
             }
             if ($do === 'assign') {
                 $r = rcpt_assign($d, $id, $email);
@@ -131,7 +157,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 }
-$okMsg = ['saved' => '已儲存。', 'imported' => '已匯入，請檢核下面的清單，確認無誤後再配號。', 'row' => '已更新這一筆。', 'assigned' => '已配號。'][$_GET['ok'] ?? ''] ?? '';
+$okMsg = ['saved' => '已儲存。', 'imported' => '已匯入，請檢核下面的清單，確認無誤後再配號。', 'row' => '已更新這一筆。', 'assigned' => '已配號。', 'mailed' => '已標記寄出日期。'][$_GET['ok'] ?? ''] ?? '';
 ?>
 <!doctype html>
 <html lang="zh-Hant">
@@ -230,18 +256,20 @@ button{padding:8px 16px;font-size:1em}
 <input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="assign">
 <p><button type="submit">檢核完成，配號（<?= count($rows) ?> 筆）</button></p></form>
 <?php endif; endif; ?>
-<table><tr><th>#</th><th>收據編號</th><th>訂單編號</th><th>姓名</th><th>郵遞區號／縣市區／地址</th><th class="n">數量</th><th>寄發</th><th>檢核說明</th><?php if ($canEdit && $b['status'] === 'draft'): ?><th></th><?php endif; ?></tr>
-<?php foreach ($rows as $r): $isDup = isset($dup[$r['order_no']]); ?>
+<table><tr><th>#</th><th>收據編號</th><th>訂單編號</th><th>收件人</th><th>郵遞區號／縣市區／地址</th><th class="n">數量</th><th>寄發</th><th>檢核說明</th><th>寄出日期</th><?php if ($canEdit): ?><th></th><?php endif; ?></tr>
+<?php foreach ($rows as $r): $isDup = isset($dup[$r['order_no']]); $fid = 'f' . (int)$r['id']; ?>
 <tr id="r<?= (int)$r['id'] ?>" class="<?= $isDup ? 'dup' : (!$r['send'] ? 'bad' : '') ?>">
-<?php if ($canEdit && $b['status'] === 'draft'): ?>
-<?php $fid = 'f' . (int)$r['id']; ?>
-<td><?= (int)$r['row_no'] ?></td><td></td><td><?= h($r['order_no']) ?><?= $isDup ? '<br>已開：' . h($dup[$r['order_no']][1]) : '' ?></td><td><?= h($r['name']) ?></td>
+<td><?= (int)$r['row_no'] ?></td><td><?= h($r['receipt_no']) ?></td><td><?= h($r['order_no']) ?><?= $isDup ? '<br>已開：' . h($dup[$r['order_no']][1]) : '' ?></td>
+<?php if ($canEdit): ?>
+<td><input form="<?= $fid ?>" type="text" name="name" value="<?= h($r['name']) ?>" style="width:7em"></td>
 <td><input form="<?= $fid ?>" type="text" name="zip" value="<?= h($r['zip']) ?>" style="width:5em"> <input form="<?= $fid ?>" type="text" name="city" value="<?= h($r['city']) ?>" style="width:9em"> <input form="<?= $fid ?>" type="text" name="address" value="<?= h($r['address']) ?>" style="width:16em"><br><small><?= h($r['raw_addr']) ?></small></td>
 <td class="n"><?= (int)$r['qty'] ?></td><td><input form="<?= $fid ?>" type="checkbox" name="send" <?= $r['send'] ? 'checked' : '' ?>></td><td><?= h($r['check_note']) ?></td>
-<td><form id="<?= $fid ?>" method="post" action="./?a=batch&id=<?= $id ?>"><input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="row"><input type="hidden" name="rid" value="<?= (int)$r['id'] ?>"><button>存</button></form></td>
+<td><input form="<?= $fid ?>" type="text" name="mailed_on" value="<?= $r['mailed_on'] ? h(rcpt_date_to_roc($r['mailed_on'])) : '' ?>" placeholder="115/11/12" style="width:7em"></td>
+<td><form id="<?= $fid ?>" method="post" action="./?a=batch&id=<?= $id ?>"><input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="row"><input type="hidden" name="rid" value="<?= (int)$r['id'] ?>"><button>存</button></form>
+<?php if ($r['receipt_no']): ?><a href="./print.php?id=<?= $id ?>&one=<?= (int)$r['id'] ?>">補印</a><?php endif; ?></td>
 <?php else: ?>
-<td><?= (int)$r['row_no'] ?></td><td><?= h($r['receipt_no']) ?></td><td><?= h($r['order_no']) ?></td><td><?= h($r['name']) ?></td>
-<td><?= h($r['zip'] . ' ' . $r['city'] . $r['address']) ?></td><td class="n"><?= (int)$r['qty'] ?></td><td><?= $r['send'] ? 'Y' : 'N' ?></td><td><?= h($r['check_note']) ?></td>
+<td><?= h($r['name']) ?></td><td><?= h($r['zip'] . ' ' . $r['city'] . $r['address']) ?></td><td class="n"><?= (int)$r['qty'] ?></td><td><?= $r['send'] ? 'Y' : 'N' ?></td><td><?= h($r['check_note']) ?></td>
+<td><?= $r['mailed_on'] ? h(rcpt_date_to_roc($r['mailed_on'])) : '' ?></td>
 <?php endif; ?></tr>
 <?php endforeach; ?>
 </table>
@@ -257,9 +285,9 @@ button{padding:8px 16px;font-size:1em}
     } ?>
 <form method="get"><input type="hidden" name="a" value="search"><label>姓名、電話、收據編號或訂單編號（完整比對）</label>
 <input type="text" name="q" value="<?= h($q) ?>"> <button>查詢</button></form>
-<?php if ($q !== ''): ?><table><tr><th>收貨日期</th><th>來源</th><th>收據編號</th><th>訂單編號</th><th>姓名</th><th>電話</th><th>地址</th><th class="n">數量</th><th>寄發</th><th></th></tr>
+<?php if ($q !== ''): ?><table><tr><th>收貨日期</th><th>來源</th><th>收據編號</th><th>訂單編號</th><th>姓名</th><th>電話</th><th>地址</th><th class="n">數量</th><th>寄發</th><th>寄出日期</th><th></th></tr>
 <?php foreach ($res as $r): ?><tr><td><?= h(rcpt_date_to_roc($r['in_date'])) ?></td><td><?= h($r['source']) ?></td><td><?= h($r['receipt_no']) ?></td><td><?= h($r['order_no']) ?></td><td><?= h($r['name']) ?></td>
-<td><?= h(trim($r['mobile'] . ' ' . $r['phone'])) ?></td><td><?= h($r['zip'] . ' ' . $r['city'] . $r['address']) ?></td><td class="n"><?= (int)$r['qty'] ?></td><td><?= $r['send'] ? 'Y' : 'N' ?></td>
+<td><?= h(trim($r['mobile'] . ' ' . $r['phone'])) ?></td><td><?= h($r['zip'] . ' ' . $r['city'] . $r['address']) ?></td><td class="n"><?= (int)$r['qty'] ?></td><td><?= $r['send'] ? 'Y' : 'N' ?></td><td><?= $r['mailed_on'] ? h(rcpt_date_to_roc($r['mailed_on'])) : '' ?></td>
 <td><?php if ($r['receipt_no']): ?><a href="./print.php?id=<?= (int)$r['batch_id'] ?>&one=<?= (int)$r['id'] ?>">看收據／補印</a><?php endif; ?></td></tr>
 <?php endforeach; if (!$res): ?><tr><td colspan="10">查無資料。</td></tr><?php endif; ?></table><?php endif; ?>
 <?php endif; ?>
