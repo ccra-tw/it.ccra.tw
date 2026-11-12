@@ -113,6 +113,9 @@ $ids = implode(',', $d->query("SELECT id FROM donation WHERE batch_id=$b4")->fet
 req($E, ['a' => 'batch', 'id' => $b4], 'POST', ['csrf' => $csrf($E), 'do' => 'mailed', 'ids' => $ids, 'mailed_on' => '115/11/21']);
 ok((int)$d->query("SELECT count(*) FROM donation WHERE batch_id=$b4 AND mailed_on='2026-11-21'")->fetchColumn() === 3, '整份標記寄出日期');
 ok(str_contains(preq($E, ['id' => $b4, 'part' => 'all']), 'value="mailed"'), '列印頁有「標記已寄出」');
+$d->exec("UPDATE batch SET letter = '十一月的信' WHERE id = $b4");
+$nw = req($E, ['a' => 'new']);
+ok(str_contains($nw, '十一月的信') && str_contains($nw, '已帶入最近一批的信'), '新增批次自動帶入最近一批（物）的信件');
 
 echo "查詢\n";
 $p = req('vw@test', ['a' => 'search', 'q' => 'O-1']);
