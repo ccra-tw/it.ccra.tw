@@ -27,10 +27,11 @@ ok(rcpt_date_to_roc('2026-09-14') === '115/09/14', '西元轉民國');
 if (($argv[2] ?? '') === 'db') {
     putenv('ITCCRA_TEST_DB=1');
     echo "配號（receipt_test schema）\n";
+    itdb('receipt')->exec('DROP SCHEMA IF EXISTS receipt_test CASCADE; CREATE SCHEMA receipt_test');   // 測試 schema 每次重建，資料表定義改了也跟得上
     $d = rcpt_db();
     $d->exec('TRUNCATE batch, batch_item, donation, print_log, audit RESTART IDENTITY CASCADE');
     $mk = function (string $wms, string $date, int $rows) use ($d) {
-        $d->prepare("INSERT INTO batch (source, track, wms_no, in_date, created_by) VALUES ('ibon','物',?,?,'t@x')")->execute([$wms, $date]);
+        $d->prepare("INSERT INTO batch (source, track, po_no, in_date, created_by) VALUES ('ibon','物',?,?,'t@x')")->execute([$wms, $date]);
         $id = (int)$d->lastInsertId();
         $s = $d->prepare('INSERT INTO donation (batch_id, row_no, name) VALUES (?,?,?)');
         for ($i = 1; $i <= $rows; $i++) $s->execute([$id, $i, "測試$i"]);
@@ -48,9 +49,13 @@ if (($argv[2] ?? '') === 'db') {
     $d->exec("UPDATE donation SET void = true WHERE receipt_no = '物(115)09140005'");
     $e = $mk('T004', '2026-09-14', 1);
     ok(rcpt_assign($d, $e, 't@x')['first'] === '物(115)09140006', '作廢號碼不重用');
+    $d->exec("UPDATE donation SET order_no = 'ORD-' || row_no || '-' || batch_id");
+    $dup = rcpt_dup_orders($d, ['ORD-1-' . $a, 'ORD-9-9', ''], $b);
+    ok(isset($dup['ORD-1-' . $a]) && $dup['ORD-1-' . $a][1] === '物(115)09140001' && count($dup) === 1, '訂單編號重複檢查：找得到已開過的、找不到的不列');
+    ok(rcpt_dup_orders($d, ['ORD-1-' . $a], $a) === [], '同一批自己不算重複');
     $f = $mk('T005', '2026-09-16', 0);
     ok(throws(fn() => rcpt_assign($d, $f, 't@x')), '沒有明細不能配號');
-    ok($d->query("SELECT status FROM batch WHERE wms_no = 'T005'")->fetchColumn() === 'draft', '配號失敗時批次保持草稿（交易回復）');
+    ok($d->query("SELECT status FROM batch WHERE po_no = 'T005'")->fetchColumn() === 'draft', '配號失敗時批次保持草稿（交易回復）');
 }
 echo $fail ? "❌ 失敗 $fail／$n\n" : "✅ 全部通過 $n 項\n";
 exit($fail ? 1 : 0);
