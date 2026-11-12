@@ -15,7 +15,9 @@ $s = $d->prepare('SELECT * FROM batch WHERE id = ?'); $s->execute([$id]);
 $b = $s->fetch(PDO::FETCH_ASSOC);
 if (!$b || $b['status'] !== 'numbered') { http_response_code(404); exit('找不到已配號的批次。'); }
 // 食字軌：品名或單位缺的收據不印（配號時已擋；這裡再擋一次，避免配號前就存在的舊批次或日後資料被改）
-if ($b['track'] === '食' && ($miss = rcpt_food_missing($d, $id))) { http_response_code(409); exit(h(rcpt_food_missing_text($miss)) . '。這個批次已配號，請通知資訊部協助補正。'); }
+if ($b['track'] === '食' && ($miss = rcpt_food_missing($d, $id))) { http_response_code(409);    // 已配號的批次不能重匯，所以只講可行的處置（大沈 b8e2623 複驗建議）
+    $parts = array_map(fn($m) => "第 {$m[0]} 列{$m[1]}", array_slice($miss, 0, 5));
+    exit(h('這個批次已配號，但有 ' . count($miss) . ' 列品名／單位不完整（' . implode('；', $parts) . (count($miss) > 5 ? '…' : '') . '），收據不能列印。請通知資訊部協助補正。')); }
 $one = (int)($_GET['one'] ?? 0);
 $scope = $_GET['scope'] ?? 'send';           // send＝只印要寄的；all＝全部
 $from = (int)($_GET['from'] ?? 0); $to = (int)($_GET['to'] ?? 0);

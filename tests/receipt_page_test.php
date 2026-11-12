@@ -131,7 +131,7 @@ $f9 = preq($E, ['id' => $b9, 'scope' => 'all', 'part' => 'all']);
 ok($d->query("SELECT status FROM batch WHERE id=$b9")->fetchColumn() === 'numbered' && substr_count($f9, '<td>測試米</td>') === 2 && substr_count($f9, '<td>包</td>') === 2, '補上品名後可配號，兩張收據都印出品名與單位');
 $d->exec("UPDATE donation SET product = '' WHERE batch_id = $b9 AND order_no = 'G-2'");
 $f9 = preq($E, ['id' => $b9, 'scope' => 'all', 'part' => 'all']);
-ok(!str_contains($f9, 'class="page food"') && str_contains($f9, '第 2 列缺品名'), '已配號後品名被清空：列印頁拒絕輸出收據');
+ok(!str_contains($f9, 'class="page food"') && str_contains($f9, '第 2 列缺品名') && str_contains($f9, '已配號') && !str_contains($f9, '重新匯入'), '已配號後品名被清空：列印頁拒絕輸出收據，且不叫使用者重匯（已鎖）');
 $pl = (int)$d->query("SELECT count(*) FROM print_log WHERE batch_id=$b9")->fetchColumn();
 preq($E, ['id' => $b9, 'scope' => 'all', 'part' => 'all', 'go' => '1']);
 ok((int)$d->query("SELECT count(*) FROM print_log WHERE batch_id=$b9")->fetchColumn() === $pl, '拒絕列印時也不寫列印紀錄');
