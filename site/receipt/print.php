@@ -47,11 +47,18 @@ $part = $one ? 'all' : ($_GET['part'] ?? 'single');
 if ($part === 'single') $rows = array_values(array_filter($rows, fn($r) => $grpN[$grpKey($r)] === 1));
 elseif ($part === 'multi') $rows = array_values(array_filter($rows, fn($r) => $grpN[$grpKey($r)] > 1));
 if ($go && $rows && $role === 'edit') {
-    $d->beginTransaction();   // 列印紀錄與稽核同一交易
-    $d->prepare('INSERT INTO print_log (batch_id, donation_id, kind, count, by_email) VALUES (?,?,?,?,?)')
-      ->execute([$id, $one ?: null, $one ? 'reprint' : 'print', count($rows), $email]);
-    rcpt_audit($d, $email, $one ? 'reprint' : 'print', $id, count($rows) . ' 張');
-    $d->commit();
+    try {
+        $d->beginTransaction();   // 列印紀錄與稽核同一交易；失敗就整筆回滾、不觸發列印
+        $d->prepare('INSERT INTO print_log (batch_id, donation_id, kind, count, by_email) VALUES (?,?,?,?,?)')
+          ->execute([$id, $one ?: null, $one ? 'reprint' : 'print', count($rows), $email]);
+        rcpt_audit($d, $email, $one ? 'reprint' : 'print', $id, count($rows) . ' 張');
+        $d->commit();
+    } catch (Throwable $e) {
+        if ($d->inTransaction()) $d->rollBack();
+        $ref = rcpt_log_db_error($e, 'print');
+        http_response_code(500);
+        exit("列印紀錄寫入失敗，這次沒有列印，請重新整理再試；仍不行請通知資訊部（代碼 $ref）。");
+    }
 }
 $date = rcpt_date_to_roc($b['in_date']);
 $units = [];

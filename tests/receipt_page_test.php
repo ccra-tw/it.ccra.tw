@@ -191,6 +191,13 @@ $d->rollBack();
 ok($d->query("SELECT address FROM donation WHERE id={$rowB4['id']}")->fetchColumn() === $rowB4['address'] && str_contains($o2, '資料庫錯誤'), '兩連線交錯：批次被鎖時單筆修改拿不到鎖、不寫入');
 req($E, ['a' => 'batch', 'id' => $b4], 'POST', ['csrf' => $csrf($E), 'do' => 'row', 'rid' => $rowB4['id'], 'name' => '陳測試', 'zip' => '234', 'city' => '新北市永和區', 'address' => '正常修改', 'send' => 'on']);
 ok($d->query("SELECT address FROM donation WHERE id={$rowB4['id']}")->fetchColumn() === '正常修改' && str_contains((string)$d->query("SELECT detail FROM audit WHERE action='edit_after_number' ORDER BY id DESC LIMIT 1")->fetchColumn(), '→ 正常修改'), '鎖放開後正常修改成功，稽核的改後值與實際一致');
+req($E, ['a' => 'batch', 'id' => $b4], 'POST', ['csrf' => $csrf($E), 'do' => 'row', 'rid' => $rowB4['id'], 'name' => '陳測試', 'zip' => '234', 'city' => '新北市永和區', 'address' => '第二次修改', 'send' => 'on']);
+ok(str_contains((string)$d->query("SELECT detail FROM audit WHERE action='edit_after_number' ORDER BY id DESC LIMIT 1")->fetchColumn(), 'address: 正常修改 → 第二次修改'), '連續兩次修改：第二次稽核的改前＝第一次的改後');
+// 列印：print_log 與稽核同一交易，稽核失敗時兩筆都不寫、畫面報錯
+$nPL = (int)$d->query("SELECT count(*) FROM print_log WHERE batch_id=$b4")->fetchColumn();
+$rp = ['page' => "$SITE/receipt/print.php", 'method' => 'GET', 'get' => ['id' => $b4, 'part' => 'all', 'go' => '1'], 'post' => []];
+$op = (string)shell_exec('env ITCCRA_TEST_DB=1 ITCCRA_TEST_AUDIT_FAIL=1 ITCCRA_TEST_EMAIL=' . escapeshellarg($E) . ' ITCCRA_REQ=' . escapeshellarg(json_encode($rp)) . ' php ' . escapeshellarg(__DIR__ . '/req.php') . ' 2>&1');
+ok((int)$d->query("SELECT count(*) FROM print_log WHERE batch_id=$b4")->fetchColumn() === $nPL && !str_contains($op, "print()"), '列印：稽核失敗時列印紀錄也不寫、不觸發列印');
 
 echo "查詢\n";
 $p = req('vw@test', ['a' => 'search', 'q' => 'O-1']);
