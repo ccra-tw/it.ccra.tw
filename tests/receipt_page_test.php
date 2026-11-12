@@ -75,10 +75,26 @@ ok(str_contains($p, '已開過收據 1 筆') && str_contains($p, '已開：物(1
 $o = req($E, ['a' => 'batch', 'id' => $b2], 'POST', ['csrf' => $csrf($E), 'do' => 'assign']);
 ok(str_contains($o, '已經開過收據') && $d->query("SELECT status FROM batch WHERE id=$b2")->fetchColumn() === 'draft', '有重複訂單編號時一律擋下不能配號（業務單位選乙）');
 
+echo "列印\n";
+function preq($email, $get) {
+    global $SITE;
+    $r = ['page' => "$SITE/receipt/print.php", 'method' => 'GET', 'get' => $get, 'post' => []];
+    return (string)shell_exec('env ITCCRA_TEST_DB=1 ITCCRA_TEST_EMAIL=' . escapeshellarg($email) . ' ITCCRA_REQ=' . escapeshellarg(json_encode($r)) . ' php ' . escapeshellarg(__DIR__ . '/req.php') . ' 2>&1');
+}
+$p = preq($E, ['id' => $bid]);
+ok(substr_count($p, 'class="page"') === 1 && str_contains($p, '物(115)09140001') && str_contains($p, '115/09/14'), '預設只印要寄的（2 筆裡 1 筆）、印收據編號與收貨日期');
+ok(substr_count(preq($E, ['id' => $bid, 'scope' => 'all']), 'class="page"') === 2, '選「全部」印 2 張');
+ok(str_contains(preq($E, ['id' => $bid, 'dx' => '2', 'dy' => '-1']), 'left:166.4mm;top:23.2mm'), '位置微調套到座標');
+preq($E, ['id' => $bid, 'go' => '1']);
+ok((int)$d->query("SELECT count(*) FROM print_log WHERE batch_id=$bid AND kind='print'")->fetchColumn() === 1, '按列印才記錄 print_log');
+preq('vw@test', ['id' => $bid, 'go' => '1']);
+ok((int)$d->query("SELECT count(*) FROM print_log WHERE batch_id=$bid")->fetchColumn() === 1, '唯讀者看得到但不記錄列印');
+ok(str_contains(preq($E, ['id' => $b2]), '找不到已配號的批次'), '未配號批次不能印');
+
 echo "查詢\n";
 $p = req('vw@test', ['a' => 'search', 'q' => 'O-1']);
 ok(str_contains($p, '物(115)09140001'), '唯讀者可用訂單編號查到');
 ok((int)$d->query("SELECT count(*) FROM audit WHERE action='search'")->fetchColumn() >= 1, '查詢有留紀錄');
 @unlink($tmp);
-echo $fail ? "❌ 失敗 $fail／$n\n" : "✅ 全部通過 $n 項\n";
+echo $fail ? "❌ 失敗 {$fail}／{$n}\n" : "✅ 全部通過 {$n} 項\n";
 exit($fail ? 1 : 0);
