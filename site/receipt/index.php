@@ -102,6 +102,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 if ($j['missing']) throw new RuntimeException('對不到必要欄位：' . implode('、', $j['missing']) . '（實際欄名：' . implode('、', array_filter($j['columns'])) . '）');
                 if (!$j['rows']) throw new RuntimeException('檔案裡沒有資料列');
+                // 測試接縫（大沈：匯入整理完暫停→另一請求配號→恢復匯入）：只在命令列＋測試 schema 生效
+                if (PHP_SAPI === 'cli' && getenv('ITCCRA_TEST_DB') === '1' && ($ps = (int)getenv('ITCCRA_TEST_IMPORT_PAUSE')) > 0) sleep(min($ps, 30));
                 $d->beginTransaction();
                 rcpt_lock_draft($d, $id);   // 整理檔案期間別人可能已配號：持鎖後再核對仍是草稿才刪除重建
                 $d->prepare('DELETE FROM donation WHERE batch_id = ?')->execute([$id]);
@@ -164,7 +166,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($d->inTransaction()) $d->rollBack();
             if ($e instanceof PDOException) {
                 $ref = rcpt_log_db_error($e, $do);
-                $err = str_contains($e->getMessage(), 'batch_po_no_key') ? '這個進貨單號已經建過批次了。' : "資料庫錯誤，請通知資訊部（代碼 $ref）。";
+                $err = str_contains($e->getMessage(), 'batch_po_no_key') ? '這個進貨單號已經建過批次了。' : "資料庫錯誤，請通知資訊部（代碼 {$ref}）。";
             } else $err = $e->getMessage();
         }
     }

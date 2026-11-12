@@ -180,7 +180,7 @@ $rowB4 = $d->query("SELECT id, address, mailed_on FROM donation WHERE batch_id=$
 $nAudit = (int)$d->query('SELECT count(*) FROM audit')->fetchColumn();
 $o = req_af($E, ['a' => 'batch', 'id' => $b4], ['csrf' => $csrf($E), 'do' => 'row', 'rid' => $rowB4['id'], 'name' => '陳測試', 'zip' => '234', 'city' => '新北市永和區', 'address' => '稽核失敗不該寫進去', 'send' => 'on']);
 $after = $d->query("SELECT address FROM donation WHERE id={$rowB4['id']}")->fetchColumn();
-ok($after === $rowB4['address'] && (int)$d->query('SELECT count(*) FROM audit')->fetchColumn() === $nAudit && str_contains($o, '資料庫錯誤'), '單筆修改：稽核失敗整筆回滾（地址沒被改、畫面報錯）');
+ok($after === $rowB4['address'] && (int)$d->query('SELECT count(*) FROM audit')->fetchColumn() === $nAudit && str_contains($o, '資料庫錯誤') && preg_match('/代碼 [0-9a-f]{8}）/u', $o), '單筆修改：稽核失敗整筆回滾（地址沒被改、畫面報錯並顯示代碼）');
 $o = req_af($E, ['a' => 'batch', 'id' => $b4], ['csrf' => $csrf($E), 'do' => 'mailed', 'ids' => (string)$rowB4['id'], 'mailed_on' => '115/12/01']);
 ok($d->query("SELECT mailed_on FROM donation WHERE id={$rowB4['id']}")->fetchColumn() === $rowB4['mailed_on'], '整份標寄出日期：稽核失敗整筆回滾');
 // 兩連線交錯修改：連線一持有該批次列鎖（例如正在配號或修改），連線二的單筆修改等不到鎖就失敗、不寫入
@@ -198,6 +198,32 @@ $nPL = (int)$d->query("SELECT count(*) FROM print_log WHERE batch_id=$b4")->fetc
 $rp = ['page' => "$SITE/receipt/print.php", 'method' => 'GET', 'get' => ['id' => $b4, 'part' => 'all', 'go' => '1'], 'post' => []];
 $op = (string)shell_exec('env ITCCRA_TEST_DB=1 ITCCRA_TEST_AUDIT_FAIL=1 ITCCRA_TEST_EMAIL=' . escapeshellarg($E) . ' ITCCRA_REQ=' . escapeshellarg(json_encode($rp)) . ' php ' . escapeshellarg(__DIR__ . '/req.php') . ' 2>&1');
 ok((int)$d->query("SELECT count(*) FROM print_log WHERE batch_id=$b4")->fetchColumn() === $nPL && !str_contains($op, "print()"), '列印：稽核失敗時列印紀錄也不寫、不觸發列印');
+$nA2 = (int)$d->query('SELECT count(*) FROM audit')->fetchColumn();
+$op2 = (string)shell_exec('env ITCCRA_TEST_DB=1 ITCCRA_TEST_AUDIT_FAIL=1 ITCCRA_TEST_EMAIL=' . escapeshellarg($E) . ' ITCCRA_REQ=' . escapeshellarg(json_encode($rp)) . ' php -d display_errors=0 -r ' . escapeshellarg('register_shutdown_function(function(){ fwrite(STDERR, "HTTP=" . http_response_code() . "\n"); }); include ' . var_export(__DIR__ . '/req.php', true) . ';') . ' 2>&1');
+ok(str_contains($op2, 'HTTP=500') && str_contains($op2, '列印紀錄寫入失敗') && preg_match('/代碼 [0-9a-f]{8}/', $op2) && (int)$d->query('SELECT count(*) FROM audit')->fetchColumn() === $nA2 && !str_contains($op2, 'class="page'), '列印稽核失敗：回 500、顯示錯誤訊息與代碼、audit 筆數不變、不輸出收據頁');
+
+// 三段式時序：匯入整理完暫停 → 另一請求配號並提交 → 匯入恢復（應被擋、已開收據不被刪）
+req($E, ['a' => 'new'], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch', 'source' => 'ibon', 'in_date' => '115/10/05', 'items' => '']);
+$b8 = (int)$d->query('SELECT max(id) FROM batch')->fetchColumn();
+xlsx($tmp, [['訂單編號', '收件人', '送貨地點', '訂單數量', 'zip', 'city', 'address', '收據'], ['T-1', '丁測試', 'x', 1, '100', '臺北市中正區', '丁路1號', 'Y'], ['T-2', '戊測試', 'x', 1, '100', '臺北市中正區', '戊路1號', 'Y']]);
+req($E, ['a' => 'batch', 'id' => $b8], 'POST', ['csrf' => $csrf($E), 'do' => 'import'], ['file' => ['name' => 't.xlsx', 'tmp_name' => $tmp, 'error' => 0]]);
+$tmp2 = $tmp . '.2.xlsx'; xlsx($tmp2, [['訂單編號', '收件人', '送貨地點', '訂單數量', 'zip', 'city', 'address', '收據'], ['T-9', '己測試', 'x', 1, '100', '臺北市中正區', '己路1號', 'Y']]);
+$ri = ['page' => "$SITE/receipt/index.php", 'method' => 'POST', 'get' => ['a' => 'batch', 'id' => $b8], 'post' => ['csrf' => $csrf($E), 'do' => 'import'], 'files' => ['file' => ['name' => 't2.xlsx', 'tmp_name' => $tmp2, 'error' => 0]]];
+$outf = sys_get_temp_dir() . '/rcpt-pause-' . getmypid() . '.out';
+$ph = popen('env ITCCRA_TEST_DB=1 ITCCRA_TEST_IMPORT_PAUSE=4 ITCCRA_TEST_EMAIL=' . escapeshellarg($E) . ' ITCCRA_REQ=' . escapeshellarg(json_encode($ri)) . ' php ' . escapeshellarg(__DIR__ . '/req.php') . ' > ' . escapeshellarg($outf) . ' 2>&1', 'r');
+sleep(2);   // 匯入已整理完檔案、正在暫停
+$ra = rcpt_assign($d, $b8, $E);
+pclose($ph);   // 等匯入恢復並結束
+$oi = (string)@file_get_contents($outf); @unlink($outf); @unlink($tmp2);
+$rows8 = $d->query("SELECT order_no, receipt_no FROM donation WHERE batch_id=$b8 ORDER BY row_no")->fetchAll(PDO::FETCH_ASSOC);
+ok($ra['count'] === 2 && str_contains($oi, '已經配號') && count($rows8) === 2 && $rows8[0]['order_no'] === 'T-1' && $rows8[0]['receipt_no'] === '物(115)10050001' && $rows8[1]['receipt_no'] === '物(115)10050002', '三段式時序：匯入暫停中被配號，恢復後被擋、已開的兩張收據原封不動');
+
+// 靜態檢查：雙引號字串裡變數後面緊接中文要用 {} 包起來（否則中文被吃進變數名；11/12 錯誤訊息的代碼就這樣不見了）
+$bad = [];
+foreach (array_merge(glob("$SITE/receipt/*.php"), [$LIB . '/receipt.php']) as $f)
+    foreach (file($f) as $i => $line)
+        if (preg_match('/"[^"]*(?<!\{)\$[A-Za-z_][A-Za-z0-9_]*[^\x00-\x7F]/u', $line)) $bad[] = basename($f) . ':' . ($i + 1);
+ok(!$bad, '字串裡的變數後面緊接中文時都有用 {} 包起來' . ($bad ? '：' . implode('、', $bad) : ''));
 
 echo "查詢\n";
 $p = req('vw@test', ['a' => 'search', 'q' => 'O-1']);
