@@ -212,8 +212,9 @@ button{padding:8px 16px;font-size:1em}
     // 新增批次：信件與每套內含帶入最近一批同字軌（業務單位 11/12：信件每兩個月 1、3、5、7、9、11 月統一更新）
     $prevLetter = $prevContents = '';
     if (!$b) {
-        $pv = $d->query("SELECT letter, contents FROM batch WHERE track = '物' ORDER BY in_date DESC, id DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC);
-        if ($pv) { $prevLetter = $pv['letter']; $prevContents = $pv['contents']; }
+        // 信件：物、食兩個字軌用同一封（業務單位 11/12）→ 取最近一批（不分字軌）有填信的；每套內含只有物用，取最近一批物
+        $prevLetter = (string)$d->query("SELECT letter FROM batch WHERE letter <> '' ORDER BY in_date DESC, id DESC LIMIT 1")->fetchColumn();
+        $prevContents = (string)$d->query("SELECT contents FROM batch WHERE track = '物' AND contents <> '' ORDER BY in_date DESC, id DESC LIMIT 1")->fetchColumn();
     } ?>
 <h2><?= $b ? '編輯批次' : '新增批次' ?></h2>
 <?php if ($locked): ?><p>已配號：只能補進貨單號、供應商、經手人、每套內含與信件內容。</p><?php endif; ?>

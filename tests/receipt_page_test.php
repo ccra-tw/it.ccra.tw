@@ -115,7 +115,9 @@ ok((int)$d->query("SELECT count(*) FROM donation WHERE batch_id=$b4 AND mailed_o
 ok(str_contains(preq($E, ['id' => $b4, 'part' => 'all']), 'value="mailed"'), '列印頁有「標記已寄出」');
 $d->exec("UPDATE batch SET letter = '十一月的信' WHERE id = $b4");
 $nw = req($E, ['a' => 'new']);
-ok(str_contains($nw, '十一月的信') && str_contains($nw, '已帶入最近一批的信'), '新增批次自動帶入最近一批（物）的信件');
+ok(str_contains($nw, '十一月的信') && str_contains($nw, '已帶入最近一批的信'), '新增批次自動帶入最近一批的信件');
+$d->exec("UPDATE batch SET letter = '食也用的信', in_date = '2026-09-30' WHERE id = $b3");
+ok(str_contains(req($E, ['a' => 'new']), '食也用的信'), '物、食用同一封信：最近一批不分字軌都會帶入');
 
 echo "查詢\n";
 $p = req('vw@test', ['a' => 'search', 'q' => 'O-1']);
