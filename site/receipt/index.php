@@ -208,7 +208,13 @@ button{padding:8px 16px;font-size:1em}
     need_edit($canEdit);
     $b = $a === 'edit' ? batch_get($d, $id) : null;
     $items = $b ? $d->query('SELECT * FROM batch_item WHERE batch_id = ' . (int)$b['id'] . ' ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) : [];
-    $locked = $b && $b['status'] !== 'draft'; ?>
+    $locked = $b && $b['status'] !== 'draft';
+    // 新增批次：信件與每套內含帶入最近一批同字軌（業務單位 11/12：信件每兩個月 1、3、5、7、9、11 月統一更新）
+    $prevLetter = $prevContents = '';
+    if (!$b) {
+        $pv = $d->query("SELECT letter, contents FROM batch WHERE track = '物' ORDER BY in_date DESC, id DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+        if ($pv) { $prevLetter = $pv['letter']; $prevContents = $pv['contents']; }
+    } ?>
 <h2><?= $b ? '編輯批次' : '新增批次' ?></h2>
 <?php if ($locked): ?><p>已配號：只能補進貨單號、供應商、經手人、每套內含與信件內容。</p><?php endif; ?>
 <form method="post" action="./?a=<?= $b ? 'edit&id=' . (int)$b['id'] : 'new' ?>">
@@ -223,8 +229,8 @@ button{padding:8px 16px;font-size:1em}
 <div><label>套餐每套金額（物）</label><select name="set_price" <?= $locked ? 'disabled' : '' ?>><option value="">（無）</option><?php foreach ([360, 300] as $p): ?><option <?= (int)($b['set_price'] ?? 0) === $p ? 'selected' : '' ?>><?= $p ?></option><?php endforeach; ?></select></div>
 <div><label>經手人</label><input type="text" name="handler" value="<?= h($b['handler'] ?? '') ?>"></div>
 </div>
-<label>每套內含（印在物收據上）</label><textarea name="contents" rows="2"><?= h($b['contents'] ?? '') ?></textarea>
-<label>給捐贈者的信（印在收據下半部）</label><textarea name="letter" rows="8"><?= h($b['letter'] ?? '') ?></textarea>
+<label>每套內含（印在物收據上）</label><textarea name="contents" rows="2"><?= h($b['contents'] ?? $prevContents) ?></textarea>
+<label>給捐贈者的信（印在收據下半部）</label><textarea name="letter" rows="8"><?= h($b['letter'] ?? $prevLetter) ?></textarea><?php if (!$b && $prevLetter !== ''): ?><small>已帶入最近一批的信；1、3、5、7、9、11 月換新信時在這裡改。</small><?php endif; ?>
 <label>產品明細（每行：代號,品名,數量,單位,單價）</label>
 <textarea name="items" rows="5" <?= $locked ? 'readonly' : '' ?>><?php foreach ($items as $it) echo h("{$it['code']},{$it['name']}," . (0 + $it['qty']) . ",{$it['unit']}," . ($it['price'] === null ? '' : 0 + $it['price'])) . "\n"; ?></textarea>
 <p><button type="submit">儲存</button></p>
