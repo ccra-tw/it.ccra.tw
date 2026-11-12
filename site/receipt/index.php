@@ -103,7 +103,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($j['missing']) throw new RuntimeException('對不到必要欄位：' . implode('、', $j['missing']) . '（實際欄名：' . implode('、', array_filter($j['columns'])) . '）');
                 if (!$j['rows']) throw new RuntimeException('檔案裡沒有資料列');
                 // 測試接縫（大沈：匯入整理完暫停→另一請求配號→恢復匯入）：只在命令列＋測試 schema 生效
-                if (PHP_SAPI === 'cli' && getenv('ITCCRA_TEST_DB') === '1' && ($ps = (int)getenv('ITCCRA_TEST_IMPORT_PAUSE')) > 0) sleep(min($ps, 30));
+                // 到達暫停點先寫 ready 檔，等測試寫 release 檔才繼續（最多 30 秒），時序不靠 sleep 猜
+                if (PHP_SAPI === 'cli' && getenv('ITCCRA_TEST_DB') === '1' && ($sync = (string)getenv('ITCCRA_TEST_IMPORT_SYNC')) !== '' && is_dir($sync)) {
+                    touch("$sync/ready");
+                    for ($w = 0; $w < 300 && !is_file("$sync/release"); $w++) usleep(100000);
+                }
                 $d->beginTransaction();
                 rcpt_lock_draft($d, $id);   // 整理檔案期間別人可能已配號：持鎖後再核對仍是草稿才刪除重建
                 $d->prepare('DELETE FROM donation WHERE batch_id = ?')->execute([$id]);

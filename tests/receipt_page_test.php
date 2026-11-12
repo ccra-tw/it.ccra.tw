@@ -209,14 +209,27 @@ xlsx($tmp, [['訂單編號', '收件人', '送貨地點', '訂單數量', 'zip',
 req($E, ['a' => 'batch', 'id' => $b8], 'POST', ['csrf' => $csrf($E), 'do' => 'import'], ['file' => ['name' => 't.xlsx', 'tmp_name' => $tmp, 'error' => 0]]);
 $tmp2 = $tmp . '.2.xlsx'; xlsx($tmp2, [['訂單編號', '收件人', '送貨地點', '訂單數量', 'zip', 'city', 'address', '收據'], ['T-9', '己測試', 'x', 1, '100', '臺北市中正區', '己路1號', 'Y']]);
 $ri = ['page' => "$SITE/receipt/index.php", 'method' => 'POST', 'get' => ['a' => 'batch', 'id' => $b8], 'post' => ['csrf' => $csrf($E), 'do' => 'import'], 'files' => ['file' => ['name' => 't2.xlsx', 'tmp_name' => $tmp2, 'error' => 0]]];
-$outf = sys_get_temp_dir() . '/rcpt-pause-' . getmypid() . '.out';
-$ph = popen('env ITCCRA_TEST_DB=1 ITCCRA_TEST_IMPORT_PAUSE=4 ITCCRA_TEST_EMAIL=' . escapeshellarg($E) . ' ITCCRA_REQ=' . escapeshellarg(json_encode($ri)) . ' php ' . escapeshellarg(__DIR__ . '/req.php') . ' > ' . escapeshellarg($outf) . ' 2>&1', 'r');
-sleep(2);   // 匯入已整理完檔案、正在暫停
-$ra = rcpt_assign($d, $b8, $E);
+// 時序用檔案交握（大沈 R-itsu-1112-01 建議）：匯入到暫停點寫 ready → 這裡才配號並提交 → 寫 release 讓匯入繼續
+$sync = sys_get_temp_dir() . '/rcpt-sync-' . getmypid(); @mkdir($sync); chmod($sync, 0777);
+$outf = "$sync/out";
+$snap = fn() => [$d->query("SELECT status, first_no, last_no FROM batch WHERE id=$b8")->fetch(PDO::FETCH_ASSOC),
+                 $d->query("SELECT * FROM donation WHERE batch_id=$b8 ORDER BY row_no")->fetchAll(PDO::FETCH_ASSOC)];
+$before = $snap();
+$ph = popen('env ITCCRA_TEST_DB=1 ITCCRA_TEST_IMPORT_SYNC=' . escapeshellarg($sync) . ' ITCCRA_TEST_EMAIL=' . escapeshellarg($E) . ' ITCCRA_REQ=' . escapeshellarg(json_encode($ri)) . ' php ' . escapeshellarg(__DIR__ . '/req.php') . ' > ' . escapeshellarg($outf) . ' 2>&1', 'r');
+for ($w = 0; $w < 200 && !is_file("$sync/ready"); $w++) usleep(100000);   // 最多等 20 秒
+$ready = is_file("$sync/ready");
+ok($ready, '三段式時序：匯入確實到達暫停點（整理完檔案、尚未動資料）');
+ok($snap() == $before, '三段式時序：暫停點之前匯入沒有動到批次與明細');
+$ra = $ready ? rcpt_assign($d, $b8, $E) : ['count' => 0];
+$assigned = $snap();
+touch("$sync/release");
 pclose($ph);   // 等匯入恢復並結束
-$oi = (string)@file_get_contents($outf); @unlink($outf); @unlink($tmp2);
-$rows8 = $d->query("SELECT order_no, receipt_no FROM donation WHERE batch_id=$b8 ORDER BY row_no")->fetchAll(PDO::FETCH_ASSOC);
-ok($ra['count'] === 2 && str_contains($oi, '已經配號') && count($rows8) === 2 && $rows8[0]['order_no'] === 'T-1' && $rows8[0]['receipt_no'] === '物(115)10050001' && $rows8[1]['receipt_no'] === '物(115)10050002', '三段式時序：匯入暫停中被配號，恢復後被擋、已開的兩張收據原封不動');
+$oi = (string)@file_get_contents($outf);
+array_map('unlink', glob("$sync/*")); @rmdir($sync); @unlink($tmp2);
+$after = $snap();
+ok($ra['count'] === 2 && $assigned[0]['status'] === 'numbered' && $assigned[1][0]['receipt_no'] === '物(115)10050001' && $assigned[1][1]['receipt_no'] === '物(115)10050002', '三段式時序：暫停中配號成功（兩張收據、批次已配號）');
+ok(str_contains($oi, '已經配號'), '三段式時序：匯入恢復後被擋');
+ok($after == $assigned, '三段式時序：恢復後批次狀態與兩列完整資料和配號當下一模一樣（沒有被刪除或改寫）');
 
 // 靜態檢查：雙引號字串裡變數後面緊接中文要用 {} 包起來（否則中文被吃進變數名；11/12 錯誤訊息的代碼就這樣不見了）
 $bad = [];
