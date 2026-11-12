@@ -170,6 +170,28 @@ $lg = (string)@file_get_contents($log); @unlink($log);
 ok(str_contains($lg, 'sqlstate=23502') && !str_contains($lg, '王小明') && !str_contains($lg, '0912000000') && !str_contains($lg, '測試路99號'), '資料庫錯誤只記 SQLSTATE，不含姓名電話地址');
 ok(!str_contains((string)file_get_contents("$SITE/receipt/index.php"), 'error_log('), '頁面不直接呼叫 error_log');
 
+echo "大沈複驗（稽核與修改同一交易）\n";
+function req_af($email, $get, $post) {   // 模擬稽核寫入失敗
+    global $SITE;
+    $r = ['page' => "$SITE/receipt/index.php", 'method' => 'POST', 'get' => $get, 'post' => $post, 'files' => []];
+    return (string)shell_exec('env ITCCRA_TEST_DB=1 ITCCRA_TEST_AUDIT_FAIL=1 ITCCRA_TEST_EMAIL=' . escapeshellarg($email) . ' ITCCRA_REQ=' . escapeshellarg(json_encode($r)) . ' php ' . escapeshellarg(__DIR__ . '/req.php') . ' 2>&1');
+}
+$rowB4 = $d->query("SELECT id, address, mailed_on FROM donation WHERE batch_id=$b4 ORDER BY row_no LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+$nAudit = (int)$d->query('SELECT count(*) FROM audit')->fetchColumn();
+$o = req_af($E, ['a' => 'batch', 'id' => $b4], ['csrf' => $csrf($E), 'do' => 'row', 'rid' => $rowB4['id'], 'name' => '陳測試', 'zip' => '234', 'city' => '新北市永和區', 'address' => '稽核失敗不該寫進去', 'send' => 'on']);
+$after = $d->query("SELECT address FROM donation WHERE id={$rowB4['id']}")->fetchColumn();
+ok($after === $rowB4['address'] && (int)$d->query('SELECT count(*) FROM audit')->fetchColumn() === $nAudit && str_contains($o, '資料庫錯誤'), '單筆修改：稽核失敗整筆回滾（地址沒被改、畫面報錯）');
+$o = req_af($E, ['a' => 'batch', 'id' => $b4], ['csrf' => $csrf($E), 'do' => 'mailed', 'ids' => (string)$rowB4['id'], 'mailed_on' => '115/12/01']);
+ok($d->query("SELECT mailed_on FROM donation WHERE id={$rowB4['id']}")->fetchColumn() === $rowB4['mailed_on'], '整份標寄出日期：稽核失敗整筆回滾');
+// 兩連線交錯修改：連線一持有該批次列鎖（例如正在配號或修改），連線二的單筆修改等不到鎖就失敗、不寫入
+$d->beginTransaction(); $d->query("SELECT id FROM batch WHERE id=$b4 FOR UPDATE");
+$r2 = ['page' => "$SITE/receipt/index.php", 'method' => 'POST', 'get' => ['a' => 'batch', 'id' => $b4], 'post' => ['csrf' => $csrf($E), 'do' => 'row', 'rid' => $rowB4['id'], 'name' => '陳測試', 'zip' => '1', 'city' => 'x', 'address' => '交錯中寫入', 'send' => 'on'], 'files' => []];
+$o2 = (string)shell_exec('env ITCCRA_TEST_DB=1 PGOPTIONS=' . escapeshellarg('-c lock_timeout=500ms') . ' ITCCRA_TEST_EMAIL=' . escapeshellarg($E) . ' ITCCRA_REQ=' . escapeshellarg(json_encode($r2)) . ' php ' . escapeshellarg(__DIR__ . '/req.php') . ' 2>&1');
+$d->rollBack();
+ok($d->query("SELECT address FROM donation WHERE id={$rowB4['id']}")->fetchColumn() === $rowB4['address'] && str_contains($o2, '資料庫錯誤'), '兩連線交錯：批次被鎖時單筆修改拿不到鎖、不寫入');
+req($E, ['a' => 'batch', 'id' => $b4], 'POST', ['csrf' => $csrf($E), 'do' => 'row', 'rid' => $rowB4['id'], 'name' => '陳測試', 'zip' => '234', 'city' => '新北市永和區', 'address' => '正常修改', 'send' => 'on']);
+ok($d->query("SELECT address FROM donation WHERE id={$rowB4['id']}")->fetchColumn() === '正常修改' && str_contains((string)$d->query("SELECT detail FROM audit WHERE action='edit_after_number' ORDER BY id DESC LIMIT 1")->fetchColumn(), '→ 正常修改'), '鎖放開後正常修改成功，稽核的改後值與實際一致');
+
 echo "查詢\n";
 $p = req('vw@test', ['a' => 'search', 'q' => 'O-1']);
 ok(str_contains($p, '物(115)09140001'), '唯讀者可用訂單編號查到');

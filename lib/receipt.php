@@ -70,6 +70,8 @@ function rcpt_role(PDO $d, string $email): ?string {
 }
 
 function rcpt_audit(PDO $d, string $who, string $action, ?int $batch = null, string $detail = ''): void {
+    // 測試接縫：命令列、測試 schema、ITCCRA_TEST_AUDIT_FAIL=1 時模擬稽核寫入失敗（驗證「稽核失敗整筆回滾」）
+    if (PHP_SAPI === 'cli' && getenv('ITCCRA_TEST_DB') === '1' && getenv('ITCCRA_TEST_AUDIT_FAIL') === '1') throw new PDOException('test: audit insert failed');
     $d->prepare('INSERT INTO audit (by_email, action, batch_id, detail) VALUES (?,?,?,?)')->execute([$who, $action, $batch, $detail]);
 }
 

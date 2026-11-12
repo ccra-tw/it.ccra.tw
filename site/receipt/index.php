@@ -115,10 +115,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 header("Location: ./?a=batch&id=$id&ok=imported"); exit;
             }
             if ($do === 'row') {           // 改單筆：草稿時檢核用；配號後也可改（業務單位 11/12：原本不要收據、後來來電索取），收據編號不變、留改前改後
-                $b = batch_get($d, $id);
+                // 大沈 R-itsu-1112-01 複驗 P1：讀舊值、更新、稽核在同一交易；鎖順序同配號（先批次、再明細），稽核失敗整筆回滾
+                $d->beginTransaction();
+                $sb = $d->prepare('SELECT status FROM batch WHERE id = ? FOR UPDATE'); $sb->execute([$id]);
+                $b = $sb->fetch(PDO::FETCH_ASSOC);
                 if (!$b) throw new RuntimeException('找不到批次');
                 $rid = (int)$_POST['rid'];
-                $s0 = $d->prepare('SELECT name, zip, city, address, send, mailed_on FROM donation WHERE id = ? AND batch_id = ?'); $s0->execute([$rid, $id]);
+                $s0 = $d->prepare('SELECT name, zip, city, address, send, mailed_on FROM donation WHERE id = ? AND batch_id = ? FOR UPDATE'); $s0->execute([$rid, $id]);
                 $old = $s0->fetch(PDO::FETCH_ASSOC);
                 if (!$old) throw new RuntimeException('找不到這一筆');
                 $mail = trim($_POST['mailed_on'] ?? '');
@@ -136,6 +139,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($os !== $vs) $chg[] = "$k: $os → $vs";
                 }
                 rcpt_audit($d, $email, $b['status'] === 'draft' ? 'edit_row' : 'edit_after_number', $id, "row $rid " . implode('；', $chg));
+                $d->commit();
                 header("Location: ./?a=batch&id=$id&ok=row#r$rid"); exit;
             }
             if ($do === 'mailed') {        // 整份標寄出日期（列印頁送來這份的 id）
@@ -144,9 +148,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $ids = array_values(array_filter(array_map('intval', explode(',', (string)($_POST['ids'] ?? '')))));
                 if (!$ids) throw new RuntimeException('沒有要標記的收據');
                 $in = implode(',', array_fill(0, count($ids), '?'));
+                $d->beginTransaction();   // 更新與稽核同一交易（大沈複驗：整份標寄出日期也要一起）
+                $d->prepare('SELECT id FROM batch WHERE id = ? FOR UPDATE')->execute([$id]);
                 $u = $d->prepare("UPDATE donation SET mailed_on = ?, updated_by = ?, updated_at = now() WHERE batch_id = ? AND id IN ($in)");
                 $u->execute(array_merge([$date, $email, $id], $ids));
                 rcpt_audit($d, $email, 'mailed', $id, $u->rowCount() . " 張 $date");
+                $d->commit();
                 header("Location: ./?a=batch&id=$id&ok=mailed"); exit;
             }
             if ($do === 'assign') {
