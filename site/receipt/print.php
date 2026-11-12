@@ -38,6 +38,14 @@ usort($rows, function ($a, $c) use ($coll) {
     }
     return $a['seq'] <=> $c['seq'];
 });
+// 業務單位 11/12 選（甲）：依「同一地址＋收件人」分兩份——單張（該組只有 1 張）與多張（2 張以上，每組連在一起），郵資不同
+$grpKey = fn($r) => $r['zip'] . '|' . $r['city'] . '|' . $r['address'] . '|' . $r['name'];
+$grpN = array_count_values(array_map($grpKey, $rows));
+$nSingle = count(array_filter($rows, fn($r) => $grpN[$grpKey($r)] === 1));
+$nMulti = count($rows) - $nSingle;
+$part = $one ? 'all' : ($_GET['part'] ?? 'single');
+if ($part === 'single') $rows = array_values(array_filter($rows, fn($r) => $grpN[$grpKey($r)] === 1));
+elseif ($part === 'multi') $rows = array_values(array_filter($rows, fn($r) => $grpN[$grpKey($r)] > 1));
 if ($go && $rows && $role === 'edit') {
     $d->prepare('INSERT INTO print_log (batch_id, donation_id, kind, count, by_email) VALUES (?,?,?,?,?)')
       ->execute([$id, $one ?: null, $one ? 'reprint' : 'print', count($rows), $email]);
@@ -72,11 +80,12 @@ body{margin:0;font-family:"Microsoft JhengHei","微軟正黑體","Noto Sans TC",
 </head>
 <body>
 <div class="panel">
-<b><?= h($b['source']) ?>（<?= h($b['track']) ?>）收貨 <?= h($date) ?></b>　本次 <?= count($rows) ?> 張（已依郵遞區號、地址、收件人排序）
+<b><?= h($b['source']) ?>（<?= h($b['track']) ?>）收貨 <?= h($date) ?></b>　本次 <?= count($rows) ?> 張（<?= ['single' => '單張份', 'multi' => '多張份', 'all' => '不分份'][$part] ?? '' ?>）（已依郵遞區號、地址、收件人排序）
 <?php if ($b['track'] === '食'): ?><div class="warn">食字軌預印紙的位置還在量測，請先用白紙試印、疊在預印紙上對光確認。</div><?php endif; ?>
 <form method="get" style="margin-top:8px">
 <input type="hidden" name="id" value="<?= $id ?>"><?php if ($one): ?><input type="hidden" name="one" value="<?= $one ?>"><?php endif; ?>
 <?php if (!$one): ?>
+份別 <select name="part"><option value="single" <?= $part === 'single' ? 'selected' : '' ?>>單張份（<?= $nSingle ?> 張）</option><option value="multi" <?= $part === 'multi' ? 'selected' : '' ?>>多張份（<?= $nMulti ?> 張，同地址收件人連在一起）</option><option value="all" <?= $part === 'all' ? 'selected' : '' ?>>不分份</option></select>
 範圍 <select name="scope"><option value="send" <?= $scope === 'send' ? 'selected' : '' ?>>只印要寄的</option><option value="all" <?= $scope === 'all' ? 'selected' : '' ?>>全部</option></select>
 流水號 <input name="from" value="<?= $from ?: '' ?>" placeholder="從">～<input name="to" value="<?= $to ?: '' ?>" placeholder="到">
 <?php endif; ?>

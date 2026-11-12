@@ -90,6 +90,17 @@ ok((int)$d->query("SELECT count(*) FROM print_log WHERE batch_id=$bid AND kind='
 preq('vw@test', ['id' => $bid, 'go' => '1']);
 ok((int)$d->query("SELECT count(*) FROM print_log WHERE batch_id=$bid")->fetchColumn() === 1, '唯讀者看得到但不記錄列印');
 ok(str_contains(preq($E, ['id' => $b2]), '找不到已配號的批次'), '未配號批次不能印');
+// 單張份／多張份（業務單位選甲）：同一地址＋收件人 2 張以上進多張份
+req($E, ['a' => 'new'], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch', 'source' => 'ibon', 'in_date' => '115/09/16', 'items' => '']);
+$b4 = (int)$d->query('SELECT max(id) FROM batch')->fetchColumn();
+xlsx($tmp, [['訂單編號', '收件人', '送貨地點', '訂單數量', 'zip', 'city', 'address', '收據'],
+            ['M-1', '陳測試', 'x', 1, '234', '新北市永和區', '測試路9號', 'Y'], ['M-2', '陳測試', 'x', 1, '234', '新北市永和區', '測試路9號', 'Y'],
+            ['M-3', '李測試', 'y', 1, '100', '臺北市中正區', '測試路2號', 'Y']]);
+req($E, ['a' => 'batch', 'id' => $b4], 'POST', ['csrf' => $csrf($E), 'do' => 'import'], ['file' => ['name' => 'm.xlsx', 'tmp_name' => $tmp, 'error' => 0]]);
+req($E, ['a' => 'batch', 'id' => $b4], 'POST', ['csrf' => $csrf($E), 'do' => 'assign']);
+$s1 = preq($E, ['id' => $b4]); $s2 = preq($E, ['id' => $b4, 'part' => 'multi']);
+ok(substr_count($s1, 'class="page"') === 1 && str_contains($s1, '李測試'), '預設單張份：只印 1 張（李）');
+ok(substr_count($s2, 'class="page"') === 2 && !str_contains($s2, '李測試'), '多張份：同地址同收件人的 2 張（陳）');
 
 echo "查詢\n";
 $p = req('vw@test', ['a' => 'search', 'q' => 'O-1']);
