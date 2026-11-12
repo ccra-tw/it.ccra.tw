@@ -102,6 +102,10 @@ $s1 = preq($E, ['id' => $b4]); $s2 = preq($E, ['id' => $b4, 'part' => 'multi']);
 ok(substr_count($s1, 'class="page"') === 1 && str_contains($s1, '李測試'), '預設單張份：只印 1 張（李）');
 ok(substr_count($s2, 'class="page"') === 2 && !str_contains($s2, '李測試'), '多張份：同地址同收件人的 2 張（陳）');
 
+req($E, ['a' => 'batch', 'id' => $b3], 'POST', ['csrf' => $csrf($E), 'do' => 'assign']);
+$fp = preq($E, ['id' => $b3, 'scope' => 'all']);
+ok(str_contains($fp, 'class="page food"') && str_contains($fp, '食(115)09200001') && str_contains($fp, 'stamp.php?k=chair') && str_contains($fp, '民國 115 年 9 月 20 日'), '食字軌整張白紙版面：編號、印章、收貨日期');
+
 echo "配號後修改與寄出日期\n";
 $rid = (int)$d->query("SELECT id FROM donation WHERE batch_id=$bid AND order_no='O-2'")->fetchColumn();
 req($E, ['a' => 'batch', 'id' => $bid], 'POST', ['csrf' => $csrf($E), 'do' => 'row', 'rid' => $rid, 'name' => '林來電', 'zip' => '234', 'city' => '新北市永和區', 'address' => '保生路1號', 'send' => 'on', 'mailed_on' => '115/11/20']);
