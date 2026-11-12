@@ -123,6 +123,53 @@ ok(str_contains($nw, '十一月的信') && str_contains($nw, '已帶入最近一
 $d->exec("UPDATE batch SET letter = '食也用的信', in_date = '2026-09-30' WHERE id = $b3");
 ok(str_contains(req($E, ['a' => 'new']), '食也用的信'), '物、食用同一封信：最近一批不分字軌都會帶入');
 
+echo "大沈第一輪（R-itsu-1112-01）\n";
+// P1-1 同檔兩列同訂單
+req($E, ['a' => 'new'], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch', 'source' => 'ibon', 'in_date' => '115/10/01', 'items' => '']);
+$b5 = (int)$d->query('SELECT max(id) FROM batch')->fetchColumn();
+xlsx($tmp, [['訂單編號', '收件人', '送貨地點', '訂單數量', 'zip', 'city', 'address', '收據'], ['D-1', '甲測試', 'x', 1, '100', '臺北市中正區', '甲路1號', 'Y'], ['D-2', '乙測試', 'x', 1, '100', '臺北市中正區', '乙路1號', 'Y'], ['D-1', '甲測試', 'x', 1, '100', '臺北市中正區', '甲路1號', 'Y']]);
+req($E, ['a' => 'batch', 'id' => $b5], 'POST', ['csrf' => $csrf($E), 'do' => 'import'], ['file' => ['name' => 'd.xlsx', 'tmp_name' => $tmp, 'error' => 0]]);
+ok(str_contains(req($E, ['a' => 'batch', 'id' => $b5]), '名單內訂單編號重複 1 個'), '同檔重複訂單在檢核畫面標出');
+$o = req($E, ['a' => 'batch', 'id' => $b5], 'POST', ['csrf' => $csrf($E), 'do' => 'assign']);
+ok(str_contains($o, '重複出現') && $d->query("SELECT status FROM batch WHERE id=$b5")->fetchColumn() === 'draft' && (int)$d->query("SELECT count(*) FROM donation WHERE batch_id=$b5 AND receipt_no IS NOT NULL")->fetchColumn() === 0, '同檔重複訂單整批不配號');
+// 資料庫層保護：繞過程式直接寫同訂單第二張有效收據要失敗
+$bad = false; try { $d->exec("UPDATE donation SET receipt_no = 'X-TEST-1' WHERE batch_id=$b5 AND order_no='D-1' AND row_no=1"); $d->exec("UPDATE donation SET receipt_no = 'X-TEST-2' WHERE batch_id=$b5 AND order_no='D-1' AND row_no=3"); } catch (PDOException $e) { $bad = ($e->errorInfo[0] ?? '') === '23505'; }
+ok($bad, '資料庫唯一索引：同一訂單不能有兩張有效收據');
+$d->exec("UPDATE donation SET receipt_no = NULL WHERE batch_id=$b5");
+// P2 兩個草稿含同一訂單：不互擋；先配號的成功，後配號的被擋並指出已開的收據號
+req($E, ['a' => 'new'], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch', 'source' => 'ibon', 'in_date' => '115/10/02', 'items' => '']);
+$b6 = (int)$d->query('SELECT max(id) FROM batch')->fetchColumn();
+req($E, ['a' => 'new'], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch', 'source' => 'ibon', 'in_date' => '115/10/03', 'items' => '']);
+$b7 = (int)$d->query('SELECT max(id) FROM batch')->fetchColumn();
+xlsx($tmp, [['訂單編號', '收件人', '送貨地點', '訂單數量', 'zip', 'city', 'address', '收據'], ['S-1', '丙測試', 'x', 1, '100', '臺北市中正區', '丙路1號', 'Y']]);
+foreach ([$b6, $b7] as $bb) req($E, ['a' => 'batch', 'id' => $bb], 'POST', ['csrf' => $csrf($E), 'do' => 'import'], ['file' => ['name' => 's.xlsx', 'tmp_name' => $tmp, 'error' => 0]]);
+ok(!str_contains(req($E, ['a' => 'batch', 'id' => $b6]), '已開過收據'), '兩個草稿同訂單時不顯示「已開過收據」（還沒有收據號）');
+req($E, ['a' => 'batch', 'id' => $b6], 'POST', ['csrf' => $csrf($E), 'do' => 'assign']);
+$o = req($E, ['a' => 'batch', 'id' => $b7], 'POST', ['csrf' => $csrf($E), 'do' => 'assign']);
+ok($d->query("SELECT status FROM batch WHERE id=$b6")->fetchColumn() === 'numbered' && $d->query("SELECT status FROM batch WHERE id=$b7")->fetchColumn() === 'draft' && str_contains($o, '物(115)10020001'), '先配號的成功、後配號的被擋並指出已開的收據號');
+// P1-2 配號後的匯入、改字軌日期都在持鎖後重核狀態
+$o = req($E, ['a' => 'batch', 'id' => $b6], 'POST', ['csrf' => $csrf($E), 'do' => 'import'], ['file' => ['name' => 's.xlsx', 'tmp_name' => $tmp, 'error' => 0]]);
+ok((int)$d->query("SELECT count(*) FROM donation WHERE batch_id=$b6 AND receipt_no IS NOT NULL")->fetchColumn() === 1, '已配號批次再匯入不會刪掉已開的收據');
+$p6 = req($E, ['a' => 'edit', 'id' => $b6], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch', 'source' => '家庭雲端', 'in_date' => '115/12/31', 'po_no' => 'PO-B6', 'items' => 'Z,改不到,1']);
+$r6 = $d->query("SELECT track, in_date, po_no FROM batch WHERE id=$b6")->fetch(PDO::FETCH_ASSOC);
+ok($r6['track'] === '物' && $r6['in_date'] === '2026-10-02' && $r6['po_no'] === 'PO-B6' && (int)$d->query("SELECT count(*) FROM batch_item WHERE batch_id=$b6")->fetchColumn() === 0, '已配號：字軌、日期、產品明細不變，進貨單號可補');
+// 雙連線：一條持有批次列鎖時，另一條的 rcpt_lock_draft 等不到鎖（lock_timeout）
+$c = json_decode((string)file_get_contents(PG_CONF), true);
+$d2 = new PDO("pgsql:host={$c['host']};dbname={$c['db']}", $c['user'], $c['pass'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+$d2->exec('SET search_path TO receipt_test'); $d2->exec("SET lock_timeout = '500ms'");
+$d->beginTransaction(); rcpt_lock_draft($d, $b7);
+$blocked = false; try { $d2->beginTransaction(); rcpt_lock_draft($d2, $b7); } catch (PDOException $e) { $blocked = ($e->errorInfo[0] ?? '') === '55P03'; } finally { if ($d2->inTransaction()) $d2->rollBack(); }
+$d->rollBack();
+ok($blocked, '雙連線交錯：批次被鎖住時另一個匯入／配號拿不到鎖、不會動資料');
+// P1-3 資料庫錯誤不把個資寫進紀錄
+$fake = new PDOException('SQLSTATE[23502]: Not null violation DETAIL: Failing row contains (假姓名王小明, 0912000000, 假地址測試路99號)');
+$fake->errorInfo = ['23502', 7, 'x'];
+$log = sys_get_temp_dir() . '/rcpt-log-' . getmypid(); ini_set('error_log', $log); @unlink($log);
+rcpt_log_db_error($fake, 'import');
+$lg = (string)@file_get_contents($log); @unlink($log);
+ok(str_contains($lg, 'sqlstate=23502') && !str_contains($lg, '王小明') && !str_contains($lg, '0912000000') && !str_contains($lg, '測試路99號'), '資料庫錯誤只記 SQLSTATE，不含姓名電話地址');
+ok(!str_contains((string)file_get_contents("$SITE/receipt/index.php"), 'error_log('), '頁面不直接呼叫 error_log');
+
 echo "查詢\n";
 $p = req('vw@test', ['a' => 'search', 'q' => 'O-1']);
 ok(str_contains($p, '物(115)09140001'), '唯讀者可用訂單編號查到');

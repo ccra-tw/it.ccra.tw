@@ -40,8 +40,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $f = [$src, RCPT_SOURCES[$src], $po, $date, trim($_POST['supplier_code'] ?? ''), trim($_POST['supplier_name'] ?? ''),
                       ($_POST['set_price'] ?? '') === '' ? null : (int)$_POST['set_price'], trim($_POST['handler'] ?? ''),
                       trim($_POST['contents'] ?? ''), trim($_POST['letter'] ?? '')];
+                $d->beginTransaction();
                 if ($id) {
-                    $b = batch_get($d, $id);
+                    $s0 = $d->prepare('SELECT * FROM batch WHERE id = ? FOR UPDATE'); $s0->execute([$id]);   // 與配號共用列鎖，持鎖後依當下狀態決定可改哪些欄位
+                    $b = $s0->fetch(PDO::FETCH_ASSOC);
                     if (!$b) throw new RuntimeException('找不到批次');
                     if ($b['status'] !== 'draft') {   // 已配號：只能補進貨單號與經手人、信件等不影響編號的欄位
                         $d->prepare('UPDATE batch SET po_no = ?, supplier_code = ?, supplier_name = ?, handler = ?, contents = ?, letter = ?, updated_at = now() WHERE id = ?')
@@ -57,8 +59,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $id = (int)$d->lastInsertId();
                     rcpt_audit($d, $email, 'new_batch', $id);
                 }
-                // 產品明細：每行「代號,品名,數量,單位,單價」
-                $b = batch_get($d, $id);
+                // 產品明細：每行「代號,品名,數量,單位,單價」（只在同一交易、持鎖下且仍是草稿時改）
+                $b = $id && isset($b) ? $b : ['status' => 'draft'];
                 if ($b['status'] === 'draft') {
                     $d->prepare('DELETE FROM batch_item WHERE batch_id = ?')->execute([$id]);
                     $ins = $d->prepare('INSERT INTO batch_item (batch_id, code, name, qty, unit, price) VALUES (?,?,?,?,?,?)');
@@ -68,6 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $ins->execute([$id, $p[0], $p[1], (float)str_replace(',', '', $p[2]), $p[3] ?? '', isset($p[4]) && $p[4] !== '' ? (float)$p[4] : null]);
                     }
                 }
+                $d->commit();
                 header("Location: ./?a=batch&id=$id&ok=saved"); exit;
             }
             if ($do === 'import') {
@@ -100,6 +103,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($j['missing']) throw new RuntimeException('對不到必要欄位：' . implode('、', $j['missing']) . '（實際欄名：' . implode('、', array_filter($j['columns'])) . '）');
                 if (!$j['rows']) throw new RuntimeException('檔案裡沒有資料列');
                 $d->beginTransaction();
+                rcpt_lock_draft($d, $id);   // 整理檔案期間別人可能已配號：持鎖後再核對仍是草稿才刪除重建
                 $d->prepare('DELETE FROM donation WHERE batch_id = ?')->execute([$id]);
                 $ins = $d->prepare('INSERT INTO donation (batch_id, row_no, order_no, name, mobile, phone, raw_addr, zip, city, address, product, qty, send, check_note, dup_note, updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
                 foreach ($j['rows'] as $i => $r) {
@@ -151,9 +155,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         } catch (Throwable $e) {
             if ($d->inTransaction()) $d->rollBack();
-            $err = $e instanceof PDOException ? '資料庫錯誤，請通知資訊部。' : $e->getMessage();
-            if ($e instanceof PDOException) error_log('it.ccra.tw receipt: ' . $e->getMessage());
-            if ($e instanceof PDOException && str_contains($e->getMessage(), 'batch_po_no_key')) $err = '這個進貨單號已經建過批次了。';
+            if ($e instanceof PDOException) {
+                $ref = rcpt_log_db_error($e, $do);
+                $err = str_contains($e->getMessage(), 'batch_po_no_key') ? '這個進貨單號已經建過批次了。' : "資料庫錯誤，請通知資訊部（代碼 $ref）。";
+            } else $err = $e->getMessage();
         }
     }
 }
@@ -243,12 +248,13 @@ button{padding:8px 16px;font-size:1em}
     $items = $d->query('SELECT * FROM batch_item WHERE batch_id = ' . $id . ' ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
     $rows = $d->query('SELECT * FROM donation WHERE batch_id = ' . $id . ' ORDER BY row_no')->fetchAll(PDO::FETCH_ASSOC);
     $dup = $rows ? rcpt_dup_orders($d, array_column($rows, 'order_no'), $id) : [];
+    $inb = rcpt_dup_in_batch($d, $id);
     $qty = array_sum(array_column($rows, 'qty'));
     $nY = count(array_filter($rows, fn($r) => $r['send'])); $itemQty = $items ? max(array_map(fn($i) => (float)$i['qty'], $items)) : 0; ?>
 <h2><?= h($b['source']) ?>（<?= h($b['track']) ?>）｜收貨 <?= h(rcpt_date_to_roc($b['in_date'])) ?>｜進貨單 <?= h($b['po_no'] ?: '未填') ?>
 <?php if ($canEdit): ?><a href="./?a=edit&id=<?= $id ?>" style="font-size:.6em">編輯</a><?php endif; ?></h2>
 <p>筆數 <b><?= count($rows) ?></b>　數量合計 <b><?= $qty ?></b><?php if ($itemQty): ?>（進貨單 <?= 0 + $itemQty ?><?= abs($qty - $itemQty) > 0.001 ? ' ⚠️ 不符' : ' ✅' ?>）<?php endif; ?>
-　寄發 <b><?= $nY ?></b>　不寄 <b><?= count($rows) - $nY ?></b><?php if ($dup): ?>　<span class="dup">⚠️ 訂單編號已開過收據 <?= count($dup) ?> 筆</span><?php endif; ?></p>
+　寄發 <b><?= $nY ?></b>　不寄 <b><?= count($rows) - $nY ?></b><?php if ($dup): ?>　<span class="dup">⚠️ 訂單編號已開過收據 <?= count($dup) ?> 筆</span><?php endif; ?><?php if ($inb): ?>　<span class="dup">⚠️ 名單內訂單編號重複 <?= count($inb) ?> 個</span><?php endif; ?></p>
 <?php if ($b['status'] !== 'draft'): ?>
 <p class="ok">收據起訖（請會計填入文中進貨單「報關單號」）：<b><?= h(rcpt_range_text($b['first_no'], $b['last_no'])) ?></b>
 　<a href="./print.php?id=<?= $id ?>">列印收據</a></p>
@@ -264,9 +270,9 @@ button{padding:8px 16px;font-size:1em}
 <p><button type="submit">檢核完成，配號（<?= count($rows) ?> 筆）</button></p></form>
 <?php endif; endif; ?>
 <table><tr><th>#</th><th>收據編號</th><th>訂單編號</th><th>收件人</th><th>郵遞區號／縣市區／地址</th><th class="n">數量</th><th>寄發</th><th>檢核說明</th><th>寄出日期</th><?php if ($canEdit): ?><th></th><?php endif; ?></tr>
-<?php foreach ($rows as $r): $isDup = isset($dup[$r['order_no']]); $fid = 'f' . (int)$r['id']; ?>
+<?php foreach ($rows as $r): $isDup = isset($dup[$r['order_no']]) || isset($inb[$r['order_no']]); $fid = 'f' . (int)$r['id']; ?>
 <tr id="r<?= (int)$r['id'] ?>" class="<?= $isDup ? 'dup' : (!$r['send'] ? 'bad' : '') ?>">
-<td><?= (int)$r['row_no'] ?></td><td><?= h($r['receipt_no']) ?></td><td><?= h($r['order_no']) ?><?= $isDup ? '<br>已開：' . h($dup[$r['order_no']][1]) : '' ?></td>
+<td><?= (int)$r['row_no'] ?></td><td><?= h($r['receipt_no']) ?></td><td><?= h($r['order_no']) ?><?= isset($dup[$r['order_no']]) ? '<br>已開：' . h($dup[$r['order_no']][1]) : '' ?><?= isset($inb[$r['order_no']]) ? '<br>名單內重複' : '' ?></td>
 <?php if ($canEdit): ?>
 <td><input form="<?= $fid ?>" type="text" name="name" value="<?= h($r['name']) ?>" style="width:7em"></td>
 <td><input form="<?= $fid ?>" type="text" name="zip" value="<?= h($r['zip']) ?>" style="width:5em"> <input form="<?= $fid ?>" type="text" name="city" value="<?= h($r['city']) ?>" style="width:9em"> <input form="<?= $fid ?>" type="text" name="address" value="<?= h($r['address']) ?>" style="width:16em"><br><small><?= h($r['raw_addr']) ?></small></td>
