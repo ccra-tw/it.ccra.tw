@@ -216,11 +216,11 @@ button{padding:8px 16px;font-size:1em}
 
 <?php if ($a === 'list'):
     $rows = $d->query("SELECT b.*, (SELECT COUNT(*) FROM donation WHERE batch_id=b.id) n, (SELECT COALESCE(SUM(qty),0) FROM donation WHERE batch_id=b.id) q FROM batch b ORDER BY in_date DESC, id DESC LIMIT 200")->fetchAll(PDO::FETCH_ASSOC); ?>
-<table><tr><th>收貨日期</th><th>來源</th><th>進貨單號</th><th class="n">筆數</th><th class="n">數量</th><th>收據起訖</th><th>狀態</th></tr>
+<table class="rows"><tr class="hd"><th>收貨日期</th><th>來源</th><th>進貨單號</th><th class="n">筆數</th><th class="n">數量</th><th>收據起訖</th><th>狀態</th></tr>
 <?php foreach ($rows as $r): ?>
-<tr><td><?= h(rcpt_date_to_roc($r['in_date'])) ?></td><td><?= h($r['source']) ?>（<?= h($r['track']) ?>）</td>
-<td><a href="./?a=batch&id=<?= (int)$r['id'] ?>"><?= h($r['po_no'] ?: '（未填）') ?></a></td><td class="n"><?= (int)$r['n'] ?></td><td class="n"><?= (int)$r['q'] ?></td>
-<td><?= $r['first_no'] ? h(rcpt_range_text($r['first_no'], $r['last_no'])) : '' ?></td><td><?= $r['status'] === 'draft' ? '草稿' : '已配號' ?></td></tr>
+<tr><td data-l="收貨日期"><?= h(rcpt_date_to_roc($r['in_date'])) ?></td><td data-l="來源"><?= h($r['source']) ?>（<?= h($r['track']) ?>）</td>
+<td data-l="進貨單號"><a href="./?a=batch&id=<?= (int)$r['id'] ?>"><?= h($r['po_no'] ?: '（未填）') ?></a></td><td class="n" data-l="筆數"><?= (int)$r['n'] ?></td><td class="n" data-l="數量"><?= (int)$r['q'] ?></td>
+<td data-l="收據起訖"><?= $r['first_no'] ? h(rcpt_range_text($r['first_no'], $r['last_no'])) : '' ?></td><td data-l="狀態"><?= $r['status'] === 'draft' ? '草稿' : '已配號' ?></td></tr>
 <?php endforeach; if (!$rows): ?><tr><td colspan="7">還沒有批次。</td></tr><?php endif; ?>
 </table>
 
