@@ -95,6 +95,8 @@ table.rows{border-collapse:separate;border-spacing:0;width:100%;font-size:15px}
 .rows td.addr input{margin:0 0 4px}
 .rows td.act{white-space:nowrap}
 .rows td.act a{display:inline-block;margin-left:8px;font-size:14px}
+.rows td.act a:first-child{margin-left:0}
+.rows tr:target td{background:color-mix(in srgb,var(--yellow) 22%,transparent)}
 
 /* 手機（大沈 R-itsu-1112-01：390px 寬時表格 813px、「存」在畫面外）：窄螢幕每筆一張卡片，欄名由 data-l 帶出 */
 @media (max-width:700px){
@@ -106,7 +108,7 @@ table.rows{border-collapse:separate;border-spacing:0;width:100%;font-size:15px}
   .rows tbody tr:hover td{background:transparent}
   .rows td[data-l]::before{content:attr(data-l) '：';font-weight:800;color:var(--muted);font-size:13px}
   .rows td.n{text-align:left}
-  .rows td.mono,.rows td.act{white-space:normal;overflow-wrap:anywhere}
+  .rows td,.rows td.mono,.rows td.act{white-space:normal;overflow-wrap:anywhere}
   .rc-head .chips{margin-left:0}
   .pages{padding:0 8px 40px}
   .rows input[type=text]{width:100%!important;margin:3px 0}

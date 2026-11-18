@@ -37,6 +37,19 @@ $bid = (int)$d->query('SELECT max(id) FROM batch')->fetchColumn();
 ok($bid > 0 && $d->query("SELECT po_no IS NULL AND track='物' FROM batch WHERE id=$bid")->fetchColumn(), '進貨單號可空白、ibon 自動帶物字軌');
 ok((int)$d->query("SELECT count(*) FROM batch_item WHERE batch_id=$bid")->fetchColumn() === 1, '產品明細存入' . ((int)$d->query("SELECT count(*) FROM batch_item WHERE batch_id=$bid")->fetchColumn() === 1 ? '' : '：' . substr(strip_tags($o0), 0, 400)));
 ok(str_contains(req($E, ['a' => 'new'], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch', 'source' => 'ibon', 'in_date' => '115/02/30']), '收貨日期格式不對'), '不存在的日期擋下');
+// 繁英姊 11/18 驗收：空白要說「請填」、出錯要保留剛填的內容、全形與日曆（西元）日期都收
+$oe = req($E, ['a' => 'new'], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch', 'source' => 'ibon', 'in_date' => '', 'supplier_name' => '回填測試供應商', 'handler' => '回填經手', 'items' => "B01,回填品名,1,包,"]);
+ok(str_contains($oe, '請填收貨日期') && !str_contains($oe, '格式不對'), '收貨日期空白回「請填收貨日期」，不說格式不對');
+ok(str_contains($oe, 'value="回填測試供應商"') && str_contains($oe, 'value="回填經手"') && str_contains($oe, 'B01,回填品名'), '出錯後保留剛填的供應商、經手人、產品明細');
+ok(preg_match('#<option value="ibon"\s+selected#u', $oe) === 1, '出錯後來源保持原選項');
+$nfw = (int)$d->query('SELECT count(*) FROM batch')->fetchColumn();
+req($E, ['a' => 'new'], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch', 'source' => 'ibon', 'in_date' => '１１５／１１／１８']);
+req($E, ['a' => 'new'], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch', 'source' => 'ibon', 'in_date' => '2026-11-19']);
+ok((int)$d->query("SELECT count(*) FROM batch WHERE in_date IN ('2026-11-18','2026-11-19')")->fetchColumn() === 2 && (int)$d->query('SELECT count(*) FROM batch')->fetchColumn() === $nfw + 2, '全形「１１５／１１／１８」與日曆西元「2026-11-19」都建得起來');
+$d->exec("DELETE FROM batch WHERE in_date IN ('2026-11-18','2026-11-19')");
+$nw = req($E, ['a' => 'new']);
+ok(str_contains($nw, 'type="date"') && str_contains($nw, 'value="' . date('Y-m-d') . '"'), '新增批次的收貨日期是日曆欄位、預設今天');
+ok(str_contains(req($E, []), '新增批次（匯入名單）'), '入口名稱寫明「新增批次（匯入名單）」');
 
 echo "匯入（已整理過的檔，不跑地址整理）\n";
 $tmp = sys_get_temp_dir() . '/rcpt-page-' . getmypid() . '.xlsx';
@@ -47,7 +60,7 @@ $o = req($E, ['a' => 'batch', 'id' => $bid], 'POST', ['csrf' => $csrf($E), 'do' 
 ok((int)$d->query("SELECT count(*) FROM donation WHERE batch_id=$bid")->fetchColumn() === 2, '匯入 2 筆' . ((int)$d->query("SELECT count(*) FROM donation WHERE batch_id=$bid")->fetchColumn() === 2 ? '' : '：' . substr(strip_tags($o), 0, 300)));
 ok($d->query("SELECT send FROM donation WHERE batch_id=$bid AND order_no='O-2'")->fetchColumn() === false, '收據 N 照檔案帶入');
 $p = req($E, ['a' => 'batch', 'id' => $bid]);
-ok(str_contains($p, '數量合計 <b>3</b>') && str_contains($p, '✅'), '數量合計與進貨單相符顯示 ✅');
+ok(preg_match('#<small>數量合計</small><b>3</b>#u', $p) && str_contains($p, '與進貨單相符'), '數量合計 3 且顯示「與進貨單相符」（11/18 介面改版：數字卡＋狀態標籤）');
 
 echo "匯入（平台原始檔，經地址整理程式）\n";
 req($E, ['a' => 'new'], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch', 'source' => '家庭雲端', 'in_date' => '115/09/20', 'items' => 'F01,生活用品,2,箱,100']);
@@ -137,7 +150,8 @@ preq($E, ['id' => $b9, 'scope' => 'all', 'part' => 'all', 'go' => '1']);
 ok((int)$d->query("SELECT count(*) FROM print_log WHERE batch_id=$b9")->fetchColumn() === $pl, '拒絕列印時也不寫列印紀錄');
 
 echo "手機版面\n";
-ok(str_contains($pg, 'table class="rows"') && str_contains($pg, '@media (max-width:700px)') && str_contains($pg, 'data-l="寄出日期"') && str_contains($pg, 'data-l="收件人"'), '批次表在窄螢幕改卡片（欄名標籤、儲存鍵留在卡片內）');
+$rcss = (string)file_get_contents($SITE . '/assets/receipt.css');   // 11/18 介面改版：手機卡片規則移到 assets/receipt.css
+ok(str_contains($pg, 'table class="rows"') && str_contains($pg, '/assets/receipt.css') && str_contains($rcss, '@media (max-width:700px)') && str_contains($rcss, ".rows td[data-l]::before") && str_contains($pg, 'data-l="寄出日期"') && str_contains($pg, 'data-l="收件人"'), '批次表在窄螢幕改卡片（欄名標籤、儲存鍵留在卡片內）');
 
 echo "配號後修改與寄出日期\n";
 $rid = (int)$d->query("SELECT id FROM donation WHERE batch_id=$bid AND order_no='O-2'")->fetchColumn();
@@ -275,6 +289,9 @@ echo "查詢\n";
 $p = req('vw@test', ['a' => 'search', 'q' => 'O-1']);
 ok(str_contains($p, '物(115)09140001'), '唯讀者可用訂單編號查到');
 ok((int)$d->query("SELECT count(*) FROM audit WHERE action='search'")->fetchColumn() >= 1, '查詢有留紀錄');
+ok(!str_contains($p, '>修改</a>'), '唯讀者查詢結果沒有「修改」');
+$pe = req($E, ['a' => 'search', 'q' => 'O-1']);
+ok(preg_match('#href="\./\?a=batch&id=\d+\#r\d+">修改</a>#', $pe) === 1, '開收據者查詢結果有「修改」，連到該批次該筆');
 @unlink($tmp);
 echo $fail ? "❌ 失敗 {$fail}／{$n}\n" : "✅ 全部通過 {$n} 項\n";
 exit($fail ? 1 : 0);

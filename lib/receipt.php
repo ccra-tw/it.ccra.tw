@@ -103,7 +103,15 @@ function rcpt_dup_in_batch(PDO $d, int $batchId): array {
 
 // 民國年月日字串 115/09/14 ↔ 西元 date。接受 115/9/14、115-09-14、1150914。不合法回 null。
 function rcpt_roc_to_date(string $s): ?string {
-    $s = trim($s);
+    // 容錯（繁英姊 11/18 驗收）：全形數字與斜線、「115年11月18日」、民國前綴；也接受西元 YYYY-MM-DD（日曆欄位送來的）
+    $s = trim(mb_convert_kana($s, 'as', 'UTF-8'));
+    $s = str_replace(['／', '－', '．'], '/', $s);
+    $s = preg_replace('/^民國\s*/u', '', $s);
+    if (preg_match('/^(\d{2,3})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?$/u', $s, $m)) $s = "$m[1]/$m[2]/$m[3]";
+    if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $s, $m)) {
+        [$y, $mo, $da] = [(int)$m[1], (int)$m[2], (int)$m[3]];
+        return checkdate($mo, $da, $y) ? sprintf('%04d-%02d-%02d', $y, $mo, $da) : null;
+    }
     if (preg_match('/^(\d{2,3})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/', $s, $m) || preg_match('/^(\d{3})(\d{2})(\d{2})$/', $s, $m)) {
         [$y, $mo, $da] = [(int)$m[1] + 1911, (int)$m[2], (int)$m[3]];
         return checkdate($mo, $da, $y) ? sprintf('%04d-%02d-%02d', $y, $mo, $da) : null;
