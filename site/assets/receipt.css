@@ -1,6 +1,11 @@
 /* 物資捐贈收據系統（/receipt/）樣式 — CCRA CI（2026-11-18 熊哥：「收據系統你沒有做到符合CCRA CI」「介面也要美化」）
    只用 site.css 的 CCRA 色票：Logo 信號紅 --red、和平鴿黃 --yellow、救助綠 --green，深墨藍 --ink；深色模式跟著 site.css 走。
    不載 form.css（那是 CCNDA 莫蘭迪藍綠，CCEA／CCNDA 與 CCRA 各用各的標準）。需先載入 site.css。 */
+/* 大沈 945b50c 審查（2026-11-18）：白字配協會綠 3.65:1／深色 2.28:1 未達 WCAG AA 4.5:1 → 按鈕與作用中分頁用成對文字／背景色。
+   淺色 #0b7a3b＋白字 5.44:1；深色 #2bc46b＋深綠字 #062512 7.19:1；紅鈕 #c81e27＋白字 5.72:1。協會綠仍作識別色。 */
+:root{--rc-btn:#0b7a3b;--rc-btn-fg:#fff;--rc-red:#c81e27}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--rc-btn:#2bc46b;--rc-btn-fg:#062512}}
+:root[data-theme="dark"]{--rc-btn:#2bc46b;--rc-btn-fg:#062512}
 .rc{max-width:1240px;margin:0 auto;padding:0 16px 48px}
 .rcpage .bar .wrap{max-width:1240px}
 .rc-head{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 18px;margin:22px 0 14px}
@@ -12,7 +17,7 @@
 .tabs{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 18px;padding:6px;border-radius:999px;background:var(--panel);border:1px solid var(--edge);width:max-content;max-width:100%;box-shadow:var(--glow)}
 .tabs a{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:999px;text-decoration:none;font-weight:800;font-size:15px;color:var(--ink-2);transition:background .15s,color .15s}
 .tabs a:hover{background:color-mix(in srgb,var(--green) 10%,transparent);color:var(--ink)}
-.tabs a[aria-current=page]{background:var(--green);color:#fff}
+.tabs a[aria-current=page]{background:var(--rc-btn);color:var(--rc-btn-fg)}
 @media (max-width:560px){.tabs{width:100%;border-radius:18px}.tabs a{flex:1 1 auto;justify-content:center}}
 
 /* 標籤 */
@@ -49,13 +54,13 @@
 
 /* 按鈕 */
 .btn,.rc button{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:0;border-radius:999px;padding:10px 20px;
-  font:800 15px/1.2 "Noto Sans TC",sans-serif;cursor:pointer;text-decoration:none;color:#fff;background:var(--green);
+  font:800 15px/1.2 "Noto Sans TC",sans-serif;cursor:pointer;text-decoration:none;color:var(--rc-btn-fg);background:var(--rc-btn);
   box-shadow:0 8px 18px -10px color-mix(in srgb,var(--green) 80%,transparent);transition:transform .12s,filter .12s}
 .btn:hover,.rc button:hover{filter:brightness(1.07);transform:translateY(-1px)}
 .btn:disabled,.rc button:disabled{opacity:.5;cursor:default;transform:none}
 .btn.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--edge);box-shadow:none}
 .btn.ghost:hover{border-color:var(--green)}
-.btn.red{background:var(--red);box-shadow:0 8px 18px -10px color-mix(in srgb,var(--red) 80%,transparent)}
+.btn.red{background:var(--rc-red);color:#fff;box-shadow:0 8px 18px -10px color-mix(in srgb,var(--red) 80%,transparent)}
 .rc button.sm,.btn.sm{padding:6px 14px;font-size:14px}
 .actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:14px 0 0}
 
@@ -63,7 +68,9 @@
 .rc label{display:block;margin:12px 0 5px;font-weight:800;font-size:14.5px}
 .rc input[type=text],.rc input[type=date],.rc select,.rc textarea{width:100%;font:inherit;color:inherit;background:color-mix(in srgb,var(--paper) 70%,var(--panel));
   border:1.5px solid var(--edge);border-radius:12px;padding:9px 12px;box-sizing:border-box;transition:border-color .15s,box-shadow .15s}
-.rc input:focus,.rc select:focus,.rc textarea:focus{outline:none;border-color:var(--green);box-shadow:0 0 0 3px color-mix(in srgb,var(--green) 18%,transparent)}
+.rc input:focus,.rc select:focus,.rc textarea:focus{border-color:var(--green);box-shadow:0 0 0 3px color-mix(in srgb,var(--green) 18%,transparent)}
+/* 鍵盤焦點要看得到（大沈審查：原本 :focus 取消 outline） */
+.rc input:focus-visible,.rc select:focus-visible,.rc textarea:focus-visible,.rc button:focus-visible,.rc a:focus-visible,.btn:focus-visible,.tabs a:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
 .rc input[readonly],.rc select:disabled,.rc textarea[readonly]{opacity:.65}
 .rc input[type=file]{font:inherit;padding:8px;border:1.5px dashed var(--edge);border-radius:12px;width:100%;max-width:520px;background:transparent}
 .rc input[type=checkbox]{width:20px;height:20px;accent-color:var(--green)}

@@ -310,23 +310,23 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
         if ($curCode !== null && $curCode !== '' && !isset($o[(string)$curCode])) $o[(string)$curCode] = ['code' => (string)$curCode, 'name' => $curLabel, 'extra' => '', 'gone' => true];
         return $o;
     }; ?>
-<div><label>來源</label><select name="source" <?= $locked ? 'disabled' : '' ?>><?php foreach ($optList('source', $b['source'] ?? null, '') as $o): ?><option value="<?= h($o['code']) ?>" <?= (string)$fv('source') === $o['code'] ? 'selected' : '' ?>><?= h($o['code']) ?><?= $o['extra'] !== '' ? '（' . h($o['extra']) . '）' : '' ?><?= !empty($o['gone']) ? '（已停用）' : '' ?></option><?php endforeach; ?></select>
+<div><label for="f_source">來源</label><select id="f_source" name="source" <?= $locked ? 'disabled' : '' ?>><?php foreach ($optList('source', $b['source'] ?? null, '') as $o): ?><option value="<?= h($o['code']) ?>" <?= (string)$fv('source') === $o['code'] ? 'selected' : '' ?>><?= h($o['code']) ?><?= $o['extra'] !== '' ? '（' . h($o['extra']) . '）' : '' ?><?= !empty($o['gone']) ? '（已停用）' : '' ?></option><?php endforeach; ?></select>
 <?php if ($locked): ?><input type="hidden" name="source" value="<?= h($b['source']) ?>"><?php endif; ?></div>
-<div><label>文中進貨單號（可之後補）</label><input type="text" name="po_no" value="<?= h($fv('po_no')) ?>" placeholder="例：11509140004" maxlength="30" inputmode="numeric"></div>
+<div><label for="f_po_no">文中進貨單號（可之後補）</label><input type="text" id="f_po_no" name="po_no" value="<?= h($fv('po_no')) ?>" placeholder="例：11509140004" maxlength="30" inputmode="numeric"></div>
 <div><label for="in_date">收貨日期</label><?php
     $dv = $refill !== null ? (rcpt_roc_to_date((string)($refill['in_date'] ?? '')) ?? '') : ($b ? substr($b['in_date'], 0, 10) : date('Y-m-d')); ?>
 <input type="date" id="in_date" name="in_date" value="<?= h($dv) ?>" required <?= $locked ? 'readonly' : '' ?>>
 <p class="hint" id="in_date_roc"><?= $dv !== '' ? '民國 ' . h(rcpt_date_to_roc($dv)) : '點右邊日曆選日期' ?><?= !$b ? '（預設今天）' : '' ?></p></div>
-<div><label>供應商</label><select name="supplier_code"><option value="">（未選）</option><?php foreach ($optList('supplier', $b['supplier_code'] ?? null, $b['supplier_name'] ?? '') as $o): ?><option value="<?= h($o['code']) ?>" <?= (string)$fv('supplier_code') === $o['code'] ? 'selected' : '' ?>><?= h($o['code'] . '　' . $o['name']) ?><?= !empty($o['gone']) ? '（已停用）' : '' ?></option><?php endforeach; ?></select>
+<div><label for="f_supplier">供應商</label><select id="f_supplier" name="supplier_code"><option value="">（未選）</option><?php foreach ($optList('supplier', $b['supplier_code'] ?? null, $b['supplier_name'] ?? '') as $o): ?><option value="<?= h($o['code']) ?>" <?= (string)$fv('supplier_code') === $o['code'] ? 'selected' : '' ?>><?= h($o['code'] . '　' . $o['name']) ?><?= !empty($o['gone']) ? '（已停用）' : '' ?></option><?php endforeach; ?></select>
 <p class="hint">清單裡沒有？到「設定」新增。</p></div>
-<div><label>套餐每套金額（物）</label><select name="set_price" <?= $locked ? 'disabled' : '' ?>><option value="">（無）</option><?php foreach ($optList('set_price', isset($b['set_price']) ? (string)$b['set_price'] : null, '') as $o): ?><option value="<?= h($o['code']) ?>" <?= (string)$fv('set_price') === $o['code'] ? 'selected' : '' ?>><?= h($o['code']) ?><?= !empty($o['gone']) ? '（已停用）' : '' ?></option><?php endforeach; ?></select></div>
-<div><label>經手人</label><input type="text" name="handler" value="<?= h($fv('handler')) ?>"></div>
+<div><label for="f_set_price">套餐每套金額（物）</label><select id="f_set_price" name="set_price" <?= $locked ? 'disabled' : '' ?>><option value="">（無）</option><?php foreach ($optList('set_price', isset($b['set_price']) ? (string)$b['set_price'] : null, '') as $o): ?><option value="<?= h($o['code']) ?>" <?= (string)$fv('set_price') === $o['code'] ? 'selected' : '' ?>><?= h($o['code']) ?><?= !empty($o['gone']) ? '（已停用）' : '' ?></option><?php endforeach; ?></select></div>
+<div><label for="f_handler">經手人</label><input type="text" id="f_handler" name="handler" value="<?= h($fv('handler')) ?>"></div>
 </div></section>
 <section class="panel"><h2>收據內容</h2>
-<label>每套內含（印在物收據上）</label><textarea name="contents" rows="2"><?= h($fv('contents', $prevContents)) ?></textarea>
-<label>給捐贈者的信（印在收據下半部）</label><textarea name="letter" rows="8"><?= h($fv('letter', $prevLetter)) ?></textarea><?php if (!$b && $prevLetter !== ''): ?><p class="hint">已帶入最近一批的信；1、3、5、7、9、11 月換新信時在這裡改。</p><?php endif; ?>
-<label>產品明細（每行：代號,品名,數量,單位,單價）</label>
-<textarea name="items" rows="5" class="mono" <?= $locked ? 'readonly' : '' ?>><?php if ($refill !== null) echo h((string)($refill['items'] ?? '')); else foreach ($items as $it) echo h("{$it['code']},{$it['name']}," . (0 + $it['qty']) . ",{$it['unit']}," . ($it['price'] === null ? '' : 0 + $it['price'])) . "\n"; ?></textarea>
+<label for="f_contents">每套內含（印在物收據上）</label><textarea id="f_contents" name="contents" rows="2"><?= h($fv('contents', $prevContents)) ?></textarea>
+<label for="f_letter">給捐贈者的信（印在收據下半部）</label><textarea id="f_letter" name="letter" rows="8"><?= h($fv('letter', $prevLetter)) ?></textarea><?php if (!$b && $prevLetter !== ''): ?><p class="hint">已帶入最近一批的信；1、3、5、7、9、11 月換新信時在這裡改。</p><?php endif; ?>
+<label for="f_items">產品明細（每行：代號,品名,數量,單位,單價）</label>
+<textarea id="f_items" name="items" rows="5" class="mono" <?= $locked ? 'readonly' : '' ?>><?php if ($refill !== null) echo h((string)($refill['items'] ?? '')); else foreach ($items as $it) echo h("{$it['code']},{$it['name']}," . (0 + $it['qty']) . ",{$it['unit']}," . ($it['price'] === null ? '' : 0 + $it['price'])) . "\n"; ?></textarea>
 <script>(function(){var i=document.getElementById('in_date'),o=document.getElementById('in_date_roc');if(!i||!o)return;i.addEventListener('change',function(){var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(i.value);o.textContent=m?'民國 '+(m[1]-1911)+'/'+m[2]+'/'+m[3]:'點右邊日曆選日期';});})();</script>
 <div class="actions"><button type="submit">儲存</button><a class="btn ghost" href="<?= $b ? './?a=batch&id=' . (int)$b['id'] : './' ?>">取消</a></div>
 </section>

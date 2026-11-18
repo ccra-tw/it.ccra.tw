@@ -140,11 +140,11 @@ body{margin:0;font-family:"Microsoft JhengHei","微軟正黑體","Noto Sans TC",
 <input type="hidden" name="id" value="<?= $id ?>"><?php if ($one): ?><input type="hidden" name="one" value="<?= $one ?>"><?php endif; ?>
 <div class="row">
 <?php if (!$one): ?>
-<div><label>份別</label><select name="part"><option value="single" <?= $part === 'single' ? 'selected' : '' ?>>單張份（<?= $nSingle ?> 張）</option><option value="multi" <?= $part === 'multi' ? 'selected' : '' ?>>多張份（<?= $nMulti ?> 張，同地址收件人連在一起）</option><option value="all" <?= $part === 'all' ? 'selected' : '' ?>>不分份</option></select></div>
-<div><label>範圍</label><select name="scope"><option value="send" <?= $scope === 'send' ? 'selected' : '' ?>>只印要寄的</option><option value="all" <?= $scope === 'all' ? 'selected' : '' ?>>全部</option></select></div>
-<div><label>流水號</label><input type="text" class="no" name="from" value="<?= $from ?: '' ?>" placeholder="從"> ～ <input type="text" class="no" name="to" value="<?= $to ?: '' ?>" placeholder="到"></div>
+<div><label for="p_part">份別</label><select id="p_part" name="part"><option value="single" <?= $part === 'single' ? 'selected' : '' ?>>單張份（<?= $nSingle ?> 張）</option><option value="multi" <?= $part === 'multi' ? 'selected' : '' ?>>多張份（<?= $nMulti ?> 張，同地址收件人連在一起）</option><option value="all" <?= $part === 'all' ? 'selected' : '' ?>>不分份</option></select></div>
+<div><label for="p_scope">範圍</label><select id="p_scope" name="scope"><option value="send" <?= $scope === 'send' ? 'selected' : '' ?>>只印要寄的</option><option value="all" <?= $scope === 'all' ? 'selected' : '' ?>>全部</option></select></div>
+<div><label for="p_from">流水號</label><input type="text" class="no" id="p_from" name="from" aria-label="流水號起" value="<?= $from ?: '' ?>" placeholder="從"> ～ <input type="text" class="no" id="p_to" name="to" aria-label="流水號訖" value="<?= $to ?: '' ?>" placeholder="到"></div>
 <?php endif; ?>
-<div><label>位置微調（mm）</label>右移 <input type="text" class="mm" name="dx" value="<?= $dx ?>"> 下移 <input type="text" class="mm" name="dy" value="<?= $dy ?>"></div>
+<div><label for="p_dx">位置微調（mm）</label><label for="p_dx" style="display:inline;margin:0;font-weight:400">右移</label> <input type="text" class="mm" id="p_dx" name="dx" aria-label="右移（mm）" value="<?= $dx ?>"> <label for="p_dy" style="display:inline;margin:0;font-weight:400">下移</label> <input type="text" class="mm" id="p_dy" name="dy" aria-label="下移（mm）" value="<?= $dy ?>"></div>
 </div>
 <div class="actions"><button class="btn ghost">更新預覽</button><?php if ($role === 'edit'): ?><button name="go" value="1">記錄並列印</button><?php endif; ?></div>
 </form>
@@ -154,7 +154,7 @@ body{margin:0;font-family:"Microsoft JhengHei","微軟正黑體","Noto Sans TC",
 <section class="panel ctl"><h2>寄出後 <small>這 <?= count($rows) ?> 張一起標記寄出日期</small></h2>
 <form method="post" action="./?a=batch&id=<?= $id ?>">
 <input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="mailed"><input type="hidden" name="ids" value="<?= h(implode(',', array_column($rows, 'id'))) ?>">
-<div class="row"><div><label>寄出日期（民國）</label><input type="text" class="no" name="mailed_on" value="<?= h(rcpt_date_to_roc(date('Y-m-d'))) ?>"></div><div><button>標記已寄出</button></div></div></form>
+<div class="row"><div><label for="p_mailed_on">寄出日期（民國）</label><input type="text" class="no" id="p_mailed_on" name="mailed_on" value="<?= h(rcpt_date_to_roc(date('Y-m-d'))) ?>"></div><div><button>標記已寄出</button></div></div></form>
 </section>
 <?php endif; ?>
 <h2 style="margin:22px 0 10px;font-size:17px">預覽</h2>
