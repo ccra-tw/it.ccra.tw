@@ -80,20 +80,33 @@ $pos = fn($k) => sprintf('left:%.1fmm;top:%.1fmm', $P[$k][0] + $dx, $P[$k][1] + 
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
-<title>列印收據｜<?= h($b['po_no'] ?: $date) ?></title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>列印收據｜<?= h($b['po_no'] ?: $date) ?>｜CCRA 資訊服務</title>
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=Noto+Sans+TC:wght@400;700;800;900&display=swap" rel="stylesheet">
+<!-- 協會版型只給螢幕（CCRA CI，熊哥 11/18）；列印時不載，收據版面不受影響 -->
+<link rel="stylesheet" href="/assets/site.css?v=dev" media="screen">
+<link rel="stylesheet" href="/assets/receipt.css?v=dev" media="screen">
+<script src="/assets/whoami.js?v=dev" defer></script>
 <style>
 @page{size:A4;margin:0}
 body{margin:0;font-family:"Microsoft JhengHei","微軟正黑體","Noto Sans TC",sans-serif}
-.panel{padding:12px 16px;background:#f3f4f6;font-size:14px}
-.panel input{width:5em}
-.page{position:relative;width:210mm;height:297mm;page-break-after:always;overflow:hidden}
+.ctl .row{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 16px}
+.ctl .row>div{min-width:0}
+.ctl label{margin:0 0 4px}
+.ctl input.mm{width:5.5em}
+.ctl input.no{width:7em}
+.ctl select{width:auto}
+.page{position:relative;width:210mm;height:297mm;page-break-after:always;overflow:hidden;background:#fff;color:#000}
+@media screen{.page{margin:0 auto 18px;box-shadow:0 18px 40px -22px rgba(13,26,51,.45);border-radius:4px}.pages{padding:0 16px 40px;overflow-x:auto}}
 .f{position:absolute;font-weight:700;font-size:12pt;white-space:nowrap}
 .contents{font-size:10pt;line-height:18pt;width:186mm;white-space:normal}
 .letter{font-family:"標楷體","DFKai-SB","BiauKai",serif;font-weight:400;font-size:10pt;line-height:5.1mm;width:171mm;white-space:pre-wrap;text-align:justify}
 .letter p{margin:0 0 4.9mm}
 .warn{color:#9b1c1c;font-weight:700}
 .food{padding:14mm 16mm;font-size:11pt;line-height:1.6;font-family:"Microsoft JhengHei","微軟正黑體","Noto Sans TC",sans-serif}
-.food .hd{position:relative;border-bottom:1px solid #000;padding-bottom:3mm}
+.food .hd{position:relative;border-bottom:1px solid #000;padding-bottom:3mm;padding-left:22mm;min-height:19mm}
+.food .hd .logo{position:absolute;left:0;top:0;width:18mm;height:18mm}
 .food .hd .org{font-size:18pt;font-family:"標楷體","DFKai-SB",serif}
 .food .hd small{display:block;font-size:8.5pt;line-height:1.35}
 .food .hd .seal{position:absolute;right:0;top:0;width:30mm}
@@ -105,35 +118,52 @@ body{margin:0;font-family:"Microsoft JhengHei","微軟正黑體","Noto Sans TC",
 .food .sign{display:flex;align-items:center;gap:6mm;margin-top:6mm}
 .food .sign img{height:16mm}
 .food .note{font-size:9.5pt;margin-top:6mm}
-@media print{.panel{display:none}}
+@media print{.screen-only{display:none!important}}
 </style>
 </head>
-<body>
-<div class="panel">
-<b><?= h($b['source']) ?>（<?= h($b['track']) ?>）收貨 <?= h($date) ?></b>　本次 <?= count($rows) ?> 張（<?= ['single' => '單張份', 'multi' => '多張份', 'all' => '不分份'][$part] ?? '' ?>）（已依郵遞區號、地址、收件人排序）
-<?php if ($b['track'] === '食'): ?><div>食字軌：整張印在白紙上（含印章），不需預印紙。</div><?php endif; ?>
-<form method="get" style="margin-top:8px">
-<input type="hidden" name="id" value="<?= $id ?>"><?php if ($one): ?><input type="hidden" name="one" value="<?= $one ?>"><?php endif; ?>
-<?php if (!$one): ?>
-份別 <select name="part"><option value="single" <?= $part === 'single' ? 'selected' : '' ?>>單張份（<?= $nSingle ?> 張）</option><option value="multi" <?= $part === 'multi' ? 'selected' : '' ?>>多張份（<?= $nMulti ?> 張，同地址收件人連在一起）</option><option value="all" <?= $part === 'all' ? 'selected' : '' ?>>不分份</option></select>
-範圍 <select name="scope"><option value="send" <?= $scope === 'send' ? 'selected' : '' ?>>只印要寄的</option><option value="all" <?= $scope === 'all' ? 'selected' : '' ?>>全部</option></select>
-流水號 <input name="from" value="<?= $from ?: '' ?>" placeholder="從">～<input name="to" value="<?= $to ?: '' ?>" placeholder="到">
-<?php endif; ?>
-位置微調（mm）右移 <input name="dx" value="<?= $dx ?>"> 下移 <input name="dy" value="<?= $dy ?>">
-<button>更新預覽</button>
-<?php if ($role === 'edit'): ?><button name="go" value="1">記錄並列印</button><?php endif; ?>
-</form>
-<?php if ($role === 'edit' && $rows): $csrf = hash_hmac('sha256', 'receipt' . $email . date('Y-m-d'), trim((string)@file_get_contents(STATE_DIR . '/form_secret'))); ?>
-<form method="post" action="./?a=batch&id=<?= $id ?>" style="margin:6px 0">
-<input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="mailed"><input type="hidden" name="ids" value="<?= h(implode(',', array_column($rows, 'id'))) ?>">
-寄出後：這 <?= count($rows) ?> 張標記寄出日期 <input name="mailed_on" value="<?= h(rcpt_date_to_roc(date('Y-m-d'))) ?>" style="width:7em"> <button>標記已寄出</button></form>
-<?php endif; ?>
-<small>列印設定：A4、邊界「無」、縮放 100%、不要印頁首頁尾。<?php if ($b['track'] !== '食'): ?>第一次請用白紙試印，疊在預印紙上對光檢查。<?php endif; ?><a href="./?a=batch&id=<?= $id ?>">回批次</a></small>
+<body class="rcpage">
+<header class="bar screen-only"><div class="wrap">
+  <a href="/" style="display:flex;align-items:center;gap:12px;text-decoration:none"><img class="mark" src="/img/logo.png" alt="CCRA 資訊服務首頁">
+  <img class="word word-light" src="/img/textlogo_black.png" alt="中華基督教救助協會">
+  <img class="word word-dark" src="/img/textlogo_white.png" alt="中華基督教救助協會"></a>
+  <span class="sep" aria-hidden="true"></span>
+  <div class="title">物資捐贈收據<small>Donation Receipts</small></div>
+</div></header>
+<main class="rc screen-only">
+<div class="rc-head">
+  <div><h1>列印收據</h1><p><?= h($b['source']) ?>（<?= h($b['track']) ?>）收貨 <?= h($date) ?>　本次 <b><?= count($rows) ?></b> 張<?= $one ? '' : '（' . (['single' => '單張份', 'multi' => '多張份', 'all' => '不分份'][$part] ?? '') . '）' ?>，已依郵遞區號、地址、收件人排序</p></div>
+  <div class="chips"><a class="btn ghost sm" href="./?a=batch&id=<?= $id ?>">← 回批次</a></div>
 </div>
+<?php if ($b['track'] === '食'): ?><div class="alert ok">食字軌：整張印在白紙上（含協會 Logo 與印章），不需預印紙。</div><?php endif; ?>
+<section class="panel ctl"><h2>列印設定</h2>
+<form method="get">
+<input type="hidden" name="id" value="<?= $id ?>"><?php if ($one): ?><input type="hidden" name="one" value="<?= $one ?>"><?php endif; ?>
+<div class="row">
+<?php if (!$one): ?>
+<div><label for="p_part">份別</label><select id="p_part" name="part"><option value="single" <?= $part === 'single' ? 'selected' : '' ?>>單張份（<?= $nSingle ?> 張）</option><option value="multi" <?= $part === 'multi' ? 'selected' : '' ?>>多張份（<?= $nMulti ?> 張，同地址收件人連在一起）</option><option value="all" <?= $part === 'all' ? 'selected' : '' ?>>不分份</option></select></div>
+<div><label for="p_scope">範圍</label><select id="p_scope" name="scope"><option value="send" <?= $scope === 'send' ? 'selected' : '' ?>>只印要寄的</option><option value="all" <?= $scope === 'all' ? 'selected' : '' ?>>全部</option></select></div>
+<div><label for="p_from">流水號</label><input type="text" class="no" id="p_from" name="from" aria-label="流水號起" value="<?= $from ?: '' ?>" placeholder="從"> ～ <input type="text" class="no" id="p_to" name="to" aria-label="流水號訖" value="<?= $to ?: '' ?>" placeholder="到"></div>
+<?php endif; ?>
+<div><label for="p_dx">位置微調（mm）</label><label for="p_dx" style="display:inline;margin:0;font-weight:400">右移</label> <input type="text" class="mm" id="p_dx" name="dx" aria-label="右移（mm）" value="<?= $dx ?>"> <label for="p_dy" style="display:inline;margin:0;font-weight:400">下移</label> <input type="text" class="mm" id="p_dy" name="dy" aria-label="下移（mm）" value="<?= $dy ?>"></div>
+</div>
+<div class="actions"><button class="btn ghost">更新預覽</button><?php if ($role === 'edit'): ?><button name="go" value="1">記錄並列印</button><?php endif; ?></div>
+</form>
+<p class="hint">列印設定：A4、邊界「無」、縮放 100%、不要印頁首頁尾。<?php if ($b['track'] !== '食'): ?>第一次請用白紙試印，疊在預印紙上對光檢查。<?php endif; ?></p>
+</section>
+<?php if ($role === 'edit' && $rows): $csrf = hash_hmac('sha256', 'receipt' . $email . date('Y-m-d'), trim((string)@file_get_contents(STATE_DIR . '/form_secret'))); ?>
+<section class="panel ctl"><h2>寄出後 <small>這 <?= count($rows) ?> 張一起標記寄出日期</small></h2>
+<form method="post" action="./?a=batch&id=<?= $id ?>">
+<input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="mailed"><input type="hidden" name="ids" value="<?= h(implode(',', array_column($rows, 'id'))) ?>">
+<div class="row"><div><label for="p_mailed_on">寄出日期（民國）</label><input type="text" class="no" id="p_mailed_on" name="mailed_on" value="<?= h(rcpt_date_to_roc(date('Y-m-d'))) ?>"></div><div><button>標記已寄出</button></div></div></form>
+</section>
+<?php endif; ?>
+<h2 style="margin:22px 0 10px;font-size:17px">預覽</h2>
+</main>
+<div class="pages">
 <?php if ($go && $rows): ?><script>addEventListener('load', () => print());</script><?php endif; ?>
 <?php foreach ($rows as $r): if ($b['track'] === '食'): ?>
 <div class="page food">
-<div class="hd"><div class="org">社團法人中華基督教救助協會</div><div>Chinese Christian Relief Association</div>
+<div class="hd"><img class="logo" src="/img/logo.png" alt="CCRA"><div class="org">社團法人中華基督教救助協會</div><div>Chinese Christian Relief Association</div>
 <small>234新北市永和區保生路1號20樓　Tel: (02) 86609995　Fax: (02) 29259995<br>統一編號：83867936　電子郵箱：support@ccra.org.tw<br>劃撥帳號：19281908　戶名：社團法人中華基督教救助協會</small>
 <img class="seal" src="./stamp.php?k=seal" alt=""></div>
 <div class="no">編號：<?= h($r['receipt_no']) ?></div>
@@ -161,5 +191,6 @@ body{margin:0;font-family:"Microsoft JhengHei","微軟正黑體","Noto Sans TC",
 <?php if (trim($b['letter']) !== ''): ?><div class="f letter" style="<?= $pos('letter') ?>"><?php foreach (preg_split('/\R{2,}/u', trim($b['letter'])) as $para) echo '<p>' . h($para) . '</p>'; ?></div><?php endif; ?>
 </div>
 <?php endif; endforeach; ?>
+</div>
 </body>
 </html>
