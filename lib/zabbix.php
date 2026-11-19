@@ -30,9 +30,13 @@ function zbx_avail(array $interfaces, $ping) {
 // 主機列要顯示的位址（大沈 11-20 審查：要依 useip／dns／main 取，不是第一筆 ip）。
 // 順序：主要介面（main=1）優先，同等時代理介面（type=1）優先；介面 useip=1 顯示 ip，useip=0 顯示 dns。
 // 迴路位址（127.0.0.0/8、::1）代表走本機代理，略過，交給呼叫端用 ZBX_LOCAL_IP 補。全都沒有就回空字串。
+// 只有 IP 字面值才判迴路（大沈 11-20 二審：DNS 名稱 127.monitor.example 不能被當成 127/8；0:0:0:0:0:0:0:1 要認得是 ::1）。
 function zbx_is_loopback($a) {
     $a = strtolower(trim((string)$a));
-    return $a === '' || $a === '::1' || $a === 'localhost' || str_starts_with($a, '127.');
+    if ($a === '' || $a === 'localhost') return true;
+    if (filter_var($a, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) return str_starts_with($a, '127.');
+    if (filter_var($a, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) return inet_pton($a) === inet_pton('::1');
+    return false;   // DNS 名稱交給 DNS 分支，不在這裡判
 }
 function zbx_pick_ip(array $interfaces) {
     $rank = fn($i) => [((int)($i['main'] ?? 0)) === 1 ? 0 : 1, ((int)($i['type'] ?? 0)) === 1 ? 0 : 1];

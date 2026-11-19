@@ -289,6 +289,8 @@ function barcls($v) { return $v === null ? '' : ($v >= 90 ? 'hi' : ($v >= 75 ? '
 .sec{display:flex;align-items:baseline;gap:10px;margin:0 0 10px}
 .sec h2{margin:0;font-size:18px}
 .sec small{color:var(--muted)}
+.sec h2{white-space:nowrap}
+@media (max-width:600px){.sec{flex-direction:column;align-items:flex-start;gap:2px}}   /* 大沈 11-20 審查＋熊哥「排版不理想」：窄螢幕標題與說明上下排，標題不被擠成兩行 */
 .item{border-top:1px solid var(--edge);padding:12px 0}
 .item:first-of-type{border-top:0}
 .row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
@@ -475,7 +477,7 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
   </div>
 
   <a class="box hostbox" href="dev.php" id="devprojects">
-    <div class="sec" style="margin:0"><h2>🧩 開發案狀態</h2><small>移到次頁（熊哥 11-20：戰情室資料太多）　點這裡看 →</small></div>
+    <div class="sec" style="margin:0"><h2>🧩 開發案狀態</h2><small>查看開發案狀態 →</small></div>
   </a>
 
   <a class="box hostbox <?= $bad ? 'bad' : 'good' ?>" href="/status/" id="hosts">

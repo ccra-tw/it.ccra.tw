@@ -15,6 +15,9 @@ ok(zbx_pick_ip([['type'=>1,'main'=>1,'useip'=>1,'ip'=>'::1']]) === '', 'IPv6 迴
 ok(zbx_pick_ip([['type'=>1,'main'=>1,'useip'=>1,'ip'=>'127.0.0.1']]) === '', 'IPv4 迴路 → 空字串');
 ok(zbx_pick_ip([['type'=>1,'main'=>1,'useip'=>1,'ip'=>'127.0.0.1'],['type'=>2,'main'=>1,'useip'=>1,'ip'=>'192.168.100.9']]) === '192.168.100.9', '主要介面是迴路、另有真實介面 → 取真實介面');
 ok(zbx_pick_ip([]) === '', '沒有介面 → 空字串');
+ok(zbx_pick_ip([['type'=>1,'main'=>1,'useip'=>0,'ip'=>'','dns'=>'127.monitor.example']]) === '127.monitor.example', 'DNS 名稱以 127. 開頭 → 照樣顯示，不當迴路（大沈二審）');
+ok(zbx_pick_ip([['type'=>1,'main'=>1,'useip'=>1,'ip'=>'0:0:0:0:0:0:0:1']]) === '', 'IPv6 迴路展開寫法 0:0:0:0:0:0:0:1 → 空字串（大沈二審）');
+ok(zbx_pick_ip([['type'=>1,'main'=>1,'useip'=>1,'ip'=>'127.12.34.56']]) === '', '127/8 其他位址 → 空字串');
 function ok($cond, $msg) { global $fail, $n; $n++; echo ($cond ? "  ✅ " : "  ❌ ") . $msg . "\n"; if (!$cond) $fail++; }
 
 echo "可用狀態：有代理看代理，只有 ping 看 ping\n";

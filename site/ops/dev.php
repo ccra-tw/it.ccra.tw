@@ -26,6 +26,8 @@ function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 .sec{display:flex;align-items:baseline;gap:10px;margin:0 0 10px}
 .sec h2{margin:0;font-size:18px}
 .sec small{color:var(--muted)}
+.sec h2{white-space:nowrap}
+@media (max-width:600px){.sec{flex-direction:column;align-items:flex-start;gap:2px}}   /* 大沈 11-20 審查＋熊哥「排版不理想」：窄螢幕標題與說明上下排，標題不被擠成兩行 */
 .tag{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:800;background:var(--cream);border:1px solid var(--edge)}
 .tag.high{background:color-mix(in srgb,var(--red) 16%,var(--panel));color:var(--red);border-color:transparent}
 .tag.mid{background:color-mix(in srgb,var(--yellow) 22%,var(--panel));border-color:transparent}
@@ -48,7 +50,8 @@ function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 <main class="wrap">
   <p><a href="./">← 回戰情室</a></p>
   <div class="box" id="devprojects">
-    <div class="sec"><h2>🧩 開發案狀態</h2><small><?= $dpData ? '更新於 ' . h(substr((string)($dpData['updated_at'] ?? ''), 11, 5)) . '・每小時更新' : '' ?>・項目＝未結的 GitHub issue 與對應 Planner 票</small></div>
+    <div class="sec"><h2>🧩 開發案狀態</h2><small><?= $dpData ? '更新於 ' . h(substr((string)($dpData['updated_at'] ?? ''), 11, 5)) . '・每小時更新' : '' ?></small></div>
+    <p class="meta" style="margin:0 0 8px">項目來源：未結的 GitHub issue 與對應 Planner 票</p>
     <?= devprojects_render($dpData, $dpWarn) ?>
   </div>
 </main>
