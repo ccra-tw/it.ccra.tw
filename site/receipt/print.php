@@ -50,12 +50,19 @@ $nMulti = count($rows) - $nSingle;
 $part = $one ? 'all' : ($_GET['part'] ?? 'single');
 if ($part === 'single') $rows = array_values(array_filter($rows, fn($r) => $grpN[$grpKey($r)] === 1));
 elseif ($part === 'multi') $rows = array_values(array_filter($rows, fn($r) => $grpN[$grpKey($r)] > 1));
+// 分次列印（繁英姊 11/19：「影印機紙夾一次只能放 500 張，列印時可以分次列印嗎？1-500」）：排好序之後依「第幾張」切段，每段 500 張
+const RCPT_CHUNK = 500;
+$total = count($rows);
+$chunks = $one ? 1 : max(1, (int)ceil($total / RCPT_CHUNK));
+$chunk = $one ? 1 : max(1, min($chunks, (int)($_GET['chunk'] ?? 1)));
+if (!$one && $total > RCPT_CHUNK) $rows = array_slice($rows, ($chunk - 1) * RCPT_CHUNK, RCPT_CHUNK);
+$chunkText = $chunks > 1 ? '（第 ' . $chunk . ' 段／共 ' . $chunks . ' 段：第 ' . (($chunk - 1) * RCPT_CHUNK + 1) . '～' . (($chunk - 1) * RCPT_CHUNK + count($rows)) . ' 張，全份 ' . $total . ' 張）' : '';
 if ($go && $rows && $role === 'edit') {
     try {
         $d->beginTransaction();   // 列印紀錄與稽核同一交易；失敗就整筆回滾、不觸發列印
         $d->prepare('INSERT INTO print_log (batch_id, donation_id, kind, count, by_email) VALUES (?,?,?,?,?)')
           ->execute([$id, $one ?: null, $one ? 'reprint' : 'print', count($rows), $email]);
-        rcpt_audit($d, $email, $one ? 'reprint' : 'print', $id, count($rows) . ' 張');
+        rcpt_audit($d, $email, $one ? 'reprint' : 'print', $id, count($rows) . ' 張' . $chunkText);
         $d->commit();
     } catch (Throwable $e) {
         if ($d->inTransaction()) $d->rollBack();
@@ -131,13 +138,13 @@ body{margin:0;font-family:"Microsoft JhengHei","微軟正黑體","Noto Sans TC",
 </div></header>
 <main class="rc screen-only">
 <div class="rc-head">
-  <div><h1>列印收據</h1><p><?= h($b['source']) ?>（<?= h($b['track']) ?>）收貨 <?= h($date) ?>　本次 <b><?= count($rows) ?></b> 張<?= $one ? '' : '（' . (['single' => '單張份', 'multi' => '多張份', 'all' => '不分份'][$part] ?? '') . '）' ?>，已依郵遞區號、地址、收件人排序</p></div>
+  <div><h1>列印收據</h1><p><?= h($b['source']) ?>（<?= h($b['track']) ?>）收貨 <?= h($date) ?>　本次 <b><?= count($rows) ?></b> 張<?= h($chunkText) ?><?= $one ? '' : '（' . (['single' => '單張份', 'multi' => '多張份', 'all' => '不分份'][$part] ?? '') . '）' ?>，已依郵遞區號、地址、收件人排序</p></div>
   <div class="chips"><a class="btn ghost sm" href="./?a=batch&id=<?= $id ?>">← 回批次</a></div>
 </div>
 <?php if ($b['track'] === '食'): ?><div class="alert ok">食字軌：整張印在白紙上（含協會 Logo 與印章），不需預印紙。</div><?php endif; ?>
 <section class="panel ctl"><h2>列印設定</h2>
-<form method="get">
-<input type="hidden" name="id" value="<?= $id ?>"><?php if ($one): ?><input type="hidden" name="one" value="<?= $one ?>"><?php endif; ?>
+<form method="get" onsubmit="rcPrintBusy(event)">
+<input type="hidden" name="id" value="<?= $id ?>"><?php if ($chunks > 1): ?><input type="hidden" name="chunk" value="<?= $chunk ?>"><?php endif; ?><?php if ($one): ?><input type="hidden" name="one" value="<?= $one ?>"><?php endif; ?>
 <div class="row">
 <?php if (!$one): ?>
 <div><label for="p_part">份別</label><select id="p_part" name="part"><option value="single" <?= $part === 'single' ? 'selected' : '' ?>>單張份（<?= $nSingle ?> 張）</option><option value="multi" <?= $part === 'multi' ? 'selected' : '' ?>>多張份（<?= $nMulti ?> 張，同地址收件人連在一起）</option><option value="all" <?= $part === 'all' ? 'selected' : '' ?>>不分份</option></select></div>
@@ -146,6 +153,9 @@ body{margin:0;font-family:"Microsoft JhengHei","微軟正黑體","Noto Sans TC",
 <?php endif; ?>
 <div><label for="p_dx">位置微調（mm）</label><label for="p_dx" style="display:inline;margin:0;font-weight:400">右移</label> <input type="text" class="mm" id="p_dx" name="dx" aria-label="右移（mm）" value="<?= $dx ?>"> <label for="p_dy" style="display:inline;margin:0;font-weight:400">下移</label> <input type="text" class="mm" id="p_dy" name="dy" aria-label="下移（mm）" value="<?= $dy ?>"></div>
 </div>
+<?php if ($chunks > 1): $qs = $_GET; unset($qs['go']); ?>
+<div class="chunks" role="group" aria-label="分次列印"><span class="hint">紙夾一次 500 張，分次印：</span><?php for ($k = 1; $k <= $chunks; $k++): $qs['chunk'] = $k; ?><a class="btn sm<?= $k === $chunk ? '' : ' ghost' ?>" href="?<?= h(http_build_query($qs)) ?>"<?= $k === $chunk ? ' aria-current="true"' : '' ?>>第 <?= ($k - 1) * RCPT_CHUNK + 1 ?>～<?= min($k * RCPT_CHUNK, $total) ?> 張</a><?php endfor; ?></div>
+<?php endif; ?>
 <div class="actions"><button class="btn ghost">更新預覽</button><?php if ($role === 'edit'): ?><button name="go" value="1">記錄並列印</button><?php endif; ?></div>
 </form>
 <p class="hint">列印設定：A4、邊界「無」、縮放 100%、不要印頁首頁尾。<?php if ($b['track'] !== '食'): ?>第一次請用白紙試印，疊在預印紙上對光檢查。<?php endif; ?></p>
@@ -161,6 +171,16 @@ body{margin:0;font-family:"Microsoft JhengHei","微軟正黑體","Noto Sans TC",
 </main>
 <div class="pages">
 <?php if ($go && $rows): ?><script>addEventListener('load', () => print());</script><?php endif; ?>
+<dialog id="rcBusy" class="rc-dlg" aria-live="polite"><p class="rc-dlg-t"><span class="spin" aria-hidden="true"></span> <span id="rcBusyMsg">處理中…</span></p><p class="hint">張數多時要一點時間，好了會自動跳出印表機視窗。</p></dialog>
+<script>
+// 送出列印設定時顯示進行中（繁英姊 11/19：「系統有在運作，但是螢幕沒有顯示『列印中』，所以我會以為沒有反應」）
+function rcPrintBusy(e) {
+  var go = e.submitter && e.submitter.name === 'go', d = document.getElementById('rcBusy');
+  document.getElementById('rcBusyMsg').textContent = go ? '準備列印中，請稍候…' : '產生預覽中…';
+  d.addEventListener('cancel', function (x) { x.preventDefault(); });
+  if (d.showModal) d.showModal();
+}
+</script>
 <?php foreach ($rows as $r): if ($b['track'] === '食'): ?>
 <div class="page food">
 <div class="hd"><img class="logo" src="/img/logo.png" alt="CCRA"><div class="org">社團法人中華基督教救助協會</div><div>Chinese Christian Relief Association</div>

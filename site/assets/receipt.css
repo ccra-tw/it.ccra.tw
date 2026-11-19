@@ -131,3 +131,4 @@ table.rows{border-collapse:separate;border-spacing:0;width:100%;font-size:15px}
 .spin{display:inline-block;width:20px;height:20px;border:3px solid var(--rc-btn);border-right-color:transparent;border-radius:50%;animation:rcspin .8s linear infinite}
 @keyframes rcspin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.spin{animation:none;border-right-color:var(--rc-btn)}}
+.chunks{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0 0}
