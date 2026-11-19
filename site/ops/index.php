@@ -9,7 +9,6 @@ require '/var/www/it-lib/zabbix.php';
 require '/var/www/it-lib/graph.php';   // 主任有約取消時撤回行事曆邀請（同 /meet/ 那支的專用 App，只有行事曆權限）
 require '/var/www/it-lib/svc_apply.php';   // 資訊服務申請（v2.0 單一入口，GitHub #7）
 require '/var/www/it-lib/survey.php';   // 軟體與系統使用調查（專屬連結免登入，統計只在戰情室，熊哥 10-16）
-require '/var/www/it-lib/devprojects.php';   // 開發案狀態（熊哥 10-21：比照 CCNDA 戰情室，GitHub #18）
 $id = access_identity();
 $email = strtolower($id['email']);
 if (!is_it_staff($email)) { http_response_code(403); exit('戰情室只開放給資訊部帳號。'); }
@@ -475,11 +474,9 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
     <?php endif; ?>
   </div>
 
-  <?php [$dpData, $dpWarn] = devprojects_data(); ?>
-  <div class="box" id="devprojects">
-    <div class="sec"><h2>🧩 開發案狀態</h2><small><?= $dpData ? '更新於 ' . h(substr((string)($dpData['updated_at'] ?? ''), 11, 5)) . '・每小時更新' : '' ?>・項目＝未結的 GitHub issue 與對應 Planner 票</small></div>
-    <?= devprojects_render($dpData, $dpWarn) ?>
-  </div>
+  <a class="box hostbox" href="dev.php" id="devprojects">
+    <div class="sec" style="margin:0"><h2>🧩 開發案狀態</h2><small>移到次頁（熊哥 11-20：戰情室資料太多）　點這裡看 →</small></div>
+  </a>
 
   <a class="box hostbox <?= $bad ? 'bad' : 'good' ?>" href="/status/" id="hosts">
     <div class="sec" style="margin:0"><h2><?= $bad ? '🔴' : '🟢' ?> 網站監控</h2><small><?= $up ? '更新於 ' . h(date('H:i', $up['at'])) : '' ?>　點這裡看詳情 →</small></div>
