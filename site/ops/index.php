@@ -334,11 +334,12 @@ details.zh{margin-top:6px;border-bottom:1px dashed var(--edge);padding-bottom:6p
 details.zh summary{cursor:pointer;list-style:none;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:14px}
 details.zh summary::-webkit-details-marker{display:none}
 details.zh summary .dot{width:9px;height:9px;border-radius:50%;background:#2e9e6a;flex:none}
+details.zh summary .zname{min-width:0;overflow-wrap:anywhere}   /* 大沈 11-20 四審：601px 以上長英文名也要能折行 */
 details.zh summary .zsub{display:inline-flex;flex-wrap:wrap;gap:4px 8px;align-items:center;min-width:0}
 details.zh summary .zsub .no{overflow-wrap:anywhere}
 /* 大沈 11-20 審查：手機主機列固定兩區——狀態點＋名稱一列，IP 與網站數在次列對齊名稱；桌機維持同列 */
 @media (max-width:600px){details.zh summary{display:grid;grid-template-columns:9px minmax(0,1fr);column-gap:8px;row-gap:2px}
-  details.zh summary .zname{overflow-wrap:anywhere}details.zh summary .zsub{grid-column:2}}
+  details.zh summary .zsub{grid-column:2}}
 details.zh.badh summary .dot{background:var(--red)}
 details.zh .zsites{margin:6px 0 0 17px;padding:0;list-style:none;font-size:13px}
 details.zh .zsites a{color:var(--teal);word-break:break-all}
