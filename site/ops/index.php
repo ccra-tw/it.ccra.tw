@@ -335,11 +335,14 @@ details.zh summary{cursor:pointer;list-style:none;display:flex;gap:8px;align-ite
 details.zh summary::-webkit-details-marker{display:none}
 details.zh summary .dot{width:9px;height:9px;border-radius:50%;background:#2e9e6a;flex:none}
 details.zh summary .zname{min-width:0;overflow-wrap:anywhere}   /* 大沈 11-20 四審：601px 以上長英文名也要能折行 */
+.zacc{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11.5px;font-weight:800;white-space:nowrap}
+.zacc.m{background:color-mix(in srgb,var(--teal) 16%,var(--panel));color:var(--teal-d)}
+.zacc.r{background:var(--cream);border:1px solid var(--edge);color:var(--muted)}
 details.zh summary .zsub{display:inline-flex;flex-wrap:wrap;gap:4px 8px;align-items:center;min-width:0}
 details.zh summary .zsub .no{overflow-wrap:anywhere}
 /* 大沈 11-20 審查：手機主機列固定兩區——狀態點＋名稱一列，IP 與網站數在次列對齊名稱；桌機維持同列 */
 @media (max-width:600px){details.zh summary{display:grid;grid-template-columns:9px minmax(0,1fr);column-gap:8px;row-gap:2px}
-  details.zh summary .zsub{grid-column:2}}
+  details.zh summary .zsub{grid-column:2}details.zh summary .zacc{grid-column:2;justify-self:start}}
 details.zh.badh summary .dot{background:var(--red)}
 details.zh .zsites{margin:6px 0 0 17px;padding:0;list-style:none;font-size:13px}
 details.zh .zsites a{color:var(--teal);word-break:break-all}
@@ -510,7 +513,7 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
         <?php foreach ($list as $x): $isBad = $x['avail'] !== 1 || $x['problems']; $sites = $zbSites[(string)$x['hostid']] ?? []; ?>
           <details class="zh <?= $isBad ? 'badh' : '' ?>"<?= $isBad ? ' open' : '' ?>>
             <?php $zShowIp = !empty($x['ip']) && strpos($x['name'], $x['ip']) === false; ?>
-            <summary><span class="dot"></span><span class="zname"><?= h($x['name']) ?></span><?php if ($zShowIp || $sites): ?><span class="zsub"><?php if ($zShowIp): ?><span class="no"><?= h($x['ip']) ?></span><?php endif; ?><?php if ($sites): ?><span class="meta" style="margin:0">（<?= count($sites) ?> 個網站）</span><?php endif; ?></span><?php endif; ?></summary>
+            <summary><span class="dot"></span><span class="zname"><?= h($x['name']) ?></span><?php if ($zShowIp || $sites): ?><span class="zsub"><?php if ($zShowIp): ?><span class="no"><?= h($x['ip']) ?></span><?php endif; ?><?php if ($sites): ?><span class="meta" style="margin:0">（<?= count($sites) ?> 個網站）</span><?php endif; ?></span><?php endif; ?><?php if ($zAcc = zbx_access_tag($x['hostid'])): ?><span class="zacc <?= $zAcc['level'] === 'manage' ? 'm' : 'r' ?>" title="<?= h($zAcc['via']) ?>"><?= h($zAcc['text']) ?></span><?php endif; ?></summary>
             <?php if ($isBad): ?><p class="meta" style="margin:4px 0 0 17px"><?= $x['avail'] === 2 ? (!empty($x['ping_only']) ? 'ping 不通' : '連不到') : ($x['avail'] === 0 ? '狀態未知' : '') ?><?php foreach (array_slice($x['problems'], 0, 2) as $p) echo h(SEV[$p['severity']] ?? '') . '：' . h($p['name']) . '　'; ?></p><?php endif; ?>
             <p class="meta" style="margin:4px 0 0 17px"><?= !empty($x['ping_only']) ? '只做 ping 監控' : 'CPU ' . pct($x['cpu']) . '　記憶體 ' . pct($x['mem']) . '　磁碟 ' . pct($x['disk']) ?></p>
             <?php if ($sites): ?><ul class="zsites"><?php foreach ($sites as $s): ?><li><a href="https://<?= h($s) ?>" target="_blank" rel="noopener"><?= h($s) ?></a></li><?php endforeach; ?></ul><?php endif; ?>
@@ -519,6 +522,7 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
       </div>
       <?php endforeach; ?>
     </div>
+    <p class="meta"><span class="zacc m">大蘇可管理</span> 可登入處理（SSH＋sudo）　<span class="zacc r">大蘇可查看</span> 唯讀查看設定、記錄與資料庫　未標註＝只有 Zabbix 監控，異常時大蘇會通報、但要請負責人處理</p>
     <?php if ($zbSitesAt): ?><p class="meta">網站對照更新於 <?= h($zbSitesAt) ?>（各主機 IIS／nginx 設定每日自動抓取）</p><?php endif; ?>
     <?php if ($zbErr): ?><p class="meta"><?= h($zbErr) ?></p><?php endif; ?>
     <?php endif; ?>

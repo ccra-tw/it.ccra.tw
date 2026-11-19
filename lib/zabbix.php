@@ -4,6 +4,22 @@
 // 回傳 [主機陣列或 null, 錯誤訊息]；每台：name, host, hostid, group, avail(1 正常/2 連不到/0 未知), cpu, mem, disk, problems[]。
 // Zabbix 介面填 127.0.0.1（本機代理）的主機，實際 IP 補在這裡
 const ZBX_LOCAL_IP = ['10084' => '192.168.100.7', '10680' => '20.2.139.210'];
+// 大蘇能協助管理或查看的主機（熊哥 11-20：「應該要標註上去哪幾台設備你可以協助監控或管理」）。
+// 依 2026-11-20 08:0x 逐台實測填寫（SSH／WinRM／SQL 實際登入成功才列）；其餘主機只有 Zabbix 監控，不標。
+// level：manage＝可管理（SSH＋sudo），read＝唯讀查看；via 顯示在標籤提示。權限有異動要回來改這張表。
+const ZBX_ITSU_ACCESS = [
+    '10084' => ['level' => 'manage', 'via' => 'SSH＋sudo'],
+    '10680' => ['level' => 'manage', 'via' => 'SSH＋sudo'],
+    '10681' => ['level' => 'manage', 'via' => '大蘇工作機本機'],
+    '10689' => ['level' => 'read', 'via' => 'WinRM itsu-ro、SQL ro_itsu'],
+    '10693' => ['level' => 'read', 'via' => 'WinRM itsu-ro、SQL ro_itsu'],
+    '10688' => ['level' => 'read', 'via' => 'WinRM itsu'],
+];
+function zbx_access_tag($hostid) {
+    $a = ZBX_ITSU_ACCESS[(string)$hostid] ?? null;
+    if (!$a) return null;
+    return ['text' => $a['level'] === 'manage' ? '大蘇可管理' : '大蘇可查看', 'level' => $a['level'], 'via' => $a['via']];
+}
 
 function zbx_call($method, $params, $token) {
     $ctx = stream_context_create(['http' => ['method' => 'POST', 'timeout' => 10, 'ignore_errors' => true,
