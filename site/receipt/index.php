@@ -24,6 +24,13 @@ function batch_get(PDO $d, int $id): ?array {
 }
 function need_edit($canEdit) { if (!$canEdit) { http_response_code(403); exit('您的權限只能查詢。'); } }
 
+// 轉址（測試接縫：命令列＋測試 schema 時把目的地印出來，讓測試驗得到 Location；大沈 d836044 審查要求）
+function rc_go(string $u): void {
+    if (PHP_SAPI === 'cli' && getenv('ITCCRA_TEST_DB') === '1') echo "
+X-TEST-LOCATION: $u
+";
+    header("Location: $u"); exit;
+}
 // ── POST 動作 ──
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!hash_equals($csrf, (string)($_POST['csrf'] ?? ''))) { $err = '頁面已過期，請重新整理後再操作。'; }
@@ -32,6 +39,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $do = $_POST['do'] ?? '';
         try {
             if ($do === 'save_batch') {
+                // 產品明細改表格輸入（繁英姊 11/19：「原先是表格能夠依每個項目填寫的」）：每列轉回一行「代號	品名	數量	單位	單價」，交給下面同一套解析；
+                // 用 tab 分隔，品名裡有逗號也不會被切開。沒有表格欄位時（舊表單、測試）照舊讀 items 文字。
+                if (isset($_POST['it_name']) && is_array($_POST['it_name'])) {
+                    $lines = [];
+                    foreach (array_keys($_POST['it_name']) as $k) {
+                        $f = fn($a) => trim(str_replace(["\t", "\r", "\n"], ' ', (string)($_POST[$a][$k] ?? '')));
+                        if ($f('it_name') === '') continue;
+                        $lines[] = implode("\t", [$f('it_code'), $f('it_name'), $f('it_qty') === '' ? '0' : $f('it_qty'), $f('it_unit'), $f('it_price')]);
+                    }
+                    $_POST['items'] = implode("\n", $lines);
+                }
                 // 來源、供應商、套餐金額改由「設定」頁維護（繁英姊 11/18 第 8 項）：只收啟用中的選項；編輯舊批次時，沿用它原本的值也可以（停用不影響舊批次）
                 $src = $_POST['source'] ?? '';
                 $cur = $id ? batch_get($d, $id) : null;
@@ -81,13 +99,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $d->prepare('DELETE FROM batch_item WHERE batch_id = ?')->execute([$id]);
                     $ins = $d->prepare('INSERT INTO batch_item (batch_id, code, name, qty, unit, price) VALUES (?,?,?,?,?,?)');
                     foreach (preg_split('/\R/u', (string)($_POST['items'] ?? '')) as $line) {
-                        $p = array_map('trim', preg_split('/[,，\t]/u', $line));
+                        $p = array_map('trim', str_contains($line, "\t") ? explode("\t", $line) : preg_split('/[,，]/u', $line));
                         if (count($p) < 3 || $p[1] === '') continue;
                         $ins->execute([$id, $p[0], $p[1], (float)str_replace(',', '', $p[2]), $p[3] ?? '', isset($p[4]) && $p[4] !== '' ? (float)$p[4] : null]);
                     }
                 }
                 $d->commit();
-                header("Location: ./?a=batch&id=$id&ok=saved"); exit;
+                header("Location: ./?a=batch&id=$id&ok=saved" . (($_POST['single'] ?? '') === '1' ? '#single' : '')); exit;
+            }
+            if ($do === 'add_row') {       // 單筆輸入（繁英姊 11/18 驗收第 7 項：臨時來捐、電話捐贈，一次開一張）：只加在尚未配號的批次，配號檢查與匯入的一樣
+                $name = trim($_POST['name'] ?? '');
+                $qRaw = mb_convert_kana(trim((string)($_POST['qty'] ?? '')), 'n', 'UTF-8');   // 全形數字轉半形
+                if ($name === '') throw new RuntimeException('請填捐物人（收件人）姓名');
+                if (!preg_match('/^[1-9][0-9]{0,4}$/', $qRaw)) throw new RuntimeException('數量請填正整數（1～99999），例如 1、2；不能有小數，也不能以 0 開頭');   // 大沈 d836044：1.5 曾被直接轉成 1
+                $qty = (int)$qRaw;
+                $send = isset($_POST['send']);
+                $zip = trim($_POST['zip'] ?? ''); $city = trim($_POST['city'] ?? ''); $addr = trim($_POST['address'] ?? '');
+                if ($send && $addr === '') throw new RuntimeException('要寄收據的話請填地址；不寄請取消勾選「寄收據」');
+                $d->beginTransaction();
+                rcpt_lock_draft($d, $id);
+                $s2 = $d->prepare('SELECT COALESCE(MAX(row_no), 0) FROM donation WHERE batch_id = ?'); $s2->execute([$id]);
+                $n = (int)$s2->fetchColumn() + 1;
+                $insOne = $d->prepare('INSERT INTO donation (batch_id, row_no, order_no, name, mobile, phone, raw_addr, zip, city, address, product, qty, send, check_note, dup_note, updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id');
+                $insOne->execute([$id, $n, trim($_POST['order_no'] ?? ''), $name, trim($_POST['mobile'] ?? ''), trim($_POST['phone'] ?? ''), trim("$zip $city$addr"),
+                             $zip, $city, $addr, trim($_POST['product'] ?? ''), $qty, $send ? 'true' : 'false', '單筆輸入', '', $email]);
+                $newId = (int)$insOne->fetchColumn();   // 清單列的錨點是 donation.id，不是 row_no（大沈 d836044：新增首筆導到 #r1，列卻是 #r5135）
+                rcpt_audit($d, $email, 'add_row', $id, "row $n 單筆輸入");
+                $d->commit();
+                rc_go("./?a=batch&id=$id&ok=added#r$newId");
             }
             if ($do === 'import') {
                 $b = batch_get($d, $id);
@@ -162,7 +201,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 rcpt_audit($d, $email, $b['status'] === 'draft' ? 'edit_row' : 'edit_after_number', $id, "row $rid " . implode('；', $chg));
                 $d->commit();
-                header("Location: ./?a=batch&id=$id&ok=row#r$rid"); exit;
+                rc_go("./?a=batch&id=$id" . ((int)($_GET['only'] ?? 0) ? '&only=' . $rid : '') . "&ok=row#r$rid");
             }
             if ($do === 'mailed') {        // 整份標寄出日期（列印頁送來這份的 id）
                 $date = rcpt_roc_to_date($_POST['mailed_on'] ?? '');
@@ -225,7 +264,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 // 新增／編輯批次出錯時回填使用者剛填的內容（繁英姊 11/18：出錯後欄位全被清空）
 $refill = ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['do'] ?? '') === 'save_batch' && $err !== '') ? $_POST : null;
-$okMsg = ['saved' => '已儲存。', 'imported' => '已匯入，請檢核下面的清單，確認無誤後再配號。', 'row' => '已更新這一筆。', 'assigned' => '已配號。', 'mailed' => '已標記寄出日期。', 'opt' => '設定已儲存。', 'optoff' => '已停用：之後不會出現在選單，舊批次不受影響。', 'opton' => '已重新啟用。'][$_GET['ok'] ?? ''] ?? '';
+$refillOne = ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['do'] ?? '') === 'add_row' && $err !== '') ? $_POST : null;
+$okMsg = ['saved' => '已儲存。', 'imported' => '已匯入，請檢核下面的清單，確認無誤後再配號。', 'row' => '已更新這一筆。', 'added' => '已新增一筆（單筆輸入）。還要加就繼續填，全部好了再按「配號」。', 'assigned' => '已配號。', 'mailed' => '已標記寄出日期。', 'opt' => '設定已儲存。', 'optoff' => '已停用：之後不會出現在選單，舊批次不受影響。', 'opton' => '已重新啟用。'][$_GET['ok'] ?? ''] ?? '';
 ?>
 <!doctype html>
 <html lang="zh-Hant">
@@ -254,7 +294,7 @@ $okMsg = ['saved' => '已儲存。', 'imported' => '已匯入，請檢核下面�
 <?php
 $tab = in_array($a, ['new', 'search', 'settings'], true) ? $a : 'list';
 $head = ['list' => ['批次清單', '每次收貨建一個批次：匯入名單、檢核、配號、列印收據。'],
-         'new' => [$a === 'edit' ? '編輯批次' : '新增批次', '第一步：填收貨資料並儲存。第二步：在批次頁匯入名單（.xlsx）。'],
+         'new' => [$a === 'edit' ? '編輯批次' : (isset($_GET['single']) ? '單筆輸入' : '新增批次'), isset($_GET['single']) ? '第一步：填收貨資料並儲存。第二步：在批次頁「單筆輸入」填捐物人，可連續加好幾位。' : '第一步：填收貨資料並儲存。第二步：在批次頁匯入名單（.xlsx）。'],
          'search' => ['查詢捐物人', '用姓名、電話、收據編號或訂單編號找，可看收據或補印。'],
          'settings' => ['設定', '來源、供應商、套餐每套金額：可新增、修改、停用。停用後不出現在選單，舊批次保留原本的值。']][$tab];
 if ($a === 'batch') $head = ['批次明細', '檢核名單、配號、列印收據。'];
@@ -267,7 +307,7 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
 </div>
 <nav class="tabs" aria-label="收據系統功能">
   <a href="./"<?= $tab === 'list' && $a !== 'batch' ? ' aria-current="page"' : '' ?>>批次清單</a>
-  <?php if ($canEdit): ?><a href="./?a=new"<?= $a === 'new' ? ' aria-current="page"' : '' ?>>＋ 新增批次（匯入名單）</a><?php endif; ?>
+  <?php if ($canEdit): ?><a href="./?a=new"<?= $a === 'new' && !isset($_GET['single']) ? ' aria-current="page"' : '' ?>>＋ 新增批次（匯入名單）</a><a href="./?a=new&amp;single=1"<?= $a === 'new' && isset($_GET['single']) ? ' aria-current="page"' : '' ?>>＋ 單筆輸入</a><?php endif; ?>
   <a href="./?a=search"<?= $tab === 'search' ? ' aria-current="page"' : '' ?>>查詢捐物人</a>
   <?php if ($canEdit): ?><a href="./?a=settings"<?= $tab === 'settings' ? ' aria-current="page"' : '' ?>>設定</a><?php endif; ?>
 </nav>
@@ -300,7 +340,7 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
     } ?>
 <?php if ($locked): ?><div class="alert warn">已配號：只能補進貨單號、供應商、經手人、每套內含與信件內容。</div><?php endif; ?>
 <form method="post" action="./?a=<?= $b ? 'edit&id=' . (int)$b['id'] : 'new' ?>">
-<input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="save_batch">
+<input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="save_batch"><?php if (isset($_GET['single']) || ($refill['single'] ?? '') === '1'): ?><input type="hidden" name="single" value="1"><?php endif; ?>
 <section class="panel"><h2>收貨資料</h2>
 <div class="grid">
 <?php
@@ -325,8 +365,19 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
 <section class="panel"><h2>收據內容</h2>
 <label for="f_contents">每套內含（印在物收據上）</label><textarea id="f_contents" name="contents" rows="2"><?= h($fv('contents', $prevContents)) ?></textarea>
 <label for="f_letter">給捐贈者的信（印在收據下半部）</label><textarea id="f_letter" name="letter" rows="8"><?= h($fv('letter', $prevLetter)) ?></textarea><?php if (!$b && $prevLetter !== ''): ?><p class="hint">已帶入最近一批的信；1、3、5、7、9、11 月換新信時在這裡改。</p><?php endif; ?>
-<label for="f_items">產品明細（每行：代號,品名,數量,單位,單價）</label>
-<textarea id="f_items" name="items" rows="5" class="mono" <?= $locked ? 'readonly' : '' ?>><?php if ($refill !== null) echo h((string)($refill['items'] ?? '')); else foreach ($items as $it) echo h("{$it['code']},{$it['name']}," . (0 + $it['qty']) . ",{$it['unit']}," . ($it['price'] === null ? '' : 0 + $it['price'])) . "\n"; ?></textarea>
+<?php
+  $itRows = [];
+  if ($refill !== null) {
+      foreach (preg_split('/\R/u', (string)($refill['items'] ?? '')) as $ln) { $p = array_map('trim', str_contains($ln, "\t") ? explode("\t", $ln) : preg_split('/[,，]/u', $ln)); if (count($p) >= 2 && $p[1] !== '') $itRows[] = [$p[0], $p[1], $p[2] ?? '', $p[3] ?? '', $p[4] ?? '']; }
+  } else foreach ($items as $it) $itRows[] = [$it['code'], $it['name'], 0 + $it['qty'], $it['unit'], $it['price'] === null ? '' : 0 + $it['price']];
+  if (!$locked) { $want = max(3, count($itRows) + 1); while (count($itRows) < $want) $itRows[] = ['', '', '', '', '']; }   // 至少 3 列、比現有多 1 列空白（目標先算好，不能在條件裡重算）
+  $ro = $locked ? ' readonly' : '';
+?>
+<label id="items_lbl">產品明細 <small class="hint" style="font-weight:500">一列一個品項；品名空白的列不會存。</small></label>
+<div class="tbl"><table class="rows items" aria-labelledby="items_lbl"><thead><tr><th>代號</th><th>品名</th><th>數量</th><th>單位</th><th>單價</th></tr></thead><tbody>
+<?php foreach ($itRows as $r): ?><tr><td><input type="text" name="it_code[]" value="<?= h((string)$r[0]) ?>" aria-label="品項代號" style="width:8em"<?= $ro ?>></td><td><input type="text" name="it_name[]" value="<?= h((string)$r[1]) ?>" aria-label="品名" style="min-width:12em"<?= $ro ?>></td><td><input type="text" name="it_qty[]" value="<?= h((string)$r[2]) ?>" aria-label="數量" inputmode="decimal" style="width:5em"<?= $ro ?>></td><td><input type="text" name="it_unit[]" value="<?= h((string)$r[3]) ?>" aria-label="單位" style="width:4em"<?= $ro ?>></td><td><input type="text" name="it_price[]" value="<?= h((string)$r[4]) ?>" aria-label="單價" inputmode="decimal" style="width:6em"<?= $ro ?>></td></tr>
+<?php endforeach; ?></tbody></table></div>
+<?php if (!$locked): ?><div class="actions" style="margin-top:6px"><button type="button" class="btn ghost sm" onclick="var b=document.querySelector('table.items tbody'),r=b.rows[b.rows.length-1].cloneNode(true);r.querySelectorAll('input').forEach(function(i){i.value=''});b.appendChild(r);r.querySelector('input').focus()">＋ 加一列</button></div><?php endif; ?>
 <script>(function(){var i=document.getElementById('in_date'),o=document.getElementById('in_date_roc');if(!i||!o)return;i.addEventListener('change',function(){var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(i.value);o.textContent=m?'民國 '+(m[1]-1911)+'/'+m[2]+'/'+m[3]:'點右邊日曆選日期';});})();</script>
 <div class="actions"><button type="submit">儲存</button><a class="btn ghost" href="<?= $b ? './?a=batch&id=' . (int)$b['id'] : './' ?>">取消</a></div>
 </section>
@@ -362,21 +413,44 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
 <?php endif; ?>
 </section>
 <?php if ($b['status'] === 'draft' && $canEdit): ?>
-<section class="panel"><h2>匯入名單 <small>.xlsx；平台原始檔或「地址整理」後的檔都可以。重新匯入會取代這一批目前的清單。</small></h2>
-<form method="post" action="./?a=batch&id=<?= $id ?>" enctype="multipart/form-data" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='匯入中，請稍候…'">
+<?php $o1 = $refillOne ?? []; $ov = fn($k, $dflt = '') => h((string)($o1[$k] ?? $dflt)); ?>
+<section class="panel" id="single"><h2>單筆輸入 <small>臨時來捐、電話捐贈：一次填一位，可連續加好幾位</small></h2>
+<form method="post" action="./?a=batch&amp;id=<?= $id ?>#single">
+<input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="add_row">
+<div class="grid">
+<div><label for="s_name">捐物人（收件人）*</label><input type="text" id="s_name" name="name" value="<?= $ov('name') ?>" required></div>
+<div><label for="s_mobile">手機</label><input type="text" id="s_mobile" name="mobile" value="<?= $ov('mobile') ?>" inputmode="tel"></div>
+<div><label for="s_phone">市話</label><input type="text" id="s_phone" name="phone" value="<?= $ov('phone') ?>" inputmode="tel"></div>
+<div><label for="s_zip">郵遞區號</label><input type="text" id="s_zip" name="zip" value="<?= $ov('zip') ?>" inputmode="numeric" maxlength="6"></div>
+<div><label for="s_city">縣市區</label><input type="text" id="s_city" name="city" value="<?= $ov('city') ?>" placeholder="例：新北市永和區"></div>
+<div><label for="s_address">地址</label><input type="text" id="s_address" name="address" value="<?= $ov('address') ?>" placeholder="例：保生路1號20樓"></div>
+<div><label for="s_product">品名<?= $b['track'] === '食' ? '（要和上面產品明細的品名一樣）' : '' ?></label><input type="text" id="s_product" name="product" value="<?= $ov('product') ?>" list="s_products"><datalist id="s_products"><?php foreach ($items as $it): ?><option value="<?= h($it['name']) ?>"><?php endforeach; ?></datalist></div>
+<div><label for="s_qty">數量（份）*</label><input type="text" id="s_qty" name="qty" value="<?= $ov('qty', '1') ?>" inputmode="numeric" pattern="[1-9１-９][0-9０-９]{0,4}" title="請填 1～99999 的正整數，不能以 0 開頭，例如 1、2" required></div>
+<div><label for="s_order">訂單編號（沒有可空白）</label><input type="text" id="s_order" name="order_no" value="<?= $ov('order_no') ?>"></div>
+</div>
+<p><label style="display:inline-flex;align-items:center;gap:8px;margin:12px 0 0"><input type="checkbox" name="send" value="1"<?= $o1 && !isset($o1['send']) ? '' : ' checked' ?>> 寄收據</label></p>
+<div class="actions"><button type="submit">加入這一筆</button><span class="hint">加完會出現在下方清單，可再修改；全部好了再按「配號」。</span></div>
+</form>
+</section>
+<section class="panel"><h2>匯入名單 <small>.xlsx；平台原始檔或「地址整理」後的檔都可以。重新匯入會取代這一批目前的清單（包含上面單筆輸入的）。</small></h2>
+<form method="post" action="./?a=batch&id=<?= $id ?>" enctype="multipart/form-data" onsubmit="return rcBusy(this, '匯入中，請稍候…（名單多時要一兩分鐘）')">
 <input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="import">
 <div class="actions" style="margin-top:0"><input type="file" name="file" accept=".xlsx" required aria-label="選擇名單檔"> <button type="submit">匯入</button></div>
 </form>
 <?php if ($rows): ?>
-<form method="post" action="./?a=batch&id=<?= $id ?>" onsubmit="return confirm('配號後清單就鎖定、號碼不能再變。確定配號？')">
+<form method="post" action="./?a=batch&id=<?= $id ?>" onsubmit="if (!confirm('配號後清單就鎖定、號碼不能再變。確定配號？')) return false; return rcBusy(this, '配號中，請稍候…')">
 <input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="assign">
 <div class="actions"><button type="submit">檢核完成，配號（<?= count($rows) ?> 筆）</button><span class="hint">配號後清單鎖定，號碼不再變動。</span></div></form>
 <?php endif; ?>
 </section>
 <?php endif; ?>
+<?php if ((int)($_GET['only'] ?? 0)): ?><div class="alert ok" role="status">只顯示查詢的這一筆。<a href="./?a=batch&amp;id=<?= $id ?>">顯示整批 <?= count($rows) ?> 筆</a></div><?php endif; ?>
 <div class="panel flush"><div class="tbl">
 <table class="rows"><tr class="hd"><th>#</th><th>收據編號</th><th>訂單編號</th><th>收件人</th><th>郵遞區號／縣市區／地址</th><?php if ($b['track'] === '食'): ?><th>品名</th><?php endif; ?><th class="n">數量</th><th>寄發</th><th>檢核說明</th><th>寄出日期</th><?php if ($canEdit): ?><th></th><?php endif; ?></tr>
-<?php foreach ($rows as $r): $isDup = isset($dup[$r['order_no']]) || isset($inb[$r['order_no']]); $fid = 'f' . (int)$r['id']; ?>
+<?php // 查詢結果按「修改」只顯示那一筆（繁英姊 11/19：「按修改結果出現所有的資料，而不是這個人的資料」）；統計仍以整批計
+$only = (int)($_GET['only'] ?? 0);
+$shown = $only ? array_values(array_filter($rows, fn($r) => (int)$r['id'] === $only)) : $rows;
+foreach ($shown as $r): $isDup = isset($dup[$r['order_no']]) || isset($inb[$r['order_no']]); $fid = 'f' . (int)$r['id']; ?>
 <tr id="r<?= (int)$r['id'] ?>" class="<?= $isDup ? 'dup' : (!$r['send'] ? 'bad' : '') ?>">
 <td data-l="#"><?= (int)$r['row_no'] ?></td><td data-l="收據編號" class="mono"><?= h($r['receipt_no']) ?></td><td data-l="訂單編號" class="mono"><?= h($r['order_no']) ?><?= isset($dup[$r['order_no']]) ? '<br><small>已開：' . h($dup[$r['order_no']][1]) . '</small>' : '' ?><?= isset($inb[$r['order_no']]) ? '<br><small>名單內重複</small>' : '' ?></td>
 <?php if ($canEdit): ?>
@@ -384,7 +458,7 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
 <td data-l="地址" class="addr"><input form="<?= $fid ?>" type="text" name="zip" value="<?= h($r['zip']) ?>" style="width:5em" aria-label="郵遞區號"> <input form="<?= $fid ?>" type="text" name="city" value="<?= h($r['city']) ?>" style="width:9em" aria-label="縣市區"> <input form="<?= $fid ?>" type="text" name="address" value="<?= h($r['address']) ?>" style="width:16em" aria-label="地址"><br><small><?= h($r['raw_addr']) ?></small></td>
 <?php if ($b['track'] === '食'): ?><td data-l="品名" class="<?= isset($fmiss[(int)$r['row_no']]) ? 'bad' : '' ?>"><?= h($r['product']) ?><?= isset($fmiss[(int)$r['row_no']]) ? '<br><small>' . h($fmiss[(int)$r['row_no']]) . '</small>' : '' ?></td><?php endif; ?><td data-l="數量" class="n"><?= (int)$r['qty'] ?></td><td data-l="寄發"><input form="<?= $fid ?>" type="checkbox" name="send" <?= $r['send'] ? 'checked' : '' ?> aria-label="寄發"></td><td data-l="檢核說明"><?= h($r['check_note']) ?></td>
 <td data-l="寄出日期"><input form="<?= $fid ?>" type="text" name="mailed_on" value="<?= $r['mailed_on'] ? h(rcpt_date_to_roc($r['mailed_on'])) : '' ?>" placeholder="115/11/12" style="width:7em" aria-label="寄出日期"></td>
-<td class="act"><form id="<?= $fid ?>" style="display:inline" method="post" action="./?a=batch&id=<?= $id ?>"><input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="row"><input type="hidden" name="rid" value="<?= (int)$r['id'] ?>"><button class="sm">存</button></form>
+<td class="act"><form id="<?= $fid ?>" style="display:inline" method="post" action="./?a=batch&id=<?= $id ?><?= $only ? '&amp;only=' . $only : '' ?>"><input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="row"><input type="hidden" name="rid" value="<?= (int)$r['id'] ?>"><button class="sm">存</button></form>
 <?php if ($r['receipt_no']): ?><a href="./print.php?id=<?= $id ?>&one=<?= (int)$r['id'] ?>">補印</a><?php endif; ?></td>
 <?php else: ?>
 <td data-l="收件人"><?= h($r['name']) ?></td><td data-l="地址"><?= h($r['zip'] . ' ' . $r['city'] . $r['address']) ?></td><?php if ($b['track'] === '食'): ?><td data-l="品名" class="<?= isset($fmiss[(int)$r['row_no']]) ? 'bad' : '' ?>"><?= h($r['product']) ?><?= isset($fmiss[(int)$r['row_no']]) ? '<br><small>' . h($fmiss[(int)$r['row_no']]) . '</small>' : '' ?></td><?php endif; ?><td data-l="數量" class="n"><?= (int)$r['qty'] ?></td><td data-l="寄發"><?= $r['send'] ? '<span class="chip ok">寄</span>' : '<span class="chip">不寄</span>' ?></td><td data-l="檢核說明"><?= h($r['check_note']) ?></td>
@@ -443,9 +517,25 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
 <?php if ($q !== ''): ?><div class="panel flush"><div class="tbl"><table class="rows"><tr class="hd"><th>收貨日期</th><th>來源</th><th>收據編號</th><th>訂單編號</th><th>姓名</th><th>電話</th><th>地址</th><th class="n">數量</th><th>寄發</th><th>寄出日期</th><th></th></tr>
 <?php foreach ($res as $r): ?><tr><td data-l="收貨日期" class="mono"><?= h(rcpt_date_to_roc($r['in_date'])) ?></td><td data-l="來源"><?= h($r['source']) ?></td><td data-l="收據編號" class="mono"><?= h($r['receipt_no']) ?></td><td data-l="訂單編號" class="mono"><?= h($r['order_no']) ?></td><td data-l="姓名"><?= h($r['name']) ?></td>
 <td data-l="電話"><?= h(trim($r['mobile'] . ' ' . $r['phone'])) ?></td><td data-l="地址"><?= h($r['zip'] . ' ' . $r['city'] . $r['address']) ?></td><td data-l="數量" class="n"><?= (int)$r['qty'] ?></td><td data-l="寄發"><?= $r['send'] ? '<span class="chip ok">寄</span>' : '<span class="chip">不寄</span>' ?></td><td data-l="寄出日期"><?= $r['mailed_on'] ? h(rcpt_date_to_roc($r['mailed_on'])) : '' ?></td>
-<td class="act"><?php if ($canEdit): ?><a href="./?a=batch&id=<?= (int)$r['batch_id'] ?>#r<?= (int)$r['id'] ?>">修改</a><?php endif; ?><?php if ($r['receipt_no']): ?><a href="./print.php?id=<?= (int)$r['batch_id'] ?>&one=<?= (int)$r['id'] ?>">看收據／補印</a><?php endif; ?></td></tr>
+<td class="act"><?php if ($canEdit): ?><a href="./?a=batch&id=<?= (int)$r['batch_id'] ?>&only=<?= (int)$r['id'] ?>#r<?= (int)$r['id'] ?>">修改</a><?php endif; ?><?php if ($r['receipt_no']): ?><a href="./print.php?id=<?= (int)$r['batch_id'] ?>&one=<?= (int)$r['id'] ?>">看收據／補印</a><?php endif; ?></td></tr>
 <?php endforeach; if (!$res): ?><tr><td colspan="11" class="empty">查無資料。</td></tr><?php endif; ?></table></div></div><?php endif; ?>
 <?php endif; ?>
 </main>
+<?php /* 匯入／配號進行中與完成的小視窗（繁英姊 11/19：「匯入或配號時可以 popup 一個小視窗『匯入中』或『配號中』，完成時出現『完成』」） */ ?>
+<dialog id="rcBusy" class="rc-dlg" aria-live="polite"><p class="rc-dlg-t"><span class="spin" aria-hidden="true"></span> <span id="rcBusyMsg">處理中…</span></p><p class="hint">請不要關閉或重新整理這個頁面，完成後會自動顯示結果。</p></dialog>
+<?php $doneMsg = ['imported' => '匯入完成', 'assigned' => '配號完成'][$_GET['ok'] ?? ''] ?? ''; if ($doneMsg): ?>
+<dialog id="rcDone" class="rc-dlg"><p class="rc-dlg-t">✓ <?= h($doneMsg) ?></p><p><?= h($okMsg) ?></p><form method="dialog"><button autofocus>知道了</button></form></dialog>
+<script>document.getElementById('rcDone').showModal()</script>
+<?php endif; ?>
+<script>
+function rcBusy(f, msg) {
+  var d = document.getElementById('rcBusy');
+  document.getElementById('rcBusyMsg').textContent = msg;
+  d.addEventListener('cancel', function (e) { e.preventDefault(); });   // Esc 不能關掉，避免以為取消了
+  if (d.showModal) d.showModal();
+  var b = f.querySelector('button[type=submit]'); if (b) b.disabled = true;   // 防重按
+  return true;
+}
+</script>
 </body>
 </html>
