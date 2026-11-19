@@ -34,7 +34,7 @@ function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 .tag.done{background:color-mix(in srgb,var(--green) 16%,var(--panel));color:var(--green);border-color:transparent}
 .dp-proj{padding:10px 0;border-top:1px solid var(--edge)}.dp-proj:first-of-type{border-top:0}
 .dp-head{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline}
-.dp-items{list-style:none;margin:6px 0 0;padding:0}.dp-items li{padding:5px 0}
+.dp-items{list-style:none;margin:6px 0 0;padding:0}.dp-items li{padding:5px 0;overflow-wrap:anywhere}
 .dp-note{font-size:13px;color:var(--muted,#666);margin:2px 0 0 4px;overflow-wrap:anywhere}
 .dp-warn{color:var(--red);font-weight:700}
 .tag.dp-dev,.tag.dp-review{background:var(--mist);color:var(--teal-d);border-color:transparent}

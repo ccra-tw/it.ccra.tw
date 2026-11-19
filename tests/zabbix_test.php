@@ -5,6 +5,16 @@ $SITE = $argv[1]; $LIB = $argv[2];
 if (!defined('STATE_DIR')) define('STATE_DIR', sys_get_temp_dir());
 require $LIB . '/zabbix.php';
 $fail = 0; $n = 0;
+
+echo "主機 IP：依 main／useip／dns 取，迴路位址交給本機代理補值（大沈 11-20 審查）\n";
+ok(zbx_pick_ip([['type'=>1,'main'=>1,'useip'=>1,'ip'=>'192.168.200.50','dns'=>'']]) === '192.168.200.50', '單一介面 → 它的 ip');
+ok(zbx_pick_ip([['type'=>1,'main'=>0,'useip'=>0,'ip'=>'10.0.0.9','dns'=>'old.test'],['type'=>1,'main'=>1,'useip'=>1,'ip'=>'192.168.200.7','dns'=>'']]) === '192.168.200.7', '第一筆不是主要介面且保留舊 ip → 取第二筆主要介面，不顯示舊值');
+ok(zbx_pick_ip([['type'=>1,'main'=>1,'useip'=>0,'ip'=>'10.0.0.9','dns'=>'hq.ccra.test']]) === 'hq.ccra.test', 'DNS-only 主要介面（useip=0）→ 顯示 dns，不顯示殘留的 ip');
+ok(zbx_pick_ip([['type'=>2,'main'=>1,'useip'=>1,'ip'=>'192.168.1.2'],['type'=>1,'main'=>1,'useip'=>1,'ip'=>'192.168.1.1']]) === '192.168.1.1', '兩個主要介面 → 代理介面優先於 SNMP');
+ok(zbx_pick_ip([['type'=>1,'main'=>1,'useip'=>1,'ip'=>'::1']]) === '', 'IPv6 迴路 ::1 → 空字串（交給本機代理補值）');
+ok(zbx_pick_ip([['type'=>1,'main'=>1,'useip'=>1,'ip'=>'127.0.0.1']]) === '', 'IPv4 迴路 → 空字串');
+ok(zbx_pick_ip([['type'=>1,'main'=>1,'useip'=>1,'ip'=>'127.0.0.1'],['type'=>2,'main'=>1,'useip'=>1,'ip'=>'192.168.100.9']]) === '192.168.100.9', '主要介面是迴路、另有真實介面 → 取真實介面');
+ok(zbx_pick_ip([]) === '', '沒有介面 → 空字串');
 function ok($cond, $msg) { global $fail, $n; $n++; echo ($cond ? "  ✅ " : "  ❌ ") . $msg . "\n"; if (!$cond) $fail++; }
 
 echo "可用狀態：有代理看代理，只有 ping 看 ping\n";

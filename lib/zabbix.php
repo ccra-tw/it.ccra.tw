@@ -27,6 +27,24 @@ function zbx_avail(array $interfaces, $ping) {
 
 // 主機上有哪些網站（熊哥 2026-11-02：「哪一個網站在哪一台主機，在主機展開的時候可以看到」）。
 // STATE_DIR/host_sites.json 由大蘇本機每天從 IIS 綁定／nginx server_name 抓好推上來：{"updated_at":..., "hosts":{"<Zabbix hostid>":["網址",...]}}
+// 主機列要顯示的位址（大沈 11-20 審查：要依 useip／dns／main 取，不是第一筆 ip）。
+// 順序：主要介面（main=1）優先，同等時代理介面（type=1）優先；介面 useip=1 顯示 ip，useip=0 顯示 dns。
+// 迴路位址（127.0.0.0/8、::1）代表走本機代理，略過，交給呼叫端用 ZBX_LOCAL_IP 補。全都沒有就回空字串。
+function zbx_is_loopback($a) {
+    $a = strtolower(trim((string)$a));
+    return $a === '' || $a === '::1' || $a === 'localhost' || str_starts_with($a, '127.');
+}
+function zbx_pick_ip(array $interfaces) {
+    $rank = fn($i) => [((int)($i['main'] ?? 0)) === 1 ? 0 : 1, ((int)($i['type'] ?? 0)) === 1 ? 0 : 1];
+    usort($interfaces, fn($a, $b) => $rank($a) <=> $rank($b));
+    foreach ($interfaces as $i) {
+        $useip = !isset($i['useip']) || (int)$i['useip'] === 1;
+        $addr = $useip ? ($i['ip'] ?? '') : ($i['dns'] ?? '');
+        if (!zbx_is_loopback($addr)) return (string)$addr;
+    }
+    return '';
+}
+
 function zbx_sites($file = null) {
     $file = $file ?? STATE_DIR . '/host_sites.json';
     $j = is_file($file) ? json_decode((string)@file_get_contents($file), true) : null;
@@ -42,7 +60,7 @@ function zabbix_hosts() {
     $token = trim((string)@file_get_contents(STATE_DIR . '/zabbix-ops.token'));
     try {
         $hosts = zbx_call('host.get', ['output' => ['hostid', 'host', 'name'], 'filter' => ['status' => 0],
-            'selectInterfaces' => ['type', 'available', 'error', 'ip'], 'selectHostGroups' => ['name']], $token);
+            'selectInterfaces' => ['type', 'available', 'error', 'ip', 'dns', 'useip', 'main'], 'selectHostGroups' => ['name']], $token);
         $ids = array_column($hosts, 'hostid');
         $keys = ['system.cpu.util', 'vm.memory.utilization', 'vm.memory.util', 'vfs.fs.dependent.size[/,pused]', 'vfs.fs.dependent.size[C:,pused]', 'icmppingsec', 'icmpping'];
         $items = zbx_call('item.get', ['hostids' => $ids, 'output' => ['hostid', 'key_', 'lastvalue', 'lastclock'],
@@ -57,9 +75,8 @@ function zabbix_hosts() {
         foreach ($hosts as $h) {
             $ping = null;
             foreach ($items as $it) if ($it['hostid'] === $h['hostid'] && $it['key_'] === 'icmpping' && $it['lastclock']) $ping = $it['lastvalue'];
-            $ip = '';   // 熊哥 11-20：主機要搭配 IP（取第一個非 127.0.0.1 的介面；監控主機本身與 Azure 走本機代理，另補）
-            foreach ($h['interfaces'] as $if) if (!empty($if['ip']) && $if['ip'] !== '127.0.0.1') { $ip = $if['ip']; break; }
-            if ($ip === '') $ip = ZBX_LOCAL_IP[$h['hostid']] ?? '';
+            $ip = zbx_pick_ip($h['interfaces']);   // 熊哥 11-20：主機要搭配 IP
+            if ($ip === '') $ip = ZBX_LOCAL_IP[$h['hostid']] ?? '';   // 監控主機本身與 Azure 走本機代理，另補
             $row = ['hostid' => $h['hostid'], 'name' => $h['name'], 'ip' => $ip, 'group' => $h['hostgroups'][0]['name'] ?? '',
                 'avail' => zbx_avail($h['interfaces'], $ping), 'ping_only' => $ping !== null && !array_filter($h['interfaces'], fn($i) => (int)$i['available'] !== 0),
                 'cpu' => null, 'mem' => null, 'disk' => null, 'problems' => []];
