@@ -71,7 +71,7 @@ ok(str_contains(req($E, ['a' => 'new'], 'POST', ['csrf' => $csrf($E), 'do' => 's
 // 繁英姊 11/18 驗收：空白要說「請填」、出錯要保留剛填的內容、全形與日曆（西元）日期都收
 $oe = req($E, ['a' => 'new'], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch', 'source' => 'ibon', 'in_date' => '', 'supplier_code' => '0000036', 'set_price' => '500', 'handler' => '回填經手', 'items' => "B01,回填品名,1,包,"]);
 ok(str_contains($oe, '請填收貨日期') && !str_contains($oe, '格式不對'), '收貨日期空白回「請填收貨日期」，不說格式不對');
-ok(preg_match('#<option value="0000036"\s+selected#u', $oe) === 1 && preg_match('#<option value="500"\s+selected#u', $oe) === 1 && str_contains($oe, 'value="回填經手"') && str_contains($oe, 'B01,回填品名'), '出錯後保留剛選的供應商、金額與經手人、產品明細');
+ok(preg_match('#<option value="0000036"\s+selected#u', $oe) === 1 && preg_match('#<option value="500"\s+selected#u', $oe) === 1 && str_contains($oe, 'value="回填經手"') && str_contains($oe, 'value="B01"') && str_contains($oe, 'value="回填品名"'), '出錯後保留剛選的供應商、金額與經手人、產品明細（表格逐格帶回）');
 ok(str_contains(req($E, ['a' => 'new'], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch', 'source' => 'ibon', 'in_date' => '115/09/14', 'supplier_code' => '9999999']), '請從清單選供應商'), '不在清單的供應商擋下');
 ok(str_contains(req($E, ['a' => 'new'], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch', 'source' => '不存在來源', 'in_date' => '115/09/14']), '請選來源'), '不在清單的來源擋下');
 ok(preg_match('#<option value="ibon"\s+selected#u', $oe) === 1, '出錯後來源保持原選項');
@@ -325,8 +325,7 @@ ok((int)$d->query("SELECT count(*) FROM audit WHERE action='search'")->fetchColu
 ok(!str_contains($p, '>修改</a>'), '唯讀者查詢結果沒有「修改」');
 $pe = req($E, ['a' => 'search', 'q' => 'O-1']);
 ok(preg_match('#href="\./\?a=batch&id=\d+\#r\d+">修改</a>#', $pe) === 1, '開收據者查詢結果有「修改」，連到該批次該筆');
-echo "單筆輸入（繁英姊 11/18 第 7 項）
-";
+echo "單筆輸入（繁英姊 11/18 第 7 項）\n";
 ok(str_contains(req($E, []), '＋ 單筆輸入'), '分頁有「＋ 單筆輸入」入口');
 ok(!str_contains(req('vw@test', []), '單筆輸入'), '唯讀者看不到單筆輸入');
 req($E, ['a' => 'new', 'single' => '1'], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch', 'single' => '1', 'source' => 'ibon', 'in_date' => '115/09/21', 'items' => '']);
@@ -346,6 +345,29 @@ ok((int)$d->query("SELECT count(*) FROM audit WHERE action='add_row' AND batch_i
 req($E, ['a' => 'batch', 'id' => $bs], 'POST', ['csrf' => $csrf($E), 'do' => 'assign']);
 ok((int)$d->query("SELECT count(*) FROM donation WHERE batch_id=$bs AND receipt_no IS NOT NULL")->fetchColumn() === 2, '單筆輸入的批次可以配號');
 ok(str_contains(req($E, ['a' => 'batch', 'id' => $bs], 'POST', ['csrf' => $csrf($E), 'do' => 'add_row', 'name' => '丙', 'qty' => '1']), '已經配號'), '配號後不能再單筆輸入');
+echo "產品明細表格輸入（繁英姊 11/19）\n";
+$fm = req($E, ['a' => 'new']);
+ok(str_contains($fm, 'name="it_name[]"') && str_contains($fm, '＋ 加一列') && !str_contains($fm, 'name="items"'), '新增頁是表格（每格一欄）、有「加一列」');
+req($E, ['a' => 'new'], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch', 'source' => 'ibon', 'in_date' => '115/09/22',
+    'it_code' => ['A01218', '', 'B02052', ''], 'it_name' => ['壽司米2Kg', '', '統一大豆沙拉油760g, 家庭號', ''], 'it_qty' => ['2', '', '1', ''], 'it_unit' => ['包', '', '瓶', ''], 'it_price' => ['120', '', '', '']]);
+$bt = (int)$d->query("SELECT max(id) FROM batch")->fetchColumn();
+$its = $d->query("SELECT code, name, qty, unit, price FROM batch_item WHERE batch_id = $bt ORDER BY id")->fetchAll(PDO::FETCH_ASSOC);
+ok(count($its) === 2, '品名空白的列不存（4 列存 2 筆）');
+ok($its[0]['code'] === 'A01218' && $its[0]['name'] === '壽司米2Kg' && (float)$its[0]['qty'] === 2.0 && $its[0]['unit'] === '包' && (float)$its[0]['price'] === 120.0, '每格對到正確欄位');
+ok($its[1]['name'] === '統一大豆沙拉油760g, 家庭號' && $its[1]['price'] === null, '品名有逗號不會被切開；單價空白存成空');
+$fe = req($E, ['a' => 'edit', 'id' => $bt]);
+ok(str_contains($fe, 'value="壽司米2Kg"') && str_contains($fe, 'value="統一大豆沙拉油760g, 家庭號"'), '編輯頁表格帶回原本的品項');
+$er = req($E, ['a' => 'new'], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch', 'source' => 'ibon', 'in_date' => '',
+    'it_code' => ['X9'], 'it_name' => ['測試出錯品項'], 'it_qty' => ['3'], 'it_unit' => ['箱'], 'it_price' => ['']]);
+ok(str_contains($er, '請填收貨日期') && str_contains($er, 'value="測試出錯品項"') && str_contains($er, 'value="X9"'), '出錯時表格裡已填的品項留著');
+req($E, ['a' => 'new'], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch', 'source' => 'ibon', 'in_date' => '115/09/23', 'items' => "T1,文字舊格式,5,包,10"]);
+$bo = (int)$d->query("SELECT max(id) FROM batch")->fetchColumn();
+ok((int)$d->query("SELECT count(*) FROM batch_item WHERE batch_id=$bo AND name='文字舊格式'")->fetchColumn() === 1, '沒有表格欄位時仍接受舊的文字格式');
+echo "匯入／配號小視窗（繁英姊 11/19）\n";
+$pb = req($E, ['a' => 'batch', 'id' => $bt]);
+ok(str_contains($pb, 'id="rcBusy"') && str_contains($pb, 'rcBusy(this'), '批次頁有「處理中」小視窗並接在送出上');
+$pd = req($E, ['a' => 'batch', 'id' => $bs, 'ok' => 'assigned']);
+ok(str_contains($pd, 'id="rcDone"') && str_contains($pd, '配號完成') && !str_contains(req($E, ['a' => 'batch', 'id' => $bs]), 'id="rcDone"'), '完成後跳「配號完成」，平常不跳');
 @unlink($tmp);
 echo $fail ? "❌ 失敗 {$fail}／{$n}\n" : "✅ 全部通過 {$n} 項\n";
 exit($fail ? 1 : 0);

@@ -32,6 +32,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $do = $_POST['do'] ?? '';
         try {
             if ($do === 'save_batch') {
+                // 產品明細改表格輸入（繁英姊 11/19：「原先是表格能夠依每個項目填寫的」）：每列轉回一行「代號	品名	數量	單位	單價」，交給下面同一套解析；
+                // 用 tab 分隔，品名裡有逗號也不會被切開。沒有表格欄位時（舊表單、測試）照舊讀 items 文字。
+                if (isset($_POST['it_name']) && is_array($_POST['it_name'])) {
+                    $lines = [];
+                    foreach (array_keys($_POST['it_name']) as $k) {
+                        $f = fn($a) => trim(str_replace(["\t", "\r", "\n"], ' ', (string)($_POST[$a][$k] ?? '')));
+                        if ($f('it_name') === '') continue;
+                        $lines[] = implode("\t", [$f('it_code'), $f('it_name'), $f('it_qty') === '' ? '0' : $f('it_qty'), $f('it_unit'), $f('it_price')]);
+                    }
+                    $_POST['items'] = implode("\n", $lines);
+                }
                 // 來源、供應商、套餐金額改由「設定」頁維護（繁英姊 11/18 第 8 項）：只收啟用中的選項；編輯舊批次時，沿用它原本的值也可以（停用不影響舊批次）
                 $src = $_POST['source'] ?? '';
                 $cur = $id ? batch_get($d, $id) : null;
@@ -81,7 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $d->prepare('DELETE FROM batch_item WHERE batch_id = ?')->execute([$id]);
                     $ins = $d->prepare('INSERT INTO batch_item (batch_id, code, name, qty, unit, price) VALUES (?,?,?,?,?,?)');
                     foreach (preg_split('/\R/u', (string)($_POST['items'] ?? '')) as $line) {
-                        $p = array_map('trim', preg_split('/[,，\t]/u', $line));
+                        $p = array_map('trim', str_contains($line, "\t") ? explode("\t", $line) : preg_split('/[,，]/u', $line));
                         if (count($p) < 3 || $p[1] === '') continue;
                         $ins->execute([$id, $p[0], $p[1], (float)str_replace(',', '', $p[2]), $p[3] ?? '', isset($p[4]) && $p[4] !== '' ? (float)$p[4] : null]);
                     }
@@ -345,8 +356,19 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
 <section class="panel"><h2>收據內容</h2>
 <label for="f_contents">每套內含（印在物收據上）</label><textarea id="f_contents" name="contents" rows="2"><?= h($fv('contents', $prevContents)) ?></textarea>
 <label for="f_letter">給捐贈者的信（印在收據下半部）</label><textarea id="f_letter" name="letter" rows="8"><?= h($fv('letter', $prevLetter)) ?></textarea><?php if (!$b && $prevLetter !== ''): ?><p class="hint">已帶入最近一批的信；1、3、5、7、9、11 月換新信時在這裡改。</p><?php endif; ?>
-<label for="f_items">產品明細（每行：代號,品名,數量,單位,單價）</label>
-<textarea id="f_items" name="items" rows="5" class="mono" <?= $locked ? 'readonly' : '' ?>><?php if ($refill !== null) echo h((string)($refill['items'] ?? '')); else foreach ($items as $it) echo h("{$it['code']},{$it['name']}," . (0 + $it['qty']) . ",{$it['unit']}," . ($it['price'] === null ? '' : 0 + $it['price'])) . "\n"; ?></textarea>
+<?php
+  $itRows = [];
+  if ($refill !== null) {
+      foreach (preg_split('/\R/u', (string)($refill['items'] ?? '')) as $ln) { $p = array_map('trim', str_contains($ln, "\t") ? explode("\t", $ln) : preg_split('/[,，]/u', $ln)); if (count($p) >= 2 && $p[1] !== '') $itRows[] = [$p[0], $p[1], $p[2] ?? '', $p[3] ?? '', $p[4] ?? '']; }
+  } else foreach ($items as $it) $itRows[] = [$it['code'], $it['name'], 0 + $it['qty'], $it['unit'], $it['price'] === null ? '' : 0 + $it['price']];
+  if (!$locked) { $want = max(3, count($itRows) + 1); while (count($itRows) < $want) $itRows[] = ['', '', '', '', '']; }   // 至少 3 列、比現有多 1 列空白（目標先算好，不能在條件裡重算）
+  $ro = $locked ? ' readonly' : '';
+?>
+<label id="items_lbl">產品明細 <small class="hint" style="font-weight:500">一列一個品項；品名空白的列不會存。</small></label>
+<div class="tbl"><table class="rows items" aria-labelledby="items_lbl"><thead><tr><th>代號</th><th>品名</th><th>數量</th><th>單位</th><th>單價</th></tr></thead><tbody>
+<?php foreach ($itRows as $r): ?><tr><td><input type="text" name="it_code[]" value="<?= h((string)$r[0]) ?>" aria-label="品項代號" style="width:8em"<?= $ro ?>></td><td><input type="text" name="it_name[]" value="<?= h((string)$r[1]) ?>" aria-label="品名" style="min-width:12em"<?= $ro ?>></td><td><input type="text" name="it_qty[]" value="<?= h((string)$r[2]) ?>" aria-label="數量" inputmode="decimal" style="width:5em"<?= $ro ?>></td><td><input type="text" name="it_unit[]" value="<?= h((string)$r[3]) ?>" aria-label="單位" style="width:4em"<?= $ro ?>></td><td><input type="text" name="it_price[]" value="<?= h((string)$r[4]) ?>" aria-label="單價" inputmode="decimal" style="width:6em"<?= $ro ?>></td></tr>
+<?php endforeach; ?></tbody></table></div>
+<?php if (!$locked): ?><div class="actions" style="margin-top:6px"><button type="button" class="btn ghost sm" onclick="var b=document.querySelector('table.items tbody'),r=b.rows[b.rows.length-1].cloneNode(true);r.querySelectorAll('input').forEach(function(i){i.value=''});b.appendChild(r);r.querySelector('input').focus()">＋ 加一列</button></div><?php endif; ?>
 <script>(function(){var i=document.getElementById('in_date'),o=document.getElementById('in_date_roc');if(!i||!o)return;i.addEventListener('change',function(){var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(i.value);o.textContent=m?'民國 '+(m[1]-1911)+'/'+m[2]+'/'+m[3]:'點右邊日曆選日期';});})();</script>
 <div class="actions"><button type="submit">儲存</button><a class="btn ghost" href="<?= $b ? './?a=batch&id=' . (int)$b['id'] : './' ?>">取消</a></div>
 </section>
@@ -402,12 +424,12 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
 </form>
 </section>
 <section class="panel"><h2>匯入名單 <small>.xlsx；平台原始檔或「地址整理」後的檔都可以。重新匯入會取代這一批目前的清單（包含上面單筆輸入的）。</small></h2>
-<form method="post" action="./?a=batch&id=<?= $id ?>" enctype="multipart/form-data" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='匯入中，請稍候…'">
+<form method="post" action="./?a=batch&id=<?= $id ?>" enctype="multipart/form-data" onsubmit="return rcBusy(this, '匯入中，請稍候…（名單多時要一兩分鐘）')">
 <input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="import">
 <div class="actions" style="margin-top:0"><input type="file" name="file" accept=".xlsx" required aria-label="選擇名單檔"> <button type="submit">匯入</button></div>
 </form>
 <?php if ($rows): ?>
-<form method="post" action="./?a=batch&id=<?= $id ?>" onsubmit="return confirm('配號後清單就鎖定、號碼不能再變。確定配號？')">
+<form method="post" action="./?a=batch&id=<?= $id ?>" onsubmit="if (!confirm('配號後清單就鎖定、號碼不能再變。確定配號？')) return false; return rcBusy(this, '配號中，請稍候…')">
 <input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="assign">
 <div class="actions"><button type="submit">檢核完成，配號（<?= count($rows) ?> 筆）</button><span class="hint">配號後清單鎖定，號碼不再變動。</span></div></form>
 <?php endif; ?>
@@ -486,5 +508,21 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
 <?php endforeach; if (!$res): ?><tr><td colspan="11" class="empty">查無資料。</td></tr><?php endif; ?></table></div></div><?php endif; ?>
 <?php endif; ?>
 </main>
+<?php /* 匯入／配號進行中與完成的小視窗（繁英姊 11/19：「匯入或配號時可以 popup 一個小視窗『匯入中』或『配號中』，完成時出現『完成』」） */ ?>
+<dialog id="rcBusy" class="rc-dlg" aria-live="polite"><p class="rc-dlg-t"><span class="spin" aria-hidden="true"></span> <span id="rcBusyMsg">處理中…</span></p><p class="hint">請不要關閉或重新整理這個頁面，完成後會自動顯示結果。</p></dialog>
+<?php $doneMsg = ['imported' => '匯入完成', 'assigned' => '配號完成'][$_GET['ok'] ?? ''] ?? ''; if ($doneMsg): ?>
+<dialog id="rcDone" class="rc-dlg"><p class="rc-dlg-t">✓ <?= h($doneMsg) ?></p><p><?= h($okMsg) ?></p><form method="dialog"><button autofocus>知道了</button></form></dialog>
+<script>document.getElementById('rcDone').showModal()</script>
+<?php endif; ?>
+<script>
+function rcBusy(f, msg) {
+  var d = document.getElementById('rcBusy');
+  document.getElementById('rcBusyMsg').textContent = msg;
+  d.addEventListener('cancel', function (e) { e.preventDefault(); });   // Esc 不能關掉，避免以為取消了
+  if (d.showModal) d.showModal();
+  var b = f.querySelector('button[type=submit]'); if (b) b.disabled = true;   // 防重按
+  return true;
+}
+</script>
 </body>
 </html>

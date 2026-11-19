@@ -122,3 +122,12 @@ table.rows{border-collapse:separate;border-spacing:0;width:100%;font-size:15px}
   .rows button{width:100%;margin-top:6px}
   .panel.flush{padding:0 4px;background:transparent;border:0;box-shadow:none;backdrop-filter:none}
 }
+
+/* 匯入／配號進行中與完成的小視窗（繁英姊 11/19） */
+.rc-dlg{border:0;border-radius:18px;padding:22px 26px;max-width:min(420px,90vw);background:var(--paper);color:var(--ink);box-shadow:0 20px 50px -20px rgba(0,0,0,.45)}
+.rc-dlg::backdrop{background:rgba(10,19,40,.45)}
+.rc-dlg-t{margin:0 0 8px;font-size:18px;font-weight:900;display:flex;align-items:center;gap:10px}
+.rc-dlg form{margin:14px 0 0;text-align:right}
+.spin{display:inline-block;width:20px;height:20px;border:3px solid var(--rc-btn);border-right-color:transparent;border-radius:50%;animation:rcspin .8s linear infinite}
+@keyframes rcspin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none;border-right-color:var(--rc-btn)}}
