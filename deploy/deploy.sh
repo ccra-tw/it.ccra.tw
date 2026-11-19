@@ -10,6 +10,12 @@ git fetch -q origin main
 git reset -q --hard origin/main
 rsync -a --delete --exclude=/receipt-test site/ /var/www/it.ccra.tw/
 # 收據系統網頁測試環境：同一套程式，nginx 在這個路徑改用 receipt_test 資料（見 nginx 設定與 lib/db.php）
+# 2026-11-19：receipt-test 若變成真的資料夾（11/18 起被一份舊程式佔住），ln -sfn 只會在資料夾裡面再建一個連結、測試頁停在舊版而沒有任何錯誤
+# → 先把真資料夾移到網站目錄外留存，再建連結。
+if [ -d /var/www/it.ccra.tw/receipt-test ] && [ ! -L /var/www/it.ccra.tw/receipt-test ]; then
+    mv /var/www/it.ccra.tw/receipt-test /var/www/receipt-test.stale-$(date +%Y%m%d-%H%M%S)
+    logger -t it-ccra-deploy "receipt-test 是真資料夾，已移開改回連結"
+fi
 ln -sfn receipt /var/www/it.ccra.tw/receipt-test
 # 靜態檔帶版本號（?v=提交雜湊），避免 Cloudflare／瀏覽器拿舊的 CSS（10-03 熊哥看到舊樣式）
 V=$(git rev-parse --short HEAD)
