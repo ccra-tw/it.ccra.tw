@@ -192,7 +192,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 rcpt_audit($d, $email, $b['status'] === 'draft' ? 'edit_row' : 'edit_after_number', $id, "row $rid " . implode('；', $chg));
                 $d->commit();
-                header("Location: ./?a=batch&id=$id&ok=row#r$rid"); exit;
+                header("Location: ./?a=batch&id=$id" . ((int)($_GET['only'] ?? 0) ? '&only=' . $rid : '') . "&ok=row#r$rid"); exit;
             }
             if ($do === 'mailed') {        // 整份標寄出日期（列印頁送來這份的 id）
                 $date = rcpt_roc_to_date($_POST['mailed_on'] ?? '');
@@ -435,9 +435,13 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
 <?php endif; ?>
 </section>
 <?php endif; ?>
+<?php if ((int)($_GET['only'] ?? 0)): ?><div class="alert ok" role="status">只顯示查詢的這一筆。<a href="./?a=batch&amp;id=<?= $id ?>">顯示整批 <?= count($rows) ?> 筆</a></div><?php endif; ?>
 <div class="panel flush"><div class="tbl">
 <table class="rows"><tr class="hd"><th>#</th><th>收據編號</th><th>訂單編號</th><th>收件人</th><th>郵遞區號／縣市區／地址</th><?php if ($b['track'] === '食'): ?><th>品名</th><?php endif; ?><th class="n">數量</th><th>寄發</th><th>檢核說明</th><th>寄出日期</th><?php if ($canEdit): ?><th></th><?php endif; ?></tr>
-<?php foreach ($rows as $r): $isDup = isset($dup[$r['order_no']]) || isset($inb[$r['order_no']]); $fid = 'f' . (int)$r['id']; ?>
+<?php // 查詢結果按「修改」只顯示那一筆（繁英姊 11/19：「按修改結果出現所有的資料，而不是這個人的資料」）；統計仍以整批計
+$only = (int)($_GET['only'] ?? 0);
+$shown = $only ? array_values(array_filter($rows, fn($r) => (int)$r['id'] === $only)) : $rows;
+foreach ($shown as $r): $isDup = isset($dup[$r['order_no']]) || isset($inb[$r['order_no']]); $fid = 'f' . (int)$r['id']; ?>
 <tr id="r<?= (int)$r['id'] ?>" class="<?= $isDup ? 'dup' : (!$r['send'] ? 'bad' : '') ?>">
 <td data-l="#"><?= (int)$r['row_no'] ?></td><td data-l="收據編號" class="mono"><?= h($r['receipt_no']) ?></td><td data-l="訂單編號" class="mono"><?= h($r['order_no']) ?><?= isset($dup[$r['order_no']]) ? '<br><small>已開：' . h($dup[$r['order_no']][1]) . '</small>' : '' ?><?= isset($inb[$r['order_no']]) ? '<br><small>名單內重複</small>' : '' ?></td>
 <?php if ($canEdit): ?>
@@ -445,7 +449,7 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
 <td data-l="地址" class="addr"><input form="<?= $fid ?>" type="text" name="zip" value="<?= h($r['zip']) ?>" style="width:5em" aria-label="郵遞區號"> <input form="<?= $fid ?>" type="text" name="city" value="<?= h($r['city']) ?>" style="width:9em" aria-label="縣市區"> <input form="<?= $fid ?>" type="text" name="address" value="<?= h($r['address']) ?>" style="width:16em" aria-label="地址"><br><small><?= h($r['raw_addr']) ?></small></td>
 <?php if ($b['track'] === '食'): ?><td data-l="品名" class="<?= isset($fmiss[(int)$r['row_no']]) ? 'bad' : '' ?>"><?= h($r['product']) ?><?= isset($fmiss[(int)$r['row_no']]) ? '<br><small>' . h($fmiss[(int)$r['row_no']]) . '</small>' : '' ?></td><?php endif; ?><td data-l="數量" class="n"><?= (int)$r['qty'] ?></td><td data-l="寄發"><input form="<?= $fid ?>" type="checkbox" name="send" <?= $r['send'] ? 'checked' : '' ?> aria-label="寄發"></td><td data-l="檢核說明"><?= h($r['check_note']) ?></td>
 <td data-l="寄出日期"><input form="<?= $fid ?>" type="text" name="mailed_on" value="<?= $r['mailed_on'] ? h(rcpt_date_to_roc($r['mailed_on'])) : '' ?>" placeholder="115/11/12" style="width:7em" aria-label="寄出日期"></td>
-<td class="act"><form id="<?= $fid ?>" style="display:inline" method="post" action="./?a=batch&id=<?= $id ?>"><input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="row"><input type="hidden" name="rid" value="<?= (int)$r['id'] ?>"><button class="sm">存</button></form>
+<td class="act"><form id="<?= $fid ?>" style="display:inline" method="post" action="./?a=batch&id=<?= $id ?><?= $only ? '&amp;only=' . $only : '' ?>"><input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="row"><input type="hidden" name="rid" value="<?= (int)$r['id'] ?>"><button class="sm">存</button></form>
 <?php if ($r['receipt_no']): ?><a href="./print.php?id=<?= $id ?>&one=<?= (int)$r['id'] ?>">補印</a><?php endif; ?></td>
 <?php else: ?>
 <td data-l="收件人"><?= h($r['name']) ?></td><td data-l="地址"><?= h($r['zip'] . ' ' . $r['city'] . $r['address']) ?></td><?php if ($b['track'] === '食'): ?><td data-l="品名" class="<?= isset($fmiss[(int)$r['row_no']]) ? 'bad' : '' ?>"><?= h($r['product']) ?><?= isset($fmiss[(int)$r['row_no']]) ? '<br><small>' . h($fmiss[(int)$r['row_no']]) . '</small>' : '' ?></td><?php endif; ?><td data-l="數量" class="n"><?= (int)$r['qty'] ?></td><td data-l="寄發"><?= $r['send'] ? '<span class="chip ok">寄</span>' : '<span class="chip">不寄</span>' ?></td><td data-l="檢核說明"><?= h($r['check_note']) ?></td>
@@ -504,7 +508,7 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
 <?php if ($q !== ''): ?><div class="panel flush"><div class="tbl"><table class="rows"><tr class="hd"><th>收貨日期</th><th>來源</th><th>收據編號</th><th>訂單編號</th><th>姓名</th><th>電話</th><th>地址</th><th class="n">數量</th><th>寄發</th><th>寄出日期</th><th></th></tr>
 <?php foreach ($res as $r): ?><tr><td data-l="收貨日期" class="mono"><?= h(rcpt_date_to_roc($r['in_date'])) ?></td><td data-l="來源"><?= h($r['source']) ?></td><td data-l="收據編號" class="mono"><?= h($r['receipt_no']) ?></td><td data-l="訂單編號" class="mono"><?= h($r['order_no']) ?></td><td data-l="姓名"><?= h($r['name']) ?></td>
 <td data-l="電話"><?= h(trim($r['mobile'] . ' ' . $r['phone'])) ?></td><td data-l="地址"><?= h($r['zip'] . ' ' . $r['city'] . $r['address']) ?></td><td data-l="數量" class="n"><?= (int)$r['qty'] ?></td><td data-l="寄發"><?= $r['send'] ? '<span class="chip ok">寄</span>' : '<span class="chip">不寄</span>' ?></td><td data-l="寄出日期"><?= $r['mailed_on'] ? h(rcpt_date_to_roc($r['mailed_on'])) : '' ?></td>
-<td class="act"><?php if ($canEdit): ?><a href="./?a=batch&id=<?= (int)$r['batch_id'] ?>#r<?= (int)$r['id'] ?>">修改</a><?php endif; ?><?php if ($r['receipt_no']): ?><a href="./print.php?id=<?= (int)$r['batch_id'] ?>&one=<?= (int)$r['id'] ?>">看收據／補印</a><?php endif; ?></td></tr>
+<td class="act"><?php if ($canEdit): ?><a href="./?a=batch&id=<?= (int)$r['batch_id'] ?>&only=<?= (int)$r['id'] ?>#r<?= (int)$r['id'] ?>">修改</a><?php endif; ?><?php if ($r['receipt_no']): ?><a href="./print.php?id=<?= (int)$r['batch_id'] ?>&one=<?= (int)$r['id'] ?>">看收據／補印</a><?php endif; ?></td></tr>
 <?php endforeach; if (!$res): ?><tr><td colspan="11" class="empty">查無資料。</td></tr><?php endif; ?></table></div></div><?php endif; ?>
 <?php endif; ?>
 </main>
