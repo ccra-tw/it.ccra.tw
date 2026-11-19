@@ -504,7 +504,7 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
         <p class="hostsum" style="margin-top:2px"><b><?= count($list) - $nb ?></b> 正常　<b class="<?= $nb ? 'red' : '' ?>"><?= $nb ?></b> 有狀況</p>
         <?php foreach ($list as $x): $isBad = $x['avail'] !== 1 || $x['problems']; $sites = $zbSites[(string)$x['hostid']] ?? []; ?>
           <details class="zh <?= $isBad ? 'badh' : '' ?>"<?= $isBad ? ' open' : '' ?>>
-            <summary><span class="dot"></span><?= h($x['name']) ?><?php if ($sites): ?> <span class="meta" style="margin:0">（<?= count($sites) ?> 個網站）</span><?php endif; ?></summary>
+            <summary><span class="dot"></span><?= h($x['name']) ?><?php if (!empty($x['ip']) && strpos($x['name'], $x['ip']) === false): ?> <span class="no"><?= h($x['ip']) ?></span><?php endif; ?><?php if ($sites): ?> <span class="meta" style="margin:0">（<?= count($sites) ?> 個網站）</span><?php endif; ?></summary>
             <?php if ($isBad): ?><p class="meta" style="margin:4px 0 0 17px"><?= $x['avail'] === 2 ? (!empty($x['ping_only']) ? 'ping 不通' : '連不到') : ($x['avail'] === 0 ? '狀態未知' : '') ?><?php foreach (array_slice($x['problems'], 0, 2) as $p) echo h(SEV[$p['severity']] ?? '') . '：' . h($p['name']) . '　'; ?></p><?php endif; ?>
             <p class="meta" style="margin:4px 0 0 17px"><?= !empty($x['ping_only']) ? '只做 ping 監控' : 'CPU ' . pct($x['cpu']) . '　記憶體 ' . pct($x['mem']) . '　磁碟 ' . pct($x['disk']) ?></p>
             <?php if ($sites): ?><ul class="zsites"><?php foreach ($sites as $s): ?><li><a href="https://<?= h($s) ?>" target="_blank" rel="noopener"><?= h($s) ?></a></li><?php endforeach; ?></ul><?php endif; ?>

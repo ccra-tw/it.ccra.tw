@@ -2,6 +2,9 @@
 // Zabbix 主機監控摘要（戰情室用）。走 ITSrv01 本機的 Zabbix API，用唯讀帳號 it-ccra-ops 的 API token。
 // token 放 STATE_DIR/zabbix-ops.token（www-data 600），不進 GitHub；結果快取 60 秒。
 // 回傳 [主機陣列或 null, 錯誤訊息]；每台：name, host, hostid, group, avail(1 正常/2 連不到/0 未知), cpu, mem, disk, problems[]。
+// Zabbix 介面填 127.0.0.1（本機代理）的主機，實際 IP 補在這裡
+const ZBX_LOCAL_IP = ['10084' => '192.168.100.7', '10680' => '20.2.139.210'];
+
 function zbx_call($method, $params, $token) {
     $ctx = stream_context_create(['http' => ['method' => 'POST', 'timeout' => 10, 'ignore_errors' => true,
         'header' => "Content-Type: application/json-rpc\r\nHost: mon.ccra.tw\r\nAuthorization: Bearer $token\r\n",
@@ -39,7 +42,7 @@ function zabbix_hosts() {
     $token = trim((string)@file_get_contents(STATE_DIR . '/zabbix-ops.token'));
     try {
         $hosts = zbx_call('host.get', ['output' => ['hostid', 'host', 'name'], 'filter' => ['status' => 0],
-            'selectInterfaces' => ['type', 'available', 'error'], 'selectHostGroups' => ['name']], $token);
+            'selectInterfaces' => ['type', 'available', 'error', 'ip'], 'selectHostGroups' => ['name']], $token);
         $ids = array_column($hosts, 'hostid');
         $keys = ['system.cpu.util', 'vm.memory.utilization', 'vm.memory.util', 'vfs.fs.dependent.size[/,pused]', 'vfs.fs.dependent.size[C:,pused]', 'icmppingsec', 'icmpping'];
         $items = zbx_call('item.get', ['hostids' => $ids, 'output' => ['hostid', 'key_', 'lastvalue', 'lastclock'],
@@ -54,7 +57,10 @@ function zabbix_hosts() {
         foreach ($hosts as $h) {
             $ping = null;
             foreach ($items as $it) if ($it['hostid'] === $h['hostid'] && $it['key_'] === 'icmpping' && $it['lastclock']) $ping = $it['lastvalue'];
-            $row = ['hostid' => $h['hostid'], 'name' => $h['name'], 'group' => $h['hostgroups'][0]['name'] ?? '',
+            $ip = '';   // 熊哥 11-20：主機要搭配 IP（取第一個非 127.0.0.1 的介面；監控主機本身與 Azure 走本機代理，另補）
+            foreach ($h['interfaces'] as $if) if (!empty($if['ip']) && $if['ip'] !== '127.0.0.1') { $ip = $if['ip']; break; }
+            if ($ip === '') $ip = ZBX_LOCAL_IP[$h['hostid']] ?? '';
+            $row = ['hostid' => $h['hostid'], 'name' => $h['name'], 'ip' => $ip, 'group' => $h['hostgroups'][0]['name'] ?? '',
                 'avail' => zbx_avail($h['interfaces'], $ping), 'ping_only' => $ping !== null && !array_filter($h['interfaces'], fn($i) => (int)$i['available'] !== 0),
                 'cpu' => null, 'mem' => null, 'disk' => null, 'problems' => []];
             foreach ($items as $it) {
