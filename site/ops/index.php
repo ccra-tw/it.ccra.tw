@@ -334,6 +334,11 @@ details.zh{margin-top:6px;border-bottom:1px dashed var(--edge);padding-bottom:6p
 details.zh summary{cursor:pointer;list-style:none;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:14px}
 details.zh summary::-webkit-details-marker{display:none}
 details.zh summary .dot{width:9px;height:9px;border-radius:50%;background:#2e9e6a;flex:none}
+details.zh summary .zsub{display:inline-flex;flex-wrap:wrap;gap:4px 8px;align-items:center;min-width:0}
+details.zh summary .zsub .no{overflow-wrap:anywhere}
+/* 大沈 11-20 審查：手機主機列固定兩區——狀態點＋名稱一列，IP 與網站數在次列對齊名稱；桌機維持同列 */
+@media (max-width:600px){details.zh summary{display:grid;grid-template-columns:9px minmax(0,1fr);column-gap:8px;row-gap:2px}
+  details.zh summary .zname{overflow-wrap:anywhere}details.zh summary .zsub{grid-column:2}}
 details.zh.badh summary .dot{background:var(--red)}
 details.zh .zsites{margin:6px 0 0 17px;padding:0;list-style:none;font-size:13px}
 details.zh .zsites a{color:var(--teal);word-break:break-all}
@@ -503,7 +508,8 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
         <p class="hostsum" style="margin-top:2px"><b><?= count($list) - $nb ?></b> 正常　<b class="<?= $nb ? 'red' : '' ?>"><?= $nb ?></b> 有狀況</p>
         <?php foreach ($list as $x): $isBad = $x['avail'] !== 1 || $x['problems']; $sites = $zbSites[(string)$x['hostid']] ?? []; ?>
           <details class="zh <?= $isBad ? 'badh' : '' ?>"<?= $isBad ? ' open' : '' ?>>
-            <summary><span class="dot"></span><?= h($x['name']) ?><?php if (!empty($x['ip']) && strpos($x['name'], $x['ip']) === false): ?> <span class="no"><?= h($x['ip']) ?></span><?php endif; ?><?php if ($sites): ?> <span class="meta" style="margin:0">（<?= count($sites) ?> 個網站）</span><?php endif; ?></summary>
+            <?php $zShowIp = !empty($x['ip']) && strpos($x['name'], $x['ip']) === false; ?>
+            <summary><span class="dot"></span><span class="zname"><?= h($x['name']) ?></span><?php if ($zShowIp || $sites): ?><span class="zsub"><?php if ($zShowIp): ?><span class="no"><?= h($x['ip']) ?></span><?php endif; ?><?php if ($sites): ?><span class="meta" style="margin:0">（<?= count($sites) ?> 個網站）</span><?php endif; ?></span><?php endif; ?></summary>
             <?php if ($isBad): ?><p class="meta" style="margin:4px 0 0 17px"><?= $x['avail'] === 2 ? (!empty($x['ping_only']) ? 'ping 不通' : '連不到') : ($x['avail'] === 0 ? '狀態未知' : '') ?><?php foreach (array_slice($x['problems'], 0, 2) as $p) echo h(SEV[$p['severity']] ?? '') . '：' . h($p['name']) . '　'; ?></p><?php endif; ?>
             <p class="meta" style="margin:4px 0 0 17px"><?= !empty($x['ping_only']) ? '只做 ping 監控' : 'CPU ' . pct($x['cpu']) . '　記憶體 ' . pct($x['mem']) . '　磁碟 ' . pct($x['disk']) ?></p>
             <?php if ($sites): ?><ul class="zsites"><?php foreach ($sites as $s): ?><li><a href="https://<?= h($s) ?>" target="_blank" rel="noopener"><?= h($s) ?></a></li><?php endforeach; ?></ul><?php endif; ?>
