@@ -337,7 +337,7 @@ ok(str_contains(req($E, ['a' => 'batch', 'id' => $bs]), 'id="single"'), '草稿�
 ok(str_contains(req('vw@test', ['a' => 'batch', 'id' => $bs], 'POST', ['csrf' => $csrf('vw@test'), 'do' => 'add_row', 'name' => '甲', 'qty' => '1']), '只能查詢'), '唯讀者 POST 單筆輸入擋下');
 $o = req($E, ['a' => 'batch', 'id' => $bs], 'POST', ['csrf' => $csrf($E), 'do' => 'add_row', 'name' => '', 'qty' => '1', 'mobile' => '0912000111']);
 ok(str_contains($o, '請填捐物人') && str_contains($o, '0912000111'), '沒填姓名擋下，已填的手機留著');
-ok(str_contains(req($E, ['a' => 'batch', 'id' => $bs], 'POST', ['csrf' => $csrf($E), 'do' => 'add_row', 'name' => '乙', 'qty' => '0']), '請填數量'), '數量 0 擋下');
+ok(str_contains(req($E, ['a' => 'batch', 'id' => $bs], 'POST', ['csrf' => $csrf($E), 'do' => 'add_row', 'name' => '乙', 'qty' => '0']), '數量請填正整數'), '數量 0 擋下');
 ok(str_contains(req($E, ['a' => 'batch', 'id' => $bs], 'POST', ['csrf' => $csrf($E), 'do' => 'add_row', 'name' => '乙', 'qty' => '1', 'send' => '1', 'address' => '']), '請填地址'), '要寄但沒地址擋下');
 req($E, ['a' => 'batch', 'id' => $bs], 'POST', ['csrf' => $csrf($E), 'do' => 'add_row', 'name' => '臨時捐物人', 'qty' => '2', 'zip' => '234', 'city' => '新北市永和區', 'address' => '保生路1號', 'send' => '1', 'order_no' => 'SINGLE-1119-1']);
 req($E, ['a' => 'batch', 'id' => $bs], 'POST', ['csrf' => $csrf($E), 'do' => 'add_row', 'name' => '電話捐物人', 'qty' => '1']);
@@ -385,6 +385,19 @@ ok(substr_count($pc3, 'class="page"') === 101, '最後一段只印剩下的 101 
 preq($E, ['id' => $bc, 'part' => 'all', 'chunk' => '2', 'go' => '1']);
 ok((int)$d->query("SELECT count FROM print_log WHERE batch_id = $bc ORDER BY id DESC LIMIT 1")->fetchColumn() === 500 && (int)$d->query("SELECT count(*) FROM audit WHERE batch_id = $bc AND detail LIKE '%第 2 段／共 3 段%'")->fetchColumn() === 1, '分段列印只記這一段 500 張，稽核寫明第幾段');
 ok(str_contains($pc, 'id="rcBusy"') && str_contains($pc, 'rcPrintBusy(event)'), '列印頁有「準備列印中／產生預覽中」小視窗');
+echo "大沈 d836044 審查補件\n";
+$oq = req($E, ['a' => 'batch', 'id' => $bt], 'POST', ['csrf' => $csrf($E), 'do' => 'add_row', 'name' => '小數測試', 'qty' => '1.5']);
+ok(str_contains($oq, '數量請填正整數') && str_contains($oq, 'value="1.5"') && (int)$d->query("SELECT count(*) FROM donation WHERE batch_id=$bt AND name='小數測試'")->fetchColumn() === 0, '數量 1.5 擋下、不存、保留輸入');
+$oa = req($E, ['a' => 'batch', 'id' => $bt], 'POST', ['csrf' => $csrf($E), 'do' => 'add_row', 'name' => '全形數量', 'qty' => '２']);
+$nid = (int)$d->query("SELECT id FROM donation WHERE batch_id=$bt AND name='全形數量'")->fetchColumn();
+ok($nid > 0 && (int)$d->query("SELECT qty FROM donation WHERE id=$nid")->fetchColumn() === 2, '全形數字 ２ 收成 2');
+ok(str_contains($oa, 'X-TEST-LOCATION: ./?a=batch&id=' . $bt . '&ok=added#r' . $nid), '新增後導向的定位點是 donation.id（#r' . $nid . '）');
+$or = req($E, ['a' => 'batch', 'id' => $mo[1], 'only' => $mo[2]], 'POST', ['csrf' => $csrf($E), 'do' => 'row', 'rid' => $mo[2], 'name' => '改後姓名', 'zip' => '100', 'city' => '台北市', 'address' => '改後地址1號', 'send' => '1']);
+ok(str_contains($or, 'X-TEST-LOCATION: ./?a=batch&id=' . $mo[1] . '&only=' . $mo[2] . '&ok=row#r' . $mo[2]), 'only 頁存檔後 Location 保留 only');
+$pf = req($E, ['a' => 'batch', 'id' => $mo[1], 'only' => $mo[2], 'ok' => 'row']);
+ok(substr_count($pf, '<tr id="r') === 1 && str_contains($pf, '改後地址1號'), '跟隨導向後只顯示原列，畫面是新值');
+ok($d->query("SELECT address FROM donation WHERE id=" . (int)$mo[2])->fetchColumn() === '改後地址1號', '重新查詢資料庫讀回新地址');
+ok(str_contains($pc, 'oninput=') && str_contains($pc, 'c.value = 1'), '列印設定改份別／範圍／流水號時 chunk 回第 1 段');
 @unlink($tmp);
 echo $fail ? "❌ 失敗 {$fail}／{$n}\n" : "✅ 全部通過 {$n} 項\n";
 exit($fail ? 1 : 0);

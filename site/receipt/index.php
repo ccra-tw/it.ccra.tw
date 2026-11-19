@@ -24,6 +24,13 @@ function batch_get(PDO $d, int $id): ?array {
 }
 function need_edit($canEdit) { if (!$canEdit) { http_response_code(403); exit('您的權限只能查詢。'); } }
 
+// 轉址（測試接縫：命令列＋測試 schema 時把目的地印出來，讓測試驗得到 Location；大沈 d836044 審查要求）
+function rc_go(string $u): void {
+    if (PHP_SAPI === 'cli' && getenv('ITCCRA_TEST_DB') === '1') echo "
+X-TEST-LOCATION: $u
+";
+    header("Location: $u"); exit;
+}
 // ── POST 動作 ──
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!hash_equals($csrf, (string)($_POST['csrf'] ?? ''))) { $err = '頁面已過期，請重新整理後再操作。'; }
@@ -102,9 +109,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             if ($do === 'add_row') {       // 單筆輸入（繁英姊 11/18 驗收第 7 項：臨時來捐、電話捐贈，一次開一張）：只加在尚未配號的批次，配號檢查與匯入的一樣
                 $name = trim($_POST['name'] ?? '');
-                $qty = (int)($_POST['qty'] ?? 0);
+                $qRaw = mb_convert_kana(trim((string)($_POST['qty'] ?? '')), 'n', 'UTF-8');   // 全形數字轉半形
                 if ($name === '') throw new RuntimeException('請填捐物人（收件人）姓名');
-                if ($qty <= 0) throw new RuntimeException('請填數量（至少 1）');
+                if (!preg_match('/^[1-9][0-9]{0,4}$/', $qRaw)) throw new RuntimeException('數量請填正整數（1～99999），例如 1、2；不能有小數');   // 大沈 d836044：1.5 曾被直接轉成 1
+                $qty = (int)$qRaw;
                 $send = isset($_POST['send']);
                 $zip = trim($_POST['zip'] ?? ''); $city = trim($_POST['city'] ?? ''); $addr = trim($_POST['address'] ?? '');
                 if ($send && $addr === '') throw new RuntimeException('要寄收據的話請填地址；不寄請取消勾選「寄收據」');
@@ -112,12 +120,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 rcpt_lock_draft($d, $id);
                 $s2 = $d->prepare('SELECT COALESCE(MAX(row_no), 0) FROM donation WHERE batch_id = ?'); $s2->execute([$id]);
                 $n = (int)$s2->fetchColumn() + 1;
-                $d->prepare('INSERT INTO donation (batch_id, row_no, order_no, name, mobile, phone, raw_addr, zip, city, address, product, qty, send, check_note, dup_note, updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-                  ->execute([$id, $n, trim($_POST['order_no'] ?? ''), $name, trim($_POST['mobile'] ?? ''), trim($_POST['phone'] ?? ''), trim("$zip $city$addr"),
+                $insOne = $d->prepare('INSERT INTO donation (batch_id, row_no, order_no, name, mobile, phone, raw_addr, zip, city, address, product, qty, send, check_note, dup_note, updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id');
+                $insOne->execute([$id, $n, trim($_POST['order_no'] ?? ''), $name, trim($_POST['mobile'] ?? ''), trim($_POST['phone'] ?? ''), trim("$zip $city$addr"),
                              $zip, $city, $addr, trim($_POST['product'] ?? ''), $qty, $send ? 'true' : 'false', '單筆輸入', '', $email]);
+                $newId = (int)$insOne->fetchColumn();   // 清單列的錨點是 donation.id，不是 row_no（大沈 d836044：新增首筆導到 #r1，列卻是 #r5135）
                 rcpt_audit($d, $email, 'add_row', $id, "row $n 單筆輸入");
                 $d->commit();
-                header("Location: ./?a=batch&id=$id&ok=added#r$n"); exit;
+                rc_go("./?a=batch&id=$id&ok=added#r$newId");
             }
             if ($do === 'import') {
                 $b = batch_get($d, $id);
@@ -192,7 +201,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 rcpt_audit($d, $email, $b['status'] === 'draft' ? 'edit_row' : 'edit_after_number', $id, "row $rid " . implode('；', $chg));
                 $d->commit();
-                header("Location: ./?a=batch&id=$id" . ((int)($_GET['only'] ?? 0) ? '&only=' . $rid : '') . "&ok=row#r$rid"); exit;
+                rc_go("./?a=batch&id=$id" . ((int)($_GET['only'] ?? 0) ? '&only=' . $rid : '') . "&ok=row#r$rid");
             }
             if ($do === 'mailed') {        // 整份標寄出日期（列印頁送來這份的 id）
                 $date = rcpt_roc_to_date($_POST['mailed_on'] ?? '');
@@ -416,7 +425,7 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
 <div><label for="s_city">縣市區</label><input type="text" id="s_city" name="city" value="<?= $ov('city') ?>" placeholder="例：新北市永和區"></div>
 <div><label for="s_address">地址</label><input type="text" id="s_address" name="address" value="<?= $ov('address') ?>" placeholder="例：保生路1號20樓"></div>
 <div><label for="s_product">品名<?= $b['track'] === '食' ? '（要和上面產品明細的品名一樣）' : '' ?></label><input type="text" id="s_product" name="product" value="<?= $ov('product') ?>" list="s_products"><datalist id="s_products"><?php foreach ($items as $it): ?><option value="<?= h($it['name']) ?>"><?php endforeach; ?></datalist></div>
-<div><label for="s_qty">數量（份）*</label><input type="text" id="s_qty" name="qty" value="<?= $ov('qty', '1') ?>" inputmode="numeric" required></div>
+<div><label for="s_qty">數量（份）*</label><input type="text" id="s_qty" name="qty" value="<?= $ov('qty', '1') ?>" inputmode="numeric" pattern="[0-9０-９]{1,5}" title="請填正整數，例如 1、2" required></div>
 <div><label for="s_order">訂單編號（沒有可空白）</label><input type="text" id="s_order" name="order_no" value="<?= $ov('order_no') ?>"></div>
 </div>
 <p><label style="display:inline-flex;align-items:center;gap:8px;margin:12px 0 0"><input type="checkbox" name="send" value="1"<?= $o1 && !isset($o1['send']) ? '' : ' checked' ?>> 寄收據</label></p>

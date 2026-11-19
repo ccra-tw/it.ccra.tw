@@ -143,8 +143,8 @@ body{margin:0;font-family:"Microsoft JhengHei","微軟正黑體","Noto Sans TC",
 </div>
 <?php if ($b['track'] === '食'): ?><div class="alert ok">食字軌：整張印在白紙上（含協會 Logo 與印章），不需預印紙。</div><?php endif; ?>
 <section class="panel ctl"><h2>列印設定</h2>
-<form method="get" onsubmit="rcPrintBusy(event)">
-<input type="hidden" name="id" value="<?= $id ?>"><?php if ($chunks > 1): ?><input type="hidden" name="chunk" value="<?= $chunk ?>"><?php endif; ?><?php if ($one): ?><input type="hidden" name="one" value="<?= $one ?>"><?php endif; ?>
+<form method="get" onsubmit="rcPrintBusy(event)" oninput="if (['part','scope','from','to'].indexOf(event.target.name) >= 0) { var c = this.querySelector('[name=chunk]'); if (c) c.value = 1; }">
+<input type="hidden" name="id" value="<?= $id ?>"><?php if ($chunks > 1): /* 份別、範圍、流水號一改就回第 1 段（大沈 d836044） */ ?><input type="hidden" name="chunk" value="<?= $chunk ?>"><?php endif; ?><?php if ($one): ?><input type="hidden" name="one" value="<?= $one ?>"><?php endif; ?>
 <div class="row">
 <?php if (!$one): ?>
 <div><label for="p_part">份別</label><select id="p_part" name="part"><option value="single" <?= $part === 'single' ? 'selected' : '' ?>>單張份（<?= $nSingle ?> 張）</option><option value="multi" <?= $part === 'multi' ? 'selected' : '' ?>>多張份（<?= $nMulti ?> 張，同地址收件人連在一起）</option><option value="all" <?= $part === 'all' ? 'selected' : '' ?>>不分份</option></select></div>
