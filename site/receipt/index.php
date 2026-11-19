@@ -111,7 +111,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $name = trim($_POST['name'] ?? '');
                 $qRaw = mb_convert_kana(trim((string)($_POST['qty'] ?? '')), 'n', 'UTF-8');   // 全形數字轉半形
                 if ($name === '') throw new RuntimeException('請填捐物人（收件人）姓名');
-                if (!preg_match('/^[1-9][0-9]{0,4}$/', $qRaw)) throw new RuntimeException('數量請填正整數（1～99999），例如 1、2；不能有小數');   // 大沈 d836044：1.5 曾被直接轉成 1
+                if (!preg_match('/^[1-9][0-9]{0,4}$/', $qRaw)) throw new RuntimeException('數量請填正整數（1～99999），例如 1、2；不能有小數，也不能以 0 開頭');   // 大沈 d836044：1.5 曾被直接轉成 1
                 $qty = (int)$qRaw;
                 $send = isset($_POST['send']);
                 $zip = trim($_POST['zip'] ?? ''); $city = trim($_POST['city'] ?? ''); $addr = trim($_POST['address'] ?? '');
@@ -425,7 +425,7 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
 <div><label for="s_city">縣市區</label><input type="text" id="s_city" name="city" value="<?= $ov('city') ?>" placeholder="例：新北市永和區"></div>
 <div><label for="s_address">地址</label><input type="text" id="s_address" name="address" value="<?= $ov('address') ?>" placeholder="例：保生路1號20樓"></div>
 <div><label for="s_product">品名<?= $b['track'] === '食' ? '（要和上面產品明細的品名一樣）' : '' ?></label><input type="text" id="s_product" name="product" value="<?= $ov('product') ?>" list="s_products"><datalist id="s_products"><?php foreach ($items as $it): ?><option value="<?= h($it['name']) ?>"><?php endforeach; ?></datalist></div>
-<div><label for="s_qty">數量（份）*</label><input type="text" id="s_qty" name="qty" value="<?= $ov('qty', '1') ?>" inputmode="numeric" pattern="[0-9０-９]{1,5}" title="請填正整數，例如 1、2" required></div>
+<div><label for="s_qty">數量（份）*</label><input type="text" id="s_qty" name="qty" value="<?= $ov('qty', '1') ?>" inputmode="numeric" pattern="[1-9１-９][0-9０-９]{0,4}" title="請填 1～99999 的正整數，不能以 0 開頭，例如 1、2" required></div>
 <div><label for="s_order">訂單編號（沒有可空白）</label><input type="text" id="s_order" name="order_no" value="<?= $ov('order_no') ?>"></div>
 </div>
 <p><label style="display:inline-flex;align-items:center;gap:8px;margin:12px 0 0"><input type="checkbox" name="send" value="1"<?= $o1 && !isset($o1['send']) ? '' : ' checked' ?>> 寄收據</label></p>

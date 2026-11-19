@@ -398,6 +398,10 @@ $pf = req($E, ['a' => 'batch', 'id' => $mo[1], 'only' => $mo[2], 'ok' => 'row'])
 ok(substr_count($pf, '<tr id="r') === 1 && str_contains($pf, '改後地址1號'), '跟隨導向後只顯示原列，畫面是新值');
 ok($d->query("SELECT address FROM donation WHERE id=" . (int)$mo[2])->fetchColumn() === '改後地址1號', '重新查詢資料庫讀回新地址');
 ok(str_contains($pc, 'oninput=') && str_contains($pc, 'c.value = 1'), '列印設定改份別／範圍／流水號時 chunk 回第 1 段');
+$o01 = req($E, ['a' => 'batch', 'id' => $bt], 'POST', ['csrf' => $csrf($E), 'do' => 'add_row', 'name' => '前導零測試', 'qty' => '01']);
+ok(str_contains($o01, '不能以 0 開頭') && str_contains($o01, 'value="01"') && (int)$d->query("SELECT count(*) FROM donation WHERE batch_id=$bt AND name='前導零測試'")->fetchColumn() === 0, '數量 01 擋下並說明不能以 0 開頭');
+$fq = req($E, ['a' => 'batch', 'id' => $bt]);
+ok(str_contains($fq, 'pattern="[1-9１-９][0-9０-９]{0,4}"'), '前端 pattern 與伺服器規則一致（首字 1～9、至多 5 位）');
 @unlink($tmp);
 echo $fail ? "❌ 失敗 {$fail}／{$n}\n" : "✅ 全部通過 {$n} 項\n";
 exit($fail ? 1 : 0);
