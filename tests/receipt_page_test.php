@@ -325,6 +325,27 @@ ok((int)$d->query("SELECT count(*) FROM audit WHERE action='search'")->fetchColu
 ok(!str_contains($p, '>修改</a>'), '唯讀者查詢結果沒有「修改」');
 $pe = req($E, ['a' => 'search', 'q' => 'O-1']);
 ok(preg_match('#href="\./\?a=batch&id=\d+\#r\d+">修改</a>#', $pe) === 1, '開收據者查詢結果有「修改」，連到該批次該筆');
+echo "單筆輸入（繁英姊 11/18 第 7 項）
+";
+ok(str_contains(req($E, []), '＋ 單筆輸入'), '分頁有「＋ 單筆輸入」入口');
+ok(!str_contains(req('vw@test', []), '單筆輸入'), '唯讀者看不到單筆輸入');
+req($E, ['a' => 'new', 'single' => '1'], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch', 'single' => '1', 'source' => 'ibon', 'in_date' => '115/09/21', 'items' => '']);
+$bs = (int)$d->query("SELECT max(id) FROM batch")->fetchColumn();
+ok(str_contains(req($E, ['a' => 'batch', 'id' => $bs]), 'id="single"'), '草稿批次頁有單筆輸入表單');
+ok(str_contains(req('vw@test', ['a' => 'batch', 'id' => $bs], 'POST', ['csrf' => $csrf('vw@test'), 'do' => 'add_row', 'name' => '甲', 'qty' => '1']), '只能查詢'), '唯讀者 POST 單筆輸入擋下');
+$o = req($E, ['a' => 'batch', 'id' => $bs], 'POST', ['csrf' => $csrf($E), 'do' => 'add_row', 'name' => '', 'qty' => '1', 'mobile' => '0912000111']);
+ok(str_contains($o, '請填捐物人') && str_contains($o, '0912000111'), '沒填姓名擋下，已填的手機留著');
+ok(str_contains(req($E, ['a' => 'batch', 'id' => $bs], 'POST', ['csrf' => $csrf($E), 'do' => 'add_row', 'name' => '乙', 'qty' => '0']), '請填數量'), '數量 0 擋下');
+ok(str_contains(req($E, ['a' => 'batch', 'id' => $bs], 'POST', ['csrf' => $csrf($E), 'do' => 'add_row', 'name' => '乙', 'qty' => '1', 'send' => '1', 'address' => '']), '請填地址'), '要寄但沒地址擋下');
+req($E, ['a' => 'batch', 'id' => $bs], 'POST', ['csrf' => $csrf($E), 'do' => 'add_row', 'name' => '臨時捐物人', 'qty' => '2', 'zip' => '234', 'city' => '新北市永和區', 'address' => '保生路1號', 'send' => '1', 'order_no' => 'SINGLE-1119-1']);
+req($E, ['a' => 'batch', 'id' => $bs], 'POST', ['csrf' => $csrf($E), 'do' => 'add_row', 'name' => '電話捐物人', 'qty' => '1']);
+$rs = $d->query("SELECT row_no, name, qty, send, check_note FROM donation WHERE batch_id = $bs ORDER BY row_no")->fetchAll(PDO::FETCH_ASSOC);
+ok(count($rs) === 2 && $rs[0]['row_no'] == 1 && $rs[1]['row_no'] == 2 && $rs[0]['qty'] == 2, '連加兩筆，row_no 依序 1、2');
+ok($rs[0]['send'] && !$rs[1]['send'] && $rs[0]['check_note'] === '單筆輸入', '寄／不寄照勾選，標記為單筆輸入');
+ok((int)$d->query("SELECT count(*) FROM audit WHERE action='add_row' AND batch_id=$bs")->fetchColumn() === 2, '每筆都留稽核紀錄');
+req($E, ['a' => 'batch', 'id' => $bs], 'POST', ['csrf' => $csrf($E), 'do' => 'assign']);
+ok((int)$d->query("SELECT count(*) FROM donation WHERE batch_id=$bs AND receipt_no IS NOT NULL")->fetchColumn() === 2, '單筆輸入的批次可以配號');
+ok(str_contains(req($E, ['a' => 'batch', 'id' => $bs], 'POST', ['csrf' => $csrf($E), 'do' => 'add_row', 'name' => '丙', 'qty' => '1']), '已經配號'), '配號後不能再單筆輸入');
 @unlink($tmp);
 echo $fail ? "❌ 失敗 {$fail}／{$n}\n" : "✅ 全部通過 {$n} 項\n";
 exit($fail ? 1 : 0);

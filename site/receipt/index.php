@@ -87,7 +87,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
                 $d->commit();
-                header("Location: ./?a=batch&id=$id&ok=saved"); exit;
+                header("Location: ./?a=batch&id=$id&ok=saved" . (($_POST['single'] ?? '') === '1' ? '#single' : '')); exit;
+            }
+            if ($do === 'add_row') {       // 單筆輸入（繁英姊 11/18 驗收第 7 項：臨時來捐、電話捐贈，一次開一張）：只加在尚未配號的批次，配號檢查與匯入的一樣
+                $name = trim($_POST['name'] ?? '');
+                $qty = (int)($_POST['qty'] ?? 0);
+                if ($name === '') throw new RuntimeException('請填捐物人（收件人）姓名');
+                if ($qty <= 0) throw new RuntimeException('請填數量（至少 1）');
+                $send = isset($_POST['send']);
+                $zip = trim($_POST['zip'] ?? ''); $city = trim($_POST['city'] ?? ''); $addr = trim($_POST['address'] ?? '');
+                if ($send && $addr === '') throw new RuntimeException('要寄收據的話請填地址；不寄請取消勾選「寄收據」');
+                $d->beginTransaction();
+                rcpt_lock_draft($d, $id);
+                $s2 = $d->prepare('SELECT COALESCE(MAX(row_no), 0) FROM donation WHERE batch_id = ?'); $s2->execute([$id]);
+                $n = (int)$s2->fetchColumn() + 1;
+                $d->prepare('INSERT INTO donation (batch_id, row_no, order_no, name, mobile, phone, raw_addr, zip, city, address, product, qty, send, check_note, dup_note, updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+                  ->execute([$id, $n, trim($_POST['order_no'] ?? ''), $name, trim($_POST['mobile'] ?? ''), trim($_POST['phone'] ?? ''), trim("$zip $city$addr"),
+                             $zip, $city, $addr, trim($_POST['product'] ?? ''), $qty, $send ? 'true' : 'false', '單筆輸入', '', $email]);
+                rcpt_audit($d, $email, 'add_row', $id, "row $n 單筆輸入");
+                $d->commit();
+                header("Location: ./?a=batch&id=$id&ok=added#r$n"); exit;
             }
             if ($do === 'import') {
                 $b = batch_get($d, $id);
@@ -225,7 +244,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 // 新增／編輯批次出錯時回填使用者剛填的內容（繁英姊 11/18：出錯後欄位全被清空）
 $refill = ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['do'] ?? '') === 'save_batch' && $err !== '') ? $_POST : null;
-$okMsg = ['saved' => '已儲存。', 'imported' => '已匯入，請檢核下面的清單，確認無誤後再配號。', 'row' => '已更新這一筆。', 'assigned' => '已配號。', 'mailed' => '已標記寄出日期。', 'opt' => '設定已儲存。', 'optoff' => '已停用：之後不會出現在選單，舊批次不受影響。', 'opton' => '已重新啟用。'][$_GET['ok'] ?? ''] ?? '';
+$refillOne = ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['do'] ?? '') === 'add_row' && $err !== '') ? $_POST : null;
+$okMsg = ['saved' => '已儲存。', 'imported' => '已匯入，請檢核下面的清單，確認無誤後再配號。', 'row' => '已更新這一筆。', 'added' => '已新增一筆（單筆輸入）。還要加就繼續填，全部好了再按「配號」。', 'assigned' => '已配號。', 'mailed' => '已標記寄出日期。', 'opt' => '設定已儲存。', 'optoff' => '已停用：之後不會出現在選單，舊批次不受影響。', 'opton' => '已重新啟用。'][$_GET['ok'] ?? ''] ?? '';
 ?>
 <!doctype html>
 <html lang="zh-Hant">
@@ -254,7 +274,7 @@ $okMsg = ['saved' => '已儲存。', 'imported' => '已匯入，請檢核下面�
 <?php
 $tab = in_array($a, ['new', 'search', 'settings'], true) ? $a : 'list';
 $head = ['list' => ['批次清單', '每次收貨建一個批次：匯入名單、檢核、配號、列印收據。'],
-         'new' => [$a === 'edit' ? '編輯批次' : '新增批次', '第一步：填收貨資料並儲存。第二步：在批次頁匯入名單（.xlsx）。'],
+         'new' => [$a === 'edit' ? '編輯批次' : (isset($_GET['single']) ? '單筆輸入' : '新增批次'), isset($_GET['single']) ? '第一步：填收貨資料並儲存。第二步：在批次頁「單筆輸入」填捐物人，可連續加好幾位。' : '第一步：填收貨資料並儲存。第二步：在批次頁匯入名單（.xlsx）。'],
          'search' => ['查詢捐物人', '用姓名、電話、收據編號或訂單編號找，可看收據或補印。'],
          'settings' => ['設定', '來源、供應商、套餐每套金額：可新增、修改、停用。停用後不出現在選單，舊批次保留原本的值。']][$tab];
 if ($a === 'batch') $head = ['批次明細', '檢核名單、配號、列印收據。'];
@@ -267,7 +287,7 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
 </div>
 <nav class="tabs" aria-label="收據系統功能">
   <a href="./"<?= $tab === 'list' && $a !== 'batch' ? ' aria-current="page"' : '' ?>>批次清單</a>
-  <?php if ($canEdit): ?><a href="./?a=new"<?= $a === 'new' ? ' aria-current="page"' : '' ?>>＋ 新增批次（匯入名單）</a><?php endif; ?>
+  <?php if ($canEdit): ?><a href="./?a=new"<?= $a === 'new' && !isset($_GET['single']) ? ' aria-current="page"' : '' ?>>＋ 新增批次（匯入名單）</a><a href="./?a=new&amp;single=1"<?= $a === 'new' && isset($_GET['single']) ? ' aria-current="page"' : '' ?>>＋ 單筆輸入</a><?php endif; ?>
   <a href="./?a=search"<?= $tab === 'search' ? ' aria-current="page"' : '' ?>>查詢捐物人</a>
   <?php if ($canEdit): ?><a href="./?a=settings"<?= $tab === 'settings' ? ' aria-current="page"' : '' ?>>設定</a><?php endif; ?>
 </nav>
@@ -300,7 +320,7 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
     } ?>
 <?php if ($locked): ?><div class="alert warn">已配號：只能補進貨單號、供應商、經手人、每套內含與信件內容。</div><?php endif; ?>
 <form method="post" action="./?a=<?= $b ? 'edit&id=' . (int)$b['id'] : 'new' ?>">
-<input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="save_batch">
+<input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="save_batch"><?php if (isset($_GET['single']) || ($refill['single'] ?? '') === '1'): ?><input type="hidden" name="single" value="1"><?php endif; ?>
 <section class="panel"><h2>收貨資料</h2>
 <div class="grid">
 <?php
@@ -362,7 +382,26 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
 <?php endif; ?>
 </section>
 <?php if ($b['status'] === 'draft' && $canEdit): ?>
-<section class="panel"><h2>匯入名單 <small>.xlsx；平台原始檔或「地址整理」後的檔都可以。重新匯入會取代這一批目前的清單。</small></h2>
+<?php $o1 = $refillOne ?? []; $ov = fn($k, $dflt = '') => h((string)($o1[$k] ?? $dflt)); ?>
+<section class="panel" id="single"><h2>單筆輸入 <small>臨時來捐、電話捐贈：一次填一位，可連續加好幾位</small></h2>
+<form method="post" action="./?a=batch&amp;id=<?= $id ?>#single">
+<input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="add_row">
+<div class="grid">
+<div><label for="s_name">捐物人（收件人）*</label><input type="text" id="s_name" name="name" value="<?= $ov('name') ?>" required></div>
+<div><label for="s_mobile">手機</label><input type="text" id="s_mobile" name="mobile" value="<?= $ov('mobile') ?>" inputmode="tel"></div>
+<div><label for="s_phone">市話</label><input type="text" id="s_phone" name="phone" value="<?= $ov('phone') ?>" inputmode="tel"></div>
+<div><label for="s_zip">郵遞區號</label><input type="text" id="s_zip" name="zip" value="<?= $ov('zip') ?>" inputmode="numeric" maxlength="6"></div>
+<div><label for="s_city">縣市區</label><input type="text" id="s_city" name="city" value="<?= $ov('city') ?>" placeholder="例：新北市永和區"></div>
+<div><label for="s_address">地址</label><input type="text" id="s_address" name="address" value="<?= $ov('address') ?>" placeholder="例：保生路1號20樓"></div>
+<div><label for="s_product">品名<?= $b['track'] === '食' ? '（要和上面產品明細的品名一樣）' : '' ?></label><input type="text" id="s_product" name="product" value="<?= $ov('product') ?>" list="s_products"><datalist id="s_products"><?php foreach ($items as $it): ?><option value="<?= h($it['name']) ?>"><?php endforeach; ?></datalist></div>
+<div><label for="s_qty">數量（份）*</label><input type="text" id="s_qty" name="qty" value="<?= $ov('qty', '1') ?>" inputmode="numeric" required></div>
+<div><label for="s_order">訂單編號（沒有可空白）</label><input type="text" id="s_order" name="order_no" value="<?= $ov('order_no') ?>"></div>
+</div>
+<p><label style="display:inline-flex;align-items:center;gap:8px;margin:12px 0 0"><input type="checkbox" name="send" value="1"<?= $o1 && !isset($o1['send']) ? '' : ' checked' ?>> 寄收據</label></p>
+<div class="actions"><button type="submit">加入這一筆</button><span class="hint">加完會出現在下方清單，可再修改；全部好了再按「配號」。</span></div>
+</form>
+</section>
+<section class="panel"><h2>匯入名單 <small>.xlsx；平台原始檔或「地址整理」後的檔都可以。重新匯入會取代這一批目前的清單（包含上面單筆輸入的）。</small></h2>
 <form method="post" action="./?a=batch&id=<?= $id ?>" enctype="multipart/form-data" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='匯入中，請稍候…'">
 <input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="import">
 <div class="actions" style="margin-top:0"><input type="file" name="file" accept=".xlsx" required aria-label="選擇名單檔"> <button type="submit">匯入</button></div>
