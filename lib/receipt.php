@@ -153,7 +153,8 @@ function rcpt_dup_in_batch(PDO $d, int $batchId): array {
 function rcpt_addr_incomplete(string $city, string $addr): bool {
     $s = $city . $addr;
     if (trim($addr) === '') return true;
-    return !preg_match('/(路|街|大道)/u', $s) || !preg_match('/號/u', $s);
+    if (!preg_match('/(路|街|大道)/u', $s) || !preg_match('/號/u', $s)) return true;
+    return (bool)preg_match('/號.*(縣|市)/u', $addr);   // 繁英姊 11/20：「大義街16號新北市」門牌後面又接縣市，也要標紅讓她修
 }
 const RCPT_ADDR_NOTE = '地址不完整（缺路／街／大道或門牌號），自動不寄';
 

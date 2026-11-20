@@ -199,6 +199,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($newv['name'] === '') throw new RuntimeException('收件人不能空白');
                 $d->prepare('UPDATE donation SET name = ?, send = ?, zip = ?, city = ?, address = ?, mailed_on = ?, updated_by = ?, updated_at = now() WHERE id = ? AND batch_id = ?')
                   ->execute([$newv['name'], $newv['send'] ? 'true' : 'false', $newv['zip'], $newv['city'], $newv['address'], $newv['mailed_on'], $email, $rid, $id]);
+                if (!rcpt_addr_incomplete($newv['city'], $newv['address'])) {   // 繁英姊 11/20：地址改完整後，拿掉「自動不寄」的檢核說明（寄發由她勾選）
+                    $d->prepare("UPDATE donation SET check_note = trim(both '；' from replace(replace(check_note, ?, ''), '；；', '；')) WHERE id = ? AND batch_id = ?")
+                      ->execute([RCPT_ADDR_NOTE, $rid, $id]);
+                }
                 $chg = [];
                 foreach ($newv as $k => $v) {
                     $o = $old[$k];
