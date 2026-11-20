@@ -94,6 +94,7 @@ table.rows{border-collapse:separate;border-spacing:0;width:100%;font-size:15px}
 .rows td small{color:var(--muted)}
 .rows tr.bad td{background:color-mix(in srgb,var(--red) 7%,transparent)}
 .rows td.bad{background:color-mix(in srgb,var(--red) 10%,transparent)}
+.rows tr.addrbad td{background:color-mix(in srgb,var(--red) 18%,transparent)}   /* 繁英 11/20：地址不完整 */
 .rows tr.dup td{background:color-mix(in srgb,var(--yellow) 20%,transparent)}
 .rows .empty{text-align:center;color:var(--muted);padding:28px}
 .mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:14px}

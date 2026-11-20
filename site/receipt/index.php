@@ -116,13 +116,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $send = isset($_POST['send']);
                 $zip = trim($_POST['zip'] ?? ''); $city = trim($_POST['city'] ?? ''); $addr = trim($_POST['address'] ?? '');
                 if ($send && $addr === '') throw new RuntimeException('要寄收據的話請填地址；不寄請取消勾選「寄收據」');
+                $addrBad = $send && rcpt_addr_incomplete($city, $addr);
+                if ($addrBad) $send = false;   // 繁英姊 11/20 選 B：地址不完整自動不寄
                 $d->beginTransaction();
                 rcpt_lock_draft($d, $id);
                 $s2 = $d->prepare('SELECT COALESCE(MAX(row_no), 0) FROM donation WHERE batch_id = ?'); $s2->execute([$id]);
                 $n = (int)$s2->fetchColumn() + 1;
                 $insOne = $d->prepare('INSERT INTO donation (batch_id, row_no, order_no, name, mobile, phone, raw_addr, zip, city, address, product, qty, send, check_note, dup_note, updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id');
                 $insOne->execute([$id, $n, trim($_POST['order_no'] ?? ''), $name, trim($_POST['mobile'] ?? ''), trim($_POST['phone'] ?? ''), trim("$zip $city$addr"),
-                             $zip, $city, $addr, trim($_POST['product'] ?? ''), $qty, $send ? 'true' : 'false', '單筆輸入', '', $email]);
+                             $zip, $city, $addr, trim($_POST['product'] ?? ''), $qty, $send ? 'true' : 'false', $addrBad ? '單筆輸入；' . RCPT_ADDR_NOTE : '單筆輸入', '', $email]);
                 $newId = (int)$insOne->fetchColumn();   // 清單列的錨點是 donation.id，不是 row_no（大沈 d836044：新增首筆導到 #r1，列卻是 #r5135）
                 rcpt_audit($d, $email, 'add_row', $id, "row $n 單筆輸入");
                 $d->commit();
@@ -168,8 +170,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $d->prepare('DELETE FROM donation WHERE batch_id = ?')->execute([$id]);
                 $ins = $d->prepare('INSERT INTO donation (batch_id, row_no, order_no, name, mobile, phone, raw_addr, zip, city, address, product, qty, send, check_note, dup_note, updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
                 foreach ($j['rows'] as $i => $r) {
+                    $sendR = (bool)($r['send'] ?? true); $noteR = (string)$r['check_note'];
+                    if ($sendR && rcpt_addr_incomplete((string)$r['city'], (string)$r['address'])) {   // 繁英姊 11/20 選 B
+                        $sendR = false; $noteR = trim(RCPT_ADDR_NOTE . ($noteR !== '' ? '；' . $noteR : ''));
+                    }
                     $ins->execute([$id, $i + 1, $r['order_no'], $r['name'], $r['mobile'], $r['phone'], $r['raw_addr'], $r['zip'], $r['city'], $r['address'],
-                                   $r['product'], (int)($r['qty'] ?? 0), ($r['send'] ?? true) ? 'true' : 'false', $r['check_note'], $r['dup_note'], $email]);
+                                   $r['product'], (int)($r['qty'] ?? 0), $sendR ? 'true' : 'false', $noteR, $r['dup_note'], $email]);
                 }
                 rcpt_audit($d, $email, 'import', $id, count($j['rows']) . ' 筆' . ($tidy ? '（已整理檔）' : '（經地址整理）'));
                 $d->commit();
@@ -404,6 +410,8 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
 </div>
 <?php if ($dup): ?><div class="alert warn">訂單編號已開過收據 <?= count($dup) ?> 筆（下方黃底）。</div><?php endif; ?>
 <?php if ($fmiss): ?><div class="alert warn">食字軌品名／單位不完整 <?= count($fmiss) ?> 列，補齊前不能配號。</div><?php endif; ?>
+<?php $addrBadIds = array_map(fn($r) => (int)$r['id'], array_filter($rows, fn($r) => rcpt_addr_incomplete((string)$r['city'], (string)$r['address'])));
+if ($addrBadIds): ?><div class="alert warn">地址不完整 <?= count($addrBadIds) ?> 筆（缺路／街／大道或門牌號，會被退件；下方紅底，匯入時已自動設為不寄）。<?= ($_GET['addr'] ?? '') === 'bad' ? '<a href="./?a=batch&amp;id=' . $id . '">顯示整批</a>' : '<a href="./?a=batch&amp;id=' . $id . '&amp;addr=bad">只看這些</a>' ?></div><?php endif; ?>
 <?php if ($inb): ?><div class="alert warn">名單內訂單編號重複 <?= count($inb) ?> 個（下方黃底）。</div><?php endif; ?>
 <?php if ($b['status'] !== 'draft'): ?>
 <div class="alert ok">收據起訖（請會計填入文中進貨單「報關單號」）：<b class="mono"><?= h(rcpt_range_text($b['first_no'], $b['last_no'])) ?></b></div>
@@ -450,8 +458,9 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
 <?php // 查詢結果按「修改」只顯示那一筆（繁英姊 11/19：「按修改結果出現所有的資料，而不是這個人的資料」）；統計仍以整批計
 $only = (int)($_GET['only'] ?? 0);
 $shown = $only ? array_values(array_filter($rows, fn($r) => (int)$r['id'] === $only)) : $rows;
+if (($_GET['addr'] ?? '') === 'bad') $shown = array_values(array_filter($shown, fn($r) => in_array((int)$r['id'], $addrBadIds, true)));   // 繁英姊 11/20：篩選標紅的
 foreach ($shown as $r): $isDup = isset($dup[$r['order_no']]) || isset($inb[$r['order_no']]); $fid = 'f' . (int)$r['id']; ?>
-<tr id="r<?= (int)$r['id'] ?>" class="<?= $isDup ? 'dup' : (!$r['send'] ? 'bad' : '') ?>">
+<tr id="r<?= (int)$r['id'] ?>" class="<?= $isDup ? 'dup' : (in_array((int)$r['id'], $addrBadIds, true) ? 'addrbad' : (!$r['send'] ? 'bad' : '')) ?>">
 <td data-l="#"><?= (int)$r['row_no'] ?></td><td data-l="收據編號" class="mono"><?= h($r['receipt_no']) ?></td><td data-l="訂單編號" class="mono"><?= h($r['order_no']) ?><?= isset($dup[$r['order_no']]) ? '<br><small>已開：' . h($dup[$r['order_no']][1]) . '</small>' : '' ?><?= isset($inb[$r['order_no']]) ? '<br><small>名單內重複</small>' : '' ?></td>
 <?php if ($canEdit): ?>
 <td data-l="收件人"><input form="<?= $fid ?>" type="text" name="name" value="<?= h($r['name']) ?>" style="width:7em" aria-label="收件人"></td>

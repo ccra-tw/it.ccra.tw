@@ -148,6 +148,15 @@ function rcpt_dup_in_batch(PDO $d, int $batchId): array {
 }
 
 // 民國年月日字串 115/09/14 ↔ 西元 date。接受 115/9/14、115-09-14、1150914。不合法回 null。
+// 地址不完整就不寄（繁英姊 11/20 選 B：會被退件，自動設不寄＋標紅、可篩選）。
+// 判準（她確認）：要有「路／街／大道」其中一個，且有「號」；巷、村里可有可無。
+function rcpt_addr_incomplete(string $city, string $addr): bool {
+    $s = $city . $addr;
+    if (trim($addr) === '') return true;
+    return !preg_match('/(路|街|大道)/u', $s) || !preg_match('/號/u', $s);
+}
+const RCPT_ADDR_NOTE = '地址不完整（缺路／街／大道或門牌號），自動不寄';
+
 function rcpt_roc_to_date(string $s): ?string {
     // 容錯（繁英姊 11/18 驗收）：全形數字與斜線、「115年11月18日」、民國前綴；也接受西元 YYYY-MM-DD（日曆欄位送來的）
     $s = trim(mb_convert_kana($s, 'as', 'UTF-8'));

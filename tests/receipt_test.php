@@ -70,5 +70,15 @@ if (($argv[2] ?? '') === 'db') {
     ok(throws(fn() => rcpt_assign($d, $f, 't@x')), '沒有明細不能配號');
     ok($d->query("SELECT status FROM batch WHERE po_no = 'T005'")->fetchColumn() === 'draft', '配號失敗時批次保持草稿（交易回復）');
 }
+echo "地址完整性（繁英姊 11/20：要有路／街／大道＋號，巷、村里可無）\n";
+ok(rcpt_addr_incomplete('新北市', '不用'), '「234新北市 不用」→ 不完整');
+ok(rcpt_addr_incomplete('新北市永和區', ''), '地址空白 → 不完整');
+ok(rcpt_addr_incomplete('新北市永和區', '保生路'), '有路沒有號 → 不完整');
+ok(!rcpt_addr_incomplete('新北市永和區', '保生路1號20樓'), '保生路1號20樓 → 完整');
+ok(!rcpt_addr_incomplete('臺北市中正區', '重慶南路一段122號'), '一段＋號 → 完整');
+ok(!rcpt_addr_incomplete('高雄市', '中山二路100巷3號'), '有巷 → 完整');
+ok(!rcpt_addr_incomplete('臺中市', '臺灣大道三段99號'), '大道 → 完整');
+ok(!rcpt_addr_incomplete('花蓮縣', '中正街5號'), '街 → 完整');
+ok(rcpt_addr_incomplete('南投縣', '信義鄉東埔村'), '只有村 → 不完整');
 echo $fail ? "❌ 失敗 $fail／$n\n" : "✅ 全部通過 $n 項\n";
 exit($fail ? 1 : 0);
