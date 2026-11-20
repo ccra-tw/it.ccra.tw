@@ -83,7 +83,8 @@ ok(!rcpt_addr_incomplete('臺北市中正區', '重慶南路一段122號'), '一
 ok(!rcpt_addr_incomplete('高雄市', '中山二路100巷3號'), '有巷 → 完整');
 ok(!rcpt_addr_incomplete('臺中市', '臺灣大道三段99號'), '大道 → 完整');
 ok(!rcpt_addr_incomplete('花蓮縣', '中正街5號'), '街 → 完整');
-ok(rcpt_addr_incomplete('南投縣', '信義鄉東埔村'), '只有村 → 不完整');
+ok(!rcpt_addr_incomplete('南投縣', '信義鄉東埔村') && rcpt_addr_nomail('信義鄉東埔村', '南投縣'), '只有村、沒有路號 → 本來就不寄（繁英 11/20）');
+ok(rcpt_addr_nomail('一木衛生行', '嘉義市'), '店名、沒有路號 → 本來就不寄');
 ok(rcpt_addr_incomplete('新北市三重區', '大義街16號新北市'), '門牌後又接縣市 → 標紅');
 ok(!rcpt_addr_incomplete('新北市三重區', '大義街16號3樓'), '門牌後接樓層 → 完整');
 ok(rcpt_addr_incomplete('新北市蘆洲區', '中山一路路204號1樓'), '「路路」重複字 → 標紅');

@@ -154,6 +154,8 @@ function rcpt_dup_in_batch(PDO $d, int $batchId): array {
 function rcpt_addr_nomail(string $addr, ?string $city = null): bool {
     // 繁英姊 11/20：沒有縣市（縣市欄空白、地址裡也沒有縣／市）＝根本不是地址（例如「祝天好心情~」），本來就不寄
     if ($city !== null && trim($city) === '' && !preg_match('/(縣|市)/u', $addr)) return true;
+    // 繁英姊 11/20：連「路／街／大道／段／巷／弄／號」都沒有（例如店名「一木衛生行」），不是可修的地址，直接不寄、不用再確認
+    if (!preg_match('/(路|街|大道|段|巷|弄|號)/u', $addr)) return true;
     $a = trim(preg_replace('/\s+/u', '', $addr));
     return $a === '' || $a === '空白' || mb_strpos($a, '愛心捐贈') !== false || mb_strpos($a, '不用') !== false || mb_strlen($a) < 4;
 }
