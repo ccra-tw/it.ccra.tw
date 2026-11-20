@@ -150,9 +150,14 @@ function rcpt_dup_in_batch(PDO $d, int $batchId): array {
 // 民國年月日字串 115/09/14 ↔ 西元 date。接受 115/9/14、115-09-14、1150914。不合法回 null。
 // 地址不完整就不寄（繁英姊 11/20 選 B：會被退件，自動設不寄＋標紅、可篩選）。
 // 判準（她確認）：要有「路／街／大道」其中一個，且有「號」；巷、村里可有可無。
+// 本來就不寄的資料（繁英姊 11/20：空白、「愛心捐贈」、「不用」、地址少於 4 個字）：不寄，但不算錯誤、不標紅
+function rcpt_addr_nomail(string $addr): bool {
+    $a = trim(preg_replace('/\s+/u', '', $addr));
+    return $a === '' || $a === '空白' || mb_strpos($a, '愛心捐贈') !== false || mb_strpos($a, '不用') !== false || mb_strlen($a) < 4;
+}
 function rcpt_addr_incomplete(string $city, string $addr): bool {
     $s = $city . $addr;
-    if (trim($addr) === '') return true;
+    if (rcpt_addr_nomail($addr)) return false;   // 本來就不寄的，不標紅（見上）
     if (!preg_match('/(路|街|大道)/u', $s) || !preg_match('/號/u', $s)) return true;
     if (preg_match('/(路|街|段|巷|弄|號|樓|大道)\1/u', $addr)) return true;   // 繁英姊 11/20：「中山一路路204號」重複字也標紅
     return (bool)preg_match('/號.*(縣|市)/u', $addr);   // 繁英姊 11/20：「大義街16號新北市」門牌後面又接縣市，也要標紅讓她修
