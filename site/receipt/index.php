@@ -182,6 +182,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $d->commit();
                 header("Location: ./?a=batch&id=$id&ok=imported"); exit;
             }
+            if ($do === 'addr_bad_nosend') {   // 繁英姊 11/20：舊批次裡地址不完整、仍勾「寄發」的，一次改成不寄，確認後再由她逐筆勾回
+                $d->beginTransaction();
+                $sb = $d->prepare('SELECT status FROM batch WHERE id = ? FOR UPDATE'); $sb->execute([$id]);
+                if (!$sb->fetch()) throw new RuntimeException('找不到批次');
+                $s1 = $d->prepare('SELECT id, city, address, check_note FROM donation WHERE batch_id = ? AND send = true FOR UPDATE'); $s1->execute([$id]);
+                $up = $d->prepare("UPDATE donation SET send = false, check_note = trim(both '；' from ? || CASE WHEN check_note <> '' THEN '；' || check_note ELSE '' END), updated_by = ?, updated_at = now() WHERE id = ? AND batch_id = ?");
+                $n = 0;
+                foreach ($s1->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                    if (!rcpt_addr_incomplete((string)$r['city'], (string)$r['address'])) continue;
+                    $up->execute([RCPT_ADDR_NOTE, $email, (int)$r['id'], $id]); $n++;
+                }
+                rcpt_audit($d, $email, 'addr_bad_nosend', $id, "地址不完整一次改不寄 $n 筆");
+                $d->commit();
+                rc_go("./?a=batch&id=$id&addr=bad&ok=nosend$n");
+            }
             if ($do === 'row') {           // 改單筆：草稿時檢核用；配號後也可改（業務單位 11/12：原本不要收據、後來來電索取），收據編號不變、留改前改後
                 // 大沈 R-itsu-1112-01 複驗 P1：讀舊值、更新、稽核在同一交易；鎖順序同配號（先批次、再明細），稽核失敗整筆回滾
                 $d->beginTransaction();
@@ -278,6 +293,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $refill = ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['do'] ?? '') === 'save_batch' && $err !== '') ? $_POST : null;
 $refillOne = ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['do'] ?? '') === 'add_row' && $err !== '') ? $_POST : null;
 $okMsg = ['saved' => '已儲存。', 'imported' => '已匯入，請檢核下面的清單，確認無誤後再配號。', 'row' => '已更新這一筆。', 'added' => '已新增一筆（單筆輸入）。還要加就繼續填，全部好了再按「配號」。', 'assigned' => '已配號。', 'mailed' => '已標記寄出日期。', 'opt' => '設定已儲存。', 'optoff' => '已停用：之後不會出現在選單，舊批次不受影響。', 'opton' => '已重新啟用。'][$_GET['ok'] ?? ''] ?? '';
+if (preg_match('/^nosend(\d+)$/', (string)($_GET['ok'] ?? ''), $mm)) $okMsg = "已把 {$mm[1]} 筆地址不完整的改為不寄；確認地址沒問題的，可在該列勾「寄發」再按存。";
 ?>
 <!doctype html>
 <html lang="zh-Hant">
@@ -419,7 +435,10 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
 <?php // 繁英姊 11/20：只列「原本要寄、地址卻不完整」的——寄發仍勾著，或是系統因地址自動改成不寄（檢核說明有那句）；匯入時就是不寄的不用再校對
 $addrBadIds = array_map(fn($r) => (int)$r['id'], array_filter($rows, fn($r) => rcpt_addr_incomplete((string)$r['city'], (string)$r['address'])
     && ($r['send'] || str_contains((string)$r['check_note'], RCPT_ADDR_NOTE) || str_contains((string)$r['check_note'], RCPT_ADDR_NOTE_OLD))));
-if ($addrBadIds): ?><div class="alert warn">地址不完整或有誤 <?= count($addrBadIds) ?> 筆（缺路／街／大道、門牌號，或有重複字，會被退件；下方紅底，匯入時已自動設為不寄）。<?= ($_GET['addr'] ?? '') === 'bad' ? '<a href="./?a=batch&amp;id=' . $id . '">顯示整批</a>' : '<a href="./?a=batch&amp;id=' . $id . '&amp;addr=bad">只看這些</a>' ?></div><?php endif; ?>
+if ($addrBadIds): ?><div class="alert warn">地址不完整或有誤 <?= count($addrBadIds) ?> 筆（缺路／街／大道、門牌號，或有重複字，會被退件；下方紅底，匯入時已自動設為不寄）。<?= ($_GET['addr'] ?? '') === 'bad' ? '<a href="./?a=batch&amp;id=' . $id . '">顯示整批</a>' : '<a href="./?a=batch&amp;id=' . $id . '&amp;addr=bad">只看這些</a>' ?>
+<?php $addrBadSend = count(array_filter($rows, fn($r) => $r['send'] && in_array((int)$r['id'], $addrBadIds, true))); if ($canEdit && $addrBadSend): ?>
+<form method="post" action="./?a=batch&amp;id=<?= $id ?>" style="display:inline" onsubmit="return confirm('把這 <?= $addrBadSend ?> 筆地址不完整、目前仍勾「寄發」的，全部改成不寄？之後確認地址沒問題的，可以再逐筆勾回。')"><input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="addr_bad_nosend"> <button type="submit" class="btn ghost">這 <?= $addrBadSend ?> 筆先全部改為不寄</button></form>
+<?php endif; ?></div><?php endif; ?>
 <?php if ($inb): ?><div class="alert warn">名單內訂單編號重複 <?= count($inb) ?> 個（下方黃底）。</div><?php endif; ?>
 <?php if ($b['status'] !== 'draft'): ?>
 <div class="alert ok">收據起訖（請會計填入文中進貨單「報關單號」）：<b class="mono"><?= h(rcpt_range_text($b['first_no'], $b['last_no'])) ?></b></div>
