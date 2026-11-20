@@ -81,7 +81,7 @@ if ($contents !== '' && !str_ends_with($contents, '）')) $contents .= '）';
 // 座標（mm）：左、上
 // 繁英姊 11/20 實測：姓名、套數各往下 3 mm
 $P = ['no' => [164.4, 24.2], 'date' => [165.9, 30.3], 'name' => [65.3, 40.0], 'contents' => [11.9, 58.8], 'qty' => [53.6, 70.6],
-      'addr' => [18.0, 116.9], 'to' => [18.1, 124.1], 'letter' => [8.6, 132.9]];
+      'addr' => [18.0, 134.9], 'to' => [18.1, 142.1], 'letter' => [8.6, 149.0]];   // 繁英姊 11/20：地址＋收件人往下 18 mm（落在虛線下方），信接在收件人下方（約往下 16 mm）
 $pos = fn($k) => sprintf('left:%.1fmm;top:%.1fmm', $P[$k][0] + $dx, $P[$k][1] + $dy);
 ?>
 <!doctype html>
@@ -112,7 +112,7 @@ body{margin:0;font-family:"Microsoft JhengHei","微軟正黑體","Noto Sans TC",
 .f{position:absolute;font-weight:700;font-size:12pt;white-space:nowrap}
 .contents{font-size:10pt;line-height:18pt;width:186mm;white-space:normal}
 .letter{font-family:"標楷體","DFKai-SB","BiauKai",serif;font-weight:400;font-size:10pt;line-height:5.1mm;width:171mm;white-space:pre-wrap;text-align:justify}
-.letter p{margin:0 0 4.9mm}
+.letter p{margin:0;text-indent:2em}.letter p:first-child{text-indent:0}   /* 繁英姊 11/20：每段開頭空兩字、段落間不空行（稱謂那行不縮排） */
 .warn{color:#9b1c1c;font-weight:700}
 .food{padding:14mm 16mm;font-size:11pt;line-height:1.6;font-family:"Microsoft JhengHei","微軟正黑體","Noto Sans TC",sans-serif}
 .food .hd{position:relative;border-bottom:1px solid #000;padding-bottom:3mm;padding-left:22mm;min-height:19mm}
