@@ -162,6 +162,7 @@ function rcpt_addr_nomail(string $addr, ?string $city = null): bool {
 function rcpt_addr_incomplete(string $city, string $addr): bool {
     $s = $city . $addr;
     if (rcpt_addr_nomail($addr, $city)) return false;   // 本來就不寄的，不標紅（見上）
+    if (preg_match('/信箱/u', $addr) && preg_match('/號/u', $addr)) return false;   // 繁英姊 11/20：郵政信箱沒有路名，有「號」就能寄（例：台北郵局第 12 號信箱、郵政 1234 號信箱）
     if (!preg_match('/(路|街|大道)/u', $s) || !preg_match('/號/u', $s)) return true;
     if (preg_match('/(路|街|段|巷|弄|號|樓|大道)\1/u', $addr)) return true;   // 繁英姊 11/20：「中山一路路204號」重複字也標紅
     return (bool)preg_match('/號.*(縣|市)/u', $addr);   // 繁英姊 11/20：「大義街16號新北市」門牌後面又接縣市，也要標紅讓她修
