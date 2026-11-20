@@ -478,7 +478,7 @@ if ($addrBadIds): ?><div class="alert warn">地址不完整或有誤 <?= count($
 <?php if ($inb): ?><div class="alert warn">名單內訂單編號重複 <?= count($inb) ?> 個（下方黃底）。</div><?php endif; ?>
 <?php if ($b['status'] !== 'draft'): ?>
 <div class="alert ok">收據起訖（請會計填入文中進貨單「報關單號」）：<b class="mono"><?= h(rcpt_range_text($b['first_no'], $b['last_no'])) ?></b></div>
-<div class="actions"><a class="btn" href="./print.php?id=<?= $id ?>">列印收據</a><?php if ($canEdit): ?><a class="btn ghost" href="./?a=edit&id=<?= $id ?>">編輯批次資料</a><?php endif; ?></div>
+<div class="actions"><a class="btn" href="./print.php?id=<?= $id ?>" onclick="rcBusyLink('開啟列印頁面中，張數多時要等一下…')">列印收據</a><?php if ($canEdit): ?><a class="btn ghost" href="./?a=edit&id=<?= $id ?>">編輯批次資料</a><?php endif; ?></div>
 <?php elseif ($canEdit): ?>
 <div class="actions"><a class="btn ghost" href="./?a=edit&id=<?= $id ?>">編輯批次資料</a></div>
 <?php endif; ?>
@@ -557,7 +557,7 @@ foreach ($shown as $r): $isDup = isset($dup[$r['order_no']]) || isset($inb[$r['o
 <?php if ($b['track'] === '食'): ?><td data-l="品名" class="<?= isset($fmiss[(int)$r['row_no']]) ? 'bad' : '' ?>"><?= h($r['product']) ?><?= isset($fmiss[(int)$r['row_no']]) ? '<br><small>' . h($fmiss[(int)$r['row_no']]) . '</small>' : '' ?></td><?php endif; ?><td data-l="數量" class="n"><?= (int)$r['qty'] ?></td><td data-l="寄發"><input form="<?= $fid ?>" type="checkbox" name="send" <?= $r['send'] ? 'checked' : '' ?> aria-label="寄發"></td><td data-l="檢核說明"><?= h($r['check_note']) ?></td>
 <td data-l="寄出日期"><input form="<?= $fid ?>" type="text" name="mailed_on" value="<?= $r['mailed_on'] ? h(rcpt_date_to_roc($r['mailed_on'])) : '' ?>" placeholder="115/11/12" style="width:7em" aria-label="寄出日期"></td>
 <td class="act"><form id="<?= $fid ?>" style="display:inline" method="post" action="./?a=batch&id=<?= $id ?><?= $only ? '&amp;only=' . $only : '' ?><?= ($_GET['addr'] ?? '') === 'bad' ? '&amp;addr=bad' : '' ?>"><input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="row"><input type="hidden" name="rid" value="<?= (int)$r['id'] ?>"><button class="sm">存</button></form>
-<?php if ($r['receipt_no']): ?><a href="./print.php?id=<?= $id ?>&one=<?= (int)$r['id'] ?>">補印</a><?php endif; ?></td>
+<?php if ($r['receipt_no']): ?><a href="./print.php?id=<?= $id ?>&one=<?= (int)$r['id'] ?>" onclick="rcBusyLink('開啟列印頁面中，張數多時要等一下…')">補印</a><?php endif; ?></td>
 <?php else: ?>
 <td data-l="收件人"><?= h($r['name']) ?></td><td data-l="地址"><?= h($r['zip'] . ' ' . $r['city'] . $r['address']) ?></td><?php if ($b['track'] === '食'): ?><td data-l="品名" class="<?= isset($fmiss[(int)$r['row_no']]) ? 'bad' : '' ?>"><?= h($r['product']) ?><?= isset($fmiss[(int)$r['row_no']]) ? '<br><small>' . h($fmiss[(int)$r['row_no']]) . '</small>' : '' ?></td><?php endif; ?><td data-l="數量" class="n"><?= (int)$r['qty'] ?></td><td data-l="寄發"><?= $r['send'] ? '<span class="chip ok">寄</span>' : '<span class="chip">不寄</span>' ?></td><td data-l="檢核說明"><?= h($r['check_note']) ?></td>
 <td data-l="寄出日期"><?= $r['mailed_on'] ? h(rcpt_date_to_roc($r['mailed_on'])) : '' ?></td>
@@ -626,6 +626,15 @@ foreach ($shown as $r): $isDup = isset($dup[$r['order_no']]) || isset($inb[$r['o
 <script>document.getElementById('rcDone').showModal()</script>
 <?php endif; ?>
 <script>
+// 繁英姊 11/20：按「列印收據」後頁面要準備全部收據，畫面沒變化會以為當機——先跳出處理中
+function rcBusyLink(msg) {
+  var d = document.getElementById('rcBusy'); if (!d) return true;
+  document.getElementById('rcBusyMsg').textContent = msg;
+  d.addEventListener('cancel', function (e) { e.preventDefault(); });
+  if (d.showModal) d.showModal();
+  return true;
+}
+addEventListener('pageshow', function () { var d = document.getElementById('rcBusy'); if (d && d.open) d.close(); });   // 按「上一頁」回來時把處理中關掉
 function rcBusy(f, msg) {
   var d = document.getElementById('rcBusy');
   document.getElementById('rcBusyMsg').textContent = msg;
