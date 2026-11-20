@@ -105,6 +105,8 @@ body{margin:0;font-family:"Microsoft JhengHei","微軟正黑體","Noto Sans TC",
 .ctl input.no{width:7em}
 .ctl select{width:auto}
 .page{position:relative;width:210mm;height:297mm;page-break-after:always;overflow:hidden;background:#fff;color:#000}
+/* 繁英 11/20：單筆列印多出一張空白頁。原因：.food 有 14mm 上下內距，site.css 只在螢幕套 border-box，列印時高度變 297+28mm 溢到第二頁；另最後一頁不再強制換頁 */
+@media print{.page{box-sizing:border-box;height:296mm;break-after:page}.page:last-child{page-break-after:auto;break-after:auto}html,body{height:auto}}
 @media screen{.page{margin:0 auto 18px;box-shadow:0 18px 40px -22px rgba(13,26,51,.45);border-radius:4px}.pages{padding:0 16px 40px;overflow-x:auto}}
 .f{position:absolute;font-weight:700;font-size:12pt;white-space:nowrap}
 .contents{font-size:10pt;line-height:18pt;width:186mm;white-space:normal}
