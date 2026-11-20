@@ -79,7 +79,8 @@ $handlerStamp = is_file(STATE_DIR . '/receipt-stamps/handler-' . $b['handler'] .
 $contents = trim($b['contents']);
 if ($contents !== '' && !str_ends_with($contents, '）')) $contents .= '）';
 // 座標（mm）：左、上
-$P = ['no' => [164.4, 24.2], 'date' => [165.9, 30.3], 'name' => [65.3, 37.0], 'contents' => [11.9, 58.8], 'qty' => [53.6, 67.6],
+// 繁英姊 11/20 實測：姓名、套數各往下 3 mm
+$P = ['no' => [164.4, 24.2], 'date' => [165.9, 30.3], 'name' => [65.3, 40.0], 'contents' => [11.9, 58.8], 'qty' => [53.6, 70.6],
       'addr' => [18.0, 116.9], 'to' => [18.1, 124.1], 'letter' => [8.6, 132.9]];
 $pos = fn($k) => sprintf('left:%.1fmm;top:%.1fmm', $P[$k][0] + $dx, $P[$k][1] + $dy);
 ?>
