@@ -416,7 +416,9 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
 </div>
 <?php if ($dup): ?><div class="alert warn">訂單編號已開過收據 <?= count($dup) ?> 筆（下方黃底）。</div><?php endif; ?>
 <?php if ($fmiss): ?><div class="alert warn">食字軌品名／單位不完整 <?= count($fmiss) ?> 列，補齊前不能配號。</div><?php endif; ?>
-<?php $addrBadIds = array_map(fn($r) => (int)$r['id'], array_filter($rows, fn($r) => rcpt_addr_incomplete((string)$r['city'], (string)$r['address'])));
+<?php // 繁英姊 11/20：只列「原本要寄、地址卻不完整」的——寄發仍勾著，或是系統因地址自動改成不寄（檢核說明有那句）；匯入時就是不寄的不用再校對
+$addrBadIds = array_map(fn($r) => (int)$r['id'], array_filter($rows, fn($r) => rcpt_addr_incomplete((string)$r['city'], (string)$r['address'])
+    && ($r['send'] || str_contains((string)$r['check_note'], RCPT_ADDR_NOTE) || str_contains((string)$r['check_note'], RCPT_ADDR_NOTE_OLD))));
 if ($addrBadIds): ?><div class="alert warn">地址不完整或有誤 <?= count($addrBadIds) ?> 筆（缺路／街／大道、門牌號，或有重複字，會被退件；下方紅底，匯入時已自動設為不寄）。<?= ($_GET['addr'] ?? '') === 'bad' ? '<a href="./?a=batch&amp;id=' . $id . '">顯示整批</a>' : '<a href="./?a=batch&amp;id=' . $id . '&amp;addr=bad">只看這些</a>' ?></div><?php endif; ?>
 <?php if ($inb): ?><div class="alert warn">名單內訂單編號重複 <?= count($inb) ?> 個（下方黃底）。</div><?php endif; ?>
 <?php if ($b['status'] !== 'draft'): ?>
