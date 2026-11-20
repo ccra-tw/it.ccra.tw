@@ -74,15 +74,43 @@ function zbx_sites($file = null) {
     return [$out, (string)($j['updated_at'] ?? '')];
 }
 
+// 作業系統字串縮短：Zabbix 原值很長（Linux 帶編譯器資訊、Windows 帶 fe_release 等內部版號）
+function zbx_os_short($s) {
+    $s = trim(preg_replace('/\s+/', ' ', (string)$s));
+    if (preg_match('/^Linux version (\S+)/', $s, $m)) return 'Linux ' . $m[1];
+    if (preg_match('/^(Windows .+?) \d+\.\d+\.\S+ Build (\S+)/', $s, $m)) {
+        // Windows 11 回報的產品名仍是「Windows 10」，用組建號 22000 以上判斷
+        if (str_starts_with($m[1], 'Windows 10') && (int)$m[2] >= 22000) $m[1] = 'Windows 11' . substr($m[1], 10);
+        return $m[1] . '（Build ' . $m[2] . '）';
+    }
+    if (preg_match('/^Linux \S+ (\S+)/', $s, $m)) return 'Linux ' . $m[1];   // SNMP sysDescr（NAS）
+    return mb_strimwidth($s, 0, 60, '…', 'UTF-8');
+}
+
+// 一行系統資訊：作業系統｜N 核｜記憶體 N GB｜開機 N 天；缺的欄位略過
+function zbx_sysline(array $x) {
+    $p = [];
+    if (($x['os'] ?? '') !== '') $p[] = $x['os'];
+    if (!empty($x['cores'])) $p[] = (int)$x['cores'] . ' 核';
+    if (!empty($x['memtotal'])) $p[] = '記憶體 ' . round($x['memtotal'] / 1073741824) . ' GB';
+    if (isset($x['uptime']) && $x['uptime'] !== null) {
+        $d = intdiv((int)$x['uptime'], 86400);
+        $p[] = $d >= 1 ? '開機 ' . $d . ' 天' : '開機 ' . max(1, intdiv((int)$x['uptime'], 3600)) . ' 小時';
+    }
+    return implode('｜', $p);
+}
+
 function zabbix_hosts() {
     $cache = STATE_DIR . '/zabbix_cache.json';
     if (is_file($cache) && time() - filemtime($cache) < 60) return [json_decode(file_get_contents($cache), true), ''];
     $token = trim((string)@file_get_contents(STATE_DIR . '/zabbix-ops.token'));
     try {
-        $hosts = zbx_call('host.get', ['output' => ['hostid', 'host', 'name'], 'filter' => ['status' => 0],
+        $hosts = zbx_call('host.get', ['output' => ['hostid', 'host', 'name', 'description'], 'filter' => ['status' => 0],
             'selectInterfaces' => ['type', 'available', 'error', 'ip', 'dns', 'useip', 'main'], 'selectHostGroups' => ['name']], $token);
         $ids = array_column($hosts, 'hostid');
-        $keys = ['system.cpu.util', 'vm.memory.utilization', 'vm.memory.util', 'vfs.fs.dependent.size[/,pused]', 'vfs.fs.dependent.size[C:,pused]', 'icmppingsec', 'icmpping'];
+        $keys = ['system.cpu.util', 'vm.memory.utilization', 'vm.memory.util', 'vfs.fs.dependent.size[/,pused]', 'vfs.fs.dependent.size[C:,pused]', 'icmppingsec', 'icmpping',
+            // 熊哥 11-20：設備監控的說明要有系統資訊（作業系統、核心數、記憶體、開機時間）
+            'system.sw.os', 'system.descr[sysDescr.0]', 'system.cpu.num', 'vm.memory.size[total]', 'system.uptime', 'system.hw.uptime[hrSystemUptime.0]'];
         $items = zbx_call('item.get', ['hostids' => $ids, 'output' => ['hostid', 'key_', 'lastvalue', 'lastclock'],
             'filter' => ['key_' => $keys]], $token);
         $probs = zbx_call('problem.get', ['hostids' => $ids, 'output' => ['eventid', 'name', 'severity', 'clock', 'objectid'],
@@ -99,9 +127,15 @@ function zabbix_hosts() {
             if ($ip === '') $ip = ZBX_LOCAL_IP[$h['hostid']] ?? '';   // 監控主機本身與 Azure 走本機代理，另補
             $row = ['hostid' => $h['hostid'], 'name' => $h['name'], 'ip' => $ip, 'group' => $h['hostgroups'][0]['name'] ?? '',
                 'avail' => zbx_avail($h['interfaces'], $ping), 'ping_only' => $ping !== null && !array_filter($h['interfaces'], fn($i) => (int)$i['available'] !== 0),
-                'cpu' => null, 'mem' => null, 'disk' => null, 'problems' => []];
+                'cpu' => null, 'mem' => null, 'disk' => null, 'problems' => [],
+                'os' => '', 'cores' => null, 'memtotal' => null, 'uptime' => null, 'desc' => trim((string)($h['description'] ?? ''))];
             foreach ($items as $it) {
                 if ($it['hostid'] !== $h['hostid'] || !$it['lastclock']) continue;
+                $k = $it['key_'];
+                if ($k === 'system.sw.os' || $k === 'system.descr[sysDescr.0]') { if ($it['lastvalue'] !== '') $row['os'] = zbx_os_short($it['lastvalue']); continue; }
+                if ($k === 'system.cpu.num') { $row['cores'] = (int)$it['lastvalue']; continue; }
+                if ($k === 'vm.memory.size[total]') { $row['memtotal'] = (float)$it['lastvalue']; continue; }
+                if ($k === 'system.uptime' || $k === 'system.hw.uptime[hrSystemUptime.0]') { $row['uptime'] = (int)$it['lastvalue']; continue; }
                 $v = round((float)$it['lastvalue'], 1);
                 if ($it['key_'] === 'system.cpu.util') $row['cpu'] = $v;
                 elseif ($it['key_'] === 'vm.memory.utilization' || $it['key_'] === 'vm.memory.util') $row['mem'] = $v;   // Linux／Windows 範本鍵名不同

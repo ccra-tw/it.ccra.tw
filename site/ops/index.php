@@ -340,6 +340,7 @@ details.zh summary .zname{min-width:0;overflow-wrap:anywhere}   /* 大沈 11-20 
 .zacc.r{background:var(--cream);border:1px solid var(--edge);color:var(--muted)}
 details.zh summary .zsub{display:inline-flex;flex-wrap:wrap;gap:4px 8px;align-items:center;min-width:0}
 details.zh summary .zsub .no{overflow-wrap:anywhere}
+.zsys,.zdesc{overflow-wrap:anywhere;white-space:pre-line}   /* 熊哥 11-20：系統資訊與說明 */
 /* 大沈 11-20 審查：手機主機列固定兩區——狀態點＋名稱一列，IP 與網站數在次列對齊名稱；桌機維持同列 */
 @media (max-width:600px){details.zh summary{display:grid;grid-template-columns:9px minmax(0,1fr);column-gap:8px;row-gap:2px}
   details.zh summary .zsub{grid-column:2}details.zh summary .zacc{grid-column:2;justify-self:start}}
@@ -516,6 +517,8 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
             <summary><span class="dot"></span><span class="zname"><?= h($x['name']) ?></span><?php if ($zShowIp || $sites): ?><span class="zsub"><?php if ($zShowIp): ?><span class="no"><?= h($x['ip']) ?></span><?php endif; ?><?php if ($sites): ?><span class="meta" style="margin:0">（<?= count($sites) ?> 個網站）</span><?php endif; ?></span><?php endif; ?><?php if ($zAcc = zbx_access_tag($x['hostid'])): ?><span class="zacc <?= $zAcc['level'] === 'manage' ? 'm' : 'r' ?>"><?= h($zAcc['text']) ?>・<?= h($zAcc['via']) ?></span><?php endif; ?></summary>
             <?php if ($isBad): ?><p class="meta" style="margin:4px 0 0 17px"><?= $x['avail'] === 2 ? (!empty($x['ping_only']) ? 'ping 不通' : '連不到') : ($x['avail'] === 0 ? '狀態未知' : '') ?><?php foreach (array_slice($x['problems'], 0, 2) as $p) echo h(SEV[$p['severity']] ?? '') . '：' . h($p['name']) . '　'; ?></p><?php endif; ?>
             <p class="meta" style="margin:4px 0 0 17px"><?= !empty($x['ping_only']) ? '只做 ping 監控' : 'CPU ' . pct($x['cpu']) . '　記憶體 ' . pct($x['mem']) . '　磁碟 ' . pct($x['disk']) ?></p>
+            <?php if ($sys = zbx_sysline($x)): ?><p class="meta zsys" style="margin:2px 0 0 17px">系統：<?= h($sys) ?></p><?php endif; ?>
+            <?php if (!empty($x['desc'])): ?><p class="meta zdesc" style="margin:2px 0 0 17px">說明：<?= h($x['desc']) ?></p><?php endif; ?>
             <?php if ($sites): ?><ul class="zsites"><?php foreach ($sites as $s): ?><li><a href="https://<?= h($s) ?>" target="_blank" rel="noopener"><?= h($s) ?></a></li><?php endforeach; ?></ul><?php endif; ?>
           </details>
         <?php endforeach; ?>
