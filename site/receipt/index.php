@@ -197,6 +197,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $d->commit();
                 rc_go("./?a=batch&id=$id&addr=bad&ok=nosend$n");
             }
+            if ($do === 'rows_bulk') {   // 繁英姊 11/20：改好多筆地址、勾好寄發後一次儲存（只送有改過的列）
+                $items = json_decode((string)($_POST['rows'] ?? ''), true);
+                if (!is_array($items) || !$items) throw new RuntimeException('沒有要儲存的修改');
+                if (count($items) > 2000) throw new RuntimeException('一次最多 2000 筆');
+                $d->beginTransaction();
+                $sb = $d->prepare('SELECT status FROM batch WHERE id = ? FOR UPDATE'); $sb->execute([$id]);
+                $b = $sb->fetch(PDO::FETCH_ASSOC);
+                if (!$b) throw new RuntimeException('找不到批次');
+                $s0 = $d->prepare('SELECT name, zip, city, address, send, mailed_on FROM donation WHERE id = ? AND batch_id = ? FOR UPDATE');
+                $up = $d->prepare('UPDATE donation SET name = ?, send = ?, zip = ?, city = ?, address = ?, mailed_on = ?, updated_by = ?, updated_at = now() WHERE id = ? AND batch_id = ?');
+                $clr = $d->prepare("UPDATE donation SET check_note = trim(both '；' from replace(replace(replace(check_note, ?, ''), ?, ''), '；；', '；')) WHERE id = ? AND batch_id = ?");
+                $n = 0;
+                foreach ($items as $it) {
+                    $rid = (int)($it['rid'] ?? 0);
+                    $s0->execute([$rid, $id]); $old = $s0->fetch(PDO::FETCH_ASSOC);
+                    if (!$old) throw new RuntimeException("找不到第 $rid 筆");
+                    $mail = trim((string)($it['mailed_on'] ?? ''));
+                    $mailDate = $mail === '' ? null : rcpt_roc_to_date($mail);
+                    if ($mail !== '' && !$mailDate) throw new RuntimeException("寄出日期格式不對（例：115/11/12）：$mail");
+                    $newv = ['name' => trim((string)($it['name'] ?? $old['name'])), 'zip' => trim((string)($it['zip'] ?? '')), 'city' => trim((string)($it['city'] ?? '')),
+                             'address' => trim((string)($it['address'] ?? '')), 'send' => !empty($it['send']), 'mailed_on' => $mailDate];
+                    if ($newv['name'] === '') throw new RuntimeException('收件人不能空白');
+                    $up->execute([$newv['name'], $newv['send'] ? 'true' : 'false', $newv['zip'], $newv['city'], $newv['address'], $newv['mailed_on'], $email, $rid, $id]);
+                    if (!rcpt_addr_incomplete($newv['city'], $newv['address'])) $clr->execute([RCPT_ADDR_NOTE, RCPT_ADDR_NOTE_OLD, $rid, $id]);
+                    $chg = [];
+                    foreach ($newv as $k => $v) {
+                        $o = $old[$k];
+                        $os = $k === 'send' ? ($o ? 'Y' : 'N') : (string)$o; $vs = $k === 'send' ? ($v ? 'Y' : 'N') : (string)$v;
+                        if ($os !== $vs) $chg[] = "$k: $os → $vs";
+                    }
+                    if ($chg) { rcpt_audit($d, $email, $b['status'] === 'draft' ? 'edit_row' : 'edit_after_number', $id, "row $rid（批次儲存）" . implode('；', $chg)); $n++; }
+                }
+                $d->commit();
+                rc_go("./?a=batch&id=$id" . ((($_GET['addr'] ?? '') === 'bad') ? '&addr=bad' : '') . "&ok=bulk$n");
+            }
             if ($do === 'row') {           // 改單筆：草稿時檢核用；配號後也可改（業務單位 11/12：原本不要收據、後來來電索取），收據編號不變、留改前改後
                 // 大沈 R-itsu-1112-01 複驗 P1：讀舊值、更新、稽核在同一交易；鎖順序同配號（先批次、再明細），稽核失敗整筆回滾
                 $d->beginTransaction();
@@ -293,6 +328,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $refill = ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['do'] ?? '') === 'save_batch' && $err !== '') ? $_POST : null;
 $refillOne = ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['do'] ?? '') === 'add_row' && $err !== '') ? $_POST : null;
 $okMsg = ['saved' => '已儲存。', 'imported' => '已匯入，請檢核下面的清單，確認無誤後再配號。', 'row' => '已更新這一筆。', 'added' => '已新增一筆（單筆輸入）。還要加就繼續填，全部好了再按「配號」。', 'assigned' => '已配號。', 'mailed' => '已標記寄出日期。', 'opt' => '設定已儲存。', 'optoff' => '已停用：之後不會出現在選單，舊批次不受影響。', 'opton' => '已重新啟用。'][$_GET['ok'] ?? ''] ?? '';
+if (preg_match('/^bulk(\d+)$/', (string)($_GET['ok'] ?? ''), $mm)) $okMsg = "已一次儲存 {$mm[1]} 筆修改。";
 if (preg_match('/^nosend(\d+)$/', (string)($_GET['ok'] ?? ''), $mm)) $okMsg = "已把 {$mm[1]} 筆地址不完整的改為不寄；確認地址沒問題的，可在該列勾「寄發」再按存。";
 ?>
 <!doctype html>
@@ -480,6 +516,32 @@ if ($addrBadIds): ?><div class="alert warn">地址不完整或有誤 <?= count($
 </section>
 <?php endif; ?>
 <?php if ((int)($_GET['only'] ?? 0)): ?><div class="alert ok" role="status">只顯示查詢的這一筆。<a href="./?a=batch&amp;id=<?= $id ?>">顯示整批 <?= count($rows) ?> 筆</a></div><?php endif; ?>
+<?php if ($canEdit && $rows): ?>
+<form id="bulkForm" method="post" action="./?a=batch&amp;id=<?= $id ?><?= ($_GET['addr'] ?? '') === 'bad' ? '&amp;addr=bad' : '' ?>" class="actions" style="margin:0 0 8px">
+<input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="rows_bulk"><input type="hidden" name="rows" id="bulkRows">
+<button type="submit" id="bulkBtn">全部儲存（只存有改過的列）</button><span class="hint" id="bulkHint">可以連續改好幾列的地址、勾寄發，最後按這裡一次存。</span>
+</form>
+<script>
+(function(){
+  var f=document.getElementById('bulkForm'); if(!f) return;
+  function changed(){
+    var out=[];
+    document.querySelectorAll('form[id^="f"] input[name="do"][value="row"]').forEach(function(d){
+      var fm=d.form, id=fm.id, rid=fm.querySelector('input[name="rid"]').value, row={rid:rid}, diff=false;
+      document.querySelectorAll('[form="'+id+'"]').forEach(function(el){
+        if(el.type==='checkbox'){ row[el.name]=el.checked; if(el.checked!==el.defaultChecked) diff=true; }
+        else { row[el.name]=el.value; if(el.value!==el.defaultValue) diff=true; }
+      });
+      if(diff) out.push(row);
+    });
+    return out;
+  }
+  document.addEventListener('input',function(){var n=changed().length;document.getElementById('bulkHint').textContent=n?('目前改了 '+n+' 列，按左邊一次儲存。'):'可以連續改好幾列的地址、勾寄發，最後按這裡一次存。';});
+  document.addEventListener('change',function(){var n=changed().length;document.getElementById('bulkHint').textContent=n?('目前改了 '+n+' 列，按左邊一次儲存。'):'可以連續改好幾列的地址、勾寄發，最後按這裡一次存。';});
+  f.addEventListener('submit',function(e){var rows=changed(); if(!rows.length){e.preventDefault();alert('還沒有改過任何一列');return;} document.getElementById('bulkRows').value=JSON.stringify(rows);});
+})();
+</script>
+<?php endif; ?>
 <div class="panel flush"><div class="tbl">
 <table class="rows"><tr class="hd"><th>#</th><th>收據編號</th><th>訂單編號</th><th>收件人</th><th>郵遞區號／縣市區／地址</th><?php if ($b['track'] === '食'): ?><th>品名</th><?php endif; ?><th class="n">數量</th><th>寄發</th><th>檢核說明</th><th>寄出日期</th><?php if ($canEdit): ?><th></th><?php endif; ?></tr>
 <?php // 查詢結果按「修改」只顯示那一筆（繁英姊 11/19：「按修改結果出現所有的資料，而不是這個人的資料」）；統計仍以整批計
