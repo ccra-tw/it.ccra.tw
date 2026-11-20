@@ -183,6 +183,16 @@ function rcPrintBusy(e) {
   d.addEventListener('cancel', function (x) { x.preventDefault(); });
   if (d.showModal) d.showModal();
 }
+// 繁英姊 11/20：其他按鈕（例如標記寄出日期）也要顯示處理中
+document.addEventListener('submit', function (e) {
+  if (e.defaultPrevented) return;
+  var d = document.getElementById('rcBusy'); if (!d || d.open) return;
+  var b = e.submitter, label = b ? (b.textContent || '').trim() : '';
+  document.getElementById('rcBusyMsg').textContent = label ? '「' + label.slice(0, 20) + '」處理中，請稍候…' : '處理中，請稍候…';
+  d.addEventListener('cancel', function (x) { x.preventDefault(); });
+  if (d.showModal) d.showModal();
+});
+addEventListener('pageshow', function () { var d = document.getElementById('rcBusy'); if (d && d.open) d.close(); });
 </script>
 <?php foreach ($rows as $r): if ($b['track'] === '食'): ?>
 <div class="page food">

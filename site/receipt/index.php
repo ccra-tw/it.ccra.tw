@@ -635,6 +635,22 @@ function rcBusyLink(msg) {
   return true;
 }
 addEventListener('pageshow', function () { var d = document.getElementById('rcBusy'); if (d && d.open) d.close(); });   // 按「上一頁」回來時把處理中關掉
+// 繁英姊 11/20：「每個按鈕若在執行中，請給個提示」——所有表單送出、站內換頁連結一律先顯示處理中
+document.addEventListener('submit', function (e) {
+  if (e.defaultPrevented) return;   // 確認框按取消、或前端檢查擋下時不顯示
+  var d = document.getElementById('rcBusy'); if (!d || d.open) return;
+  var b = e.submitter, label = b ? (b.textContent || b.value || '').trim() : '';
+  rcBusyLink(label ? '「' + label.slice(0, 20) + '」處理中，請稍候…' : '處理中，請稍候…');
+  if (b) setTimeout(function () { b.disabled = true; }, 0);   // 防重按（等送出後再停用，才不會擋掉按鈕的值）
+});
+document.addEventListener('click', function (e) {
+  var a = e.target.closest && e.target.closest('a[href]'); if (!a || e.defaultPrevented) return;
+  var h = a.getAttribute('href') || '';
+  if (h.charAt(0) === '#' || a.target === '_blank' || a.hasAttribute('download') || e.ctrlKey || e.metaKey || e.shiftKey || /^(mailto|tel|javascript):/i.test(h)) return;
+  if (a.host && a.host !== location.host) return;   // 站外連結不管
+  var d = document.getElementById('rcBusy'); if (!d || d.open) return;
+  rcBusyLink('開啟中，請稍候…');
+});
 function rcBusy(f, msg) {
   var d = document.getElementById('rcBusy');
   document.getElementById('rcBusyMsg').textContent = msg;
