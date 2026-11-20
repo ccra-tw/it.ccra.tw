@@ -82,5 +82,7 @@ ok(!rcpt_addr_incomplete('花蓮縣', '中正街5號'), '街 → 完整');
 ok(rcpt_addr_incomplete('南投縣', '信義鄉東埔村'), '只有村 → 不完整');
 ok(rcpt_addr_incomplete('新北市三重區', '大義街16號新北市'), '門牌後又接縣市 → 標紅');
 ok(!rcpt_addr_incomplete('新北市三重區', '大義街16號3樓'), '門牌後接樓層 → 完整');
+ok(rcpt_addr_incomplete('新北市蘆洲區', '中山一路路204號1樓'), '「路路」重複字 → 標紅');
+ok(!rcpt_addr_incomplete('新北市蘆洲區', '中山一路204號1樓'), '改好後 → 完整');
 echo $fail ? "❌ 失敗 $fail／$n\n" : "✅ 全部通過 $n 項\n";
 exit($fail ? 1 : 0);

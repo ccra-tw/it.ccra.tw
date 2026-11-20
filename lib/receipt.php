@@ -154,9 +154,11 @@ function rcpt_addr_incomplete(string $city, string $addr): bool {
     $s = $city . $addr;
     if (trim($addr) === '') return true;
     if (!preg_match('/(路|街|大道)/u', $s) || !preg_match('/號/u', $s)) return true;
+    if (preg_match('/(路|街|段|巷|弄|號|樓|大道)\1/u', $addr)) return true;   // 繁英姊 11/20：「中山一路路204號」重複字也標紅
     return (bool)preg_match('/號.*(縣|市)/u', $addr);   // 繁英姊 11/20：「大義街16號新北市」門牌後面又接縣市，也要標紅讓她修
 }
-const RCPT_ADDR_NOTE = '地址不完整（缺路／街／大道或門牌號），自動不寄';
+const RCPT_ADDR_NOTE = '地址不完整或有誤（缺路／街／大道、門牌號，或有重複字），自動不寄';
+const RCPT_ADDR_NOTE_OLD = '地址不完整（缺路／街／大道或門牌號），自動不寄';   // 11/20 早上版本的說明文字，改好地址時一併清掉
 
 function rcpt_roc_to_date(string $s): ?string {
     // 容錯（繁英姊 11/18 驗收）：全形數字與斜線、「115年11月18日」、民國前綴；也接受西元 YYYY-MM-DD（日曆欄位送來的）

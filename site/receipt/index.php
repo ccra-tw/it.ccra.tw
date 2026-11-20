@@ -200,8 +200,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $d->prepare('UPDATE donation SET name = ?, send = ?, zip = ?, city = ?, address = ?, mailed_on = ?, updated_by = ?, updated_at = now() WHERE id = ? AND batch_id = ?')
                   ->execute([$newv['name'], $newv['send'] ? 'true' : 'false', $newv['zip'], $newv['city'], $newv['address'], $newv['mailed_on'], $email, $rid, $id]);
                 if (!rcpt_addr_incomplete($newv['city'], $newv['address'])) {   // 繁英姊 11/20：地址改完整後，拿掉「自動不寄」的檢核說明（寄發由她勾選）
-                    $d->prepare("UPDATE donation SET check_note = trim(both '；' from replace(replace(check_note, ?, ''), '；；', '；')) WHERE id = ? AND batch_id = ?")
-                      ->execute([RCPT_ADDR_NOTE, $rid, $id]);
+                    $d->prepare("UPDATE donation SET check_note = trim(both '；' from replace(replace(replace(check_note, ?, ''), ?, ''), '；；', '；')) WHERE id = ? AND batch_id = ?")
+                      ->execute([RCPT_ADDR_NOTE, RCPT_ADDR_NOTE_OLD, $rid, $id]);
                 }
                 $chg = [];
                 foreach ($newv as $k => $v) {
@@ -415,7 +415,7 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
 <?php if ($dup): ?><div class="alert warn">訂單編號已開過收據 <?= count($dup) ?> 筆（下方黃底）。</div><?php endif; ?>
 <?php if ($fmiss): ?><div class="alert warn">食字軌品名／單位不完整 <?= count($fmiss) ?> 列，補齊前不能配號。</div><?php endif; ?>
 <?php $addrBadIds = array_map(fn($r) => (int)$r['id'], array_filter($rows, fn($r) => rcpt_addr_incomplete((string)$r['city'], (string)$r['address'])));
-if ($addrBadIds): ?><div class="alert warn">地址不完整 <?= count($addrBadIds) ?> 筆（缺路／街／大道或門牌號，會被退件；下方紅底，匯入時已自動設為不寄）。<?= ($_GET['addr'] ?? '') === 'bad' ? '<a href="./?a=batch&amp;id=' . $id . '">顯示整批</a>' : '<a href="./?a=batch&amp;id=' . $id . '&amp;addr=bad">只看這些</a>' ?></div><?php endif; ?>
+if ($addrBadIds): ?><div class="alert warn">地址不完整或有誤 <?= count($addrBadIds) ?> 筆（缺路／街／大道、門牌號，或有重複字，會被退件；下方紅底，匯入時已自動設為不寄）。<?= ($_GET['addr'] ?? '') === 'bad' ? '<a href="./?a=batch&amp;id=' . $id . '">顯示整批</a>' : '<a href="./?a=batch&amp;id=' . $id . '&amp;addr=bad">只看這些</a>' ?></div><?php endif; ?>
 <?php if ($inb): ?><div class="alert warn">名單內訂單編號重複 <?= count($inb) ?> 個（下方黃底）。</div><?php endif; ?>
 <?php if ($b['status'] !== 'draft'): ?>
 <div class="alert ok">收據起訖（請會計填入文中進貨單「報關單號」）：<b class="mono"><?= h(rcpt_range_text($b['first_no'], $b['last_no'])) ?></b></div>
