@@ -513,7 +513,7 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
         <?php foreach ($list as $x): $isBad = $x['avail'] !== 1 || $x['problems']; $sites = $zbSites[(string)$x['hostid']] ?? []; ?>
           <details class="zh <?= $isBad ? 'badh' : '' ?>"<?= $isBad ? ' open' : '' ?>>
             <?php $zShowIp = !empty($x['ip']) && strpos($x['name'], $x['ip']) === false; ?>
-            <summary><span class="dot"></span><span class="zname"><?= h($x['name']) ?></span><?php if ($zShowIp || $sites): ?><span class="zsub"><?php if ($zShowIp): ?><span class="no"><?= h($x['ip']) ?></span><?php endif; ?><?php if ($sites): ?><span class="meta" style="margin:0">（<?= count($sites) ?> 個網站）</span><?php endif; ?></span><?php endif; ?><?php if ($zAcc = zbx_access_tag($x['hostid'])): ?><span class="zacc <?= $zAcc['level'] === 'manage' ? 'm' : 'r' ?>" title="<?= h($zAcc['via']) ?>"><?= h($zAcc['text']) ?></span><?php endif; ?></summary>
+            <summary><span class="dot"></span><span class="zname"><?= h($x['name']) ?></span><?php if ($zShowIp || $sites): ?><span class="zsub"><?php if ($zShowIp): ?><span class="no"><?= h($x['ip']) ?></span><?php endif; ?><?php if ($sites): ?><span class="meta" style="margin:0">（<?= count($sites) ?> 個網站）</span><?php endif; ?></span><?php endif; ?><?php if ($zAcc = zbx_access_tag($x['hostid'])): ?><span class="zacc <?= $zAcc['level'] === 'manage' ? 'm' : 'r' ?>"><?= h($zAcc['text']) ?>・<?= h($zAcc['via']) ?></span><?php endif; ?></summary>
             <?php if ($isBad): ?><p class="meta" style="margin:4px 0 0 17px"><?= $x['avail'] === 2 ? (!empty($x['ping_only']) ? 'ping 不通' : '連不到') : ($x['avail'] === 0 ? '狀態未知' : '') ?><?php foreach (array_slice($x['problems'], 0, 2) as $p) echo h(SEV[$p['severity']] ?? '') . '：' . h($p['name']) . '　'; ?></p><?php endif; ?>
             <p class="meta" style="margin:4px 0 0 17px"><?= !empty($x['ping_only']) ? '只做 ping 監控' : 'CPU ' . pct($x['cpu']) . '　記憶體 ' . pct($x['mem']) . '　磁碟 ' . pct($x['disk']) ?></p>
             <?php if ($sites): ?><ul class="zsites"><?php foreach ($sites as $s): ?><li><a href="https://<?= h($s) ?>" target="_blank" rel="noopener"><?= h($s) ?></a></li><?php endforeach; ?></ul><?php endif; ?>
@@ -522,7 +522,7 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
       </div>
       <?php endforeach; ?>
     </div>
-    <p class="meta"><span class="zacc m">大蘇可管理</span> 可登入處理（SSH＋sudo）　<span class="zacc r">大蘇可查看</span> 唯讀查看設定、記錄與資料庫　未標註＝只有 Zabbix 監控，異常時大蘇會通報、但要請負責人處理</p>
+    <p class="meta"><span class="zacc m">大蘇可管理</span> 可登入協助處理　<span class="zacc r">大蘇可查看</span> 可登入唯讀查看　實際範圍依各台標籤後的登入方式　未標註＝只有 Zabbix 監控，異常時大蘇會通報、但要請負責人處理</p>
     <?php if ($zbSitesAt): ?><p class="meta">網站對照更新於 <?= h($zbSitesAt) ?>（各主機 IIS／nginx 設定每日自動抓取）</p><?php endif; ?>
     <?php if ($zbErr): ?><p class="meta"><?= h($zbErr) ?></p><?php endif; ?>
     <?php endif; ?>
