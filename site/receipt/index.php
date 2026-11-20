@@ -171,7 +171,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $ins = $d->prepare('INSERT INTO donation (batch_id, row_no, order_no, name, mobile, phone, raw_addr, zip, city, address, product, qty, send, check_note, dup_note, updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
                 foreach ($j['rows'] as $i => $r) {
                     $sendR = (bool)($r['send'] ?? true); $noteR = (string)$r['check_note'];
-                    if ($sendR && rcpt_addr_nomail((string)$r['address'])) $sendR = false;   // 繁英姊 11/20：空白／愛心捐贈／不用／少於 4 字本來就不寄（不標紅）
+                    if ($sendR && rcpt_addr_nomail((string)$r['address'], (string)$r['city'])) $sendR = false;   // 繁英姊 11/20：空白／愛心捐贈／不用／少於 4 字本來就不寄（不標紅）
                     if ($sendR && rcpt_addr_incomplete((string)$r['city'], (string)$r['address'])) {   // 繁英姊 11/20 選 B
                         $sendR = false; $noteR = trim(RCPT_ADDR_NOTE . ($noteR !== '' ? '；' . $noteR : ''));
                     }

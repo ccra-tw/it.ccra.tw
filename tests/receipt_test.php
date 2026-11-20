@@ -75,6 +75,8 @@ ok(!rcpt_addr_incomplete('新北市', '不用') && rcpt_addr_nomail('不用'), '
 ok(!rcpt_addr_incomplete('新北市永和區', '') && rcpt_addr_nomail(''), '地址空白 → 不寄、不標紅');
 ok(rcpt_addr_nomail('愛心捐贈') && rcpt_addr_nomail('空白') && rcpt_addr_nomail('永和'), '愛心捐贈／空白／少於4字 → 本來就不寄');
 ok(!rcpt_addr_nomail('保生路1號'), '保生路1號 → 不是本來就不寄');
+ok(!rcpt_addr_incomplete('', '祝天好心情~') && rcpt_addr_nomail('祝天好心情~', ''), '沒有縣市的留言「祝天好心情~」→ 本來就不寄、不標紅');
+ok(rcpt_addr_incomplete('', '新北市中正路'), '縣市欄空但地址有市、缺號 → 仍標紅');
 ok(rcpt_addr_incomplete('新北市永和區', '保生路一段'), '有路沒有號 → 不完整');
 ok(!rcpt_addr_incomplete('新北市永和區', '保生路1號20樓'), '保生路1號20樓 → 完整');
 ok(!rcpt_addr_incomplete('臺北市中正區', '重慶南路一段122號'), '一段＋號 → 完整');
