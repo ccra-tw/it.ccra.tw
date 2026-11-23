@@ -342,6 +342,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // 新增／編輯批次出錯時回填使用者剛填的內容（繁英姊 11/18：出錯後欄位全被清空）
 $refill = ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['do'] ?? '') === 'save_batch' && $err !== '') ? $_POST : null;
 $refillOne = ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['do'] ?? '') === 'add_row' && $err !== '') ? $_POST : null;
+// 11/23 大沈審查：匯入出錯回頁時保留使用者選的匯入方式（原本跳回「取代」，換對的檔直接重送會把原清單蓋掉）；初次進頁仍預設取代
+$importMode = ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['do'] ?? '') === 'import' && $err !== '' && ($_POST['mode'] ?? '') === 'append') ? 'append' : 'replace';
 $okMsg = ['saved' => '已儲存。', 'imported' => '已匯入，請檢核下面的清單，確認無誤後再配號。', 'appended' => '已追加匯入，接在原清單後面。請檢核下面的清單，確認無誤後再配號。' . ((int)($_GET['dupprev'] ?? 0) ? '有 ' . (int)$_GET['dupprev'] . ' 筆訂單編號和先前匯入的重複，已在「檢核說明」標出，請確認是否同一個檔匯了兩次。' : ''), 'row' => '已更新這一筆。', 'added' => '已新增一筆（單筆輸入）。還要加就繼續填，全部好了再按「配號」。', 'assigned' => '已配號。', 'mailed' => '已標記寄出日期。', 'opt' => '設定已儲存。', 'optoff' => '已停用：之後不會出現在選單，舊批次不受影響。', 'opton' => '已重新啟用。'][$_GET['ok'] ?? ''] ?? '';
 if (preg_match('/^bulk(\d+)$/', (string)($_GET['ok'] ?? ''), $mm)) $okMsg = "已一次儲存 {$mm[1]} 筆修改。";
 if (preg_match('/^nosend(\d+)$/', (string)($_GET['ok'] ?? ''), $mm)) $okMsg = "已把 {$mm[1]} 筆地址不完整的改為不寄；確認地址沒問題的，可在該列勾「寄發」再按存。";
@@ -523,8 +525,8 @@ if ($addrBadIds): ?><div class="alert warn">地址不完整或有誤 <?= count($
 <input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="import">
 <?php if ($rows): /* 11/23 繁英姊（熊哥同意）：一張進貨單分兩個月份的檔時可以追加 */ ?>
 <fieldset class="rc-mode" style="border:0;padding:0;margin:0 0 6px"><legend class="hint" style="padding:0">這一批已經有 <?= count($rows) ?> 筆，這次要：</legend>
-<label><input type="radio" name="mode" value="replace" checked> 取代目前清單（重新匯入，包含單筆輸入的都會換掉）</label><br>
-<label><input type="radio" name="mode" value="append"> 追加到目前清單後面（例：同一張進貨單的第二個月份檔）</label></fieldset>
+<label><input type="radio" name="mode" value="replace"<?= $importMode === 'replace' ? ' checked' : '' ?>> 取代目前清單（重新匯入，包含單筆輸入的都會換掉）</label><br>
+<label><input type="radio" name="mode" value="append"<?= $importMode === 'append' ? ' checked' : '' ?>> 追加到目前清單後面（例：同一張進貨單的第二個月份檔）</label></fieldset>
 <?php endif; ?>
 <div class="actions" style="margin-top:0"><input type="file" name="file" accept=".xlsx" required aria-label="選擇名單檔"> <button type="submit">匯入</button></div>
 </form>

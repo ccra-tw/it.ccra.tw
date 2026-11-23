@@ -124,6 +124,16 @@ ok(count($ra) === 4 && str_contains($ra[2]['check_note'], RCPT_DUP_PREV_NOTE) &&
 ok((int)$d->query("SELECT count(*) FROM audit WHERE batch_id=$ba AND action='import_append'")->fetchColumn() === 1, '稽核記 import_append');
 $pa = req($E, ['a' => 'batch', 'id' => $ba, 'ok' => 'appended', 'dupprev' => 1]);
 ok(str_contains($pa, '追加匯入完成') && str_contains($pa, '有 1 筆訂單編號和先前匯入的重複'), '完成視窗與提示顯示追加與重複筆數');
+// 大沈 11/23 審查：追加失敗回頁後模式要留在「追加」，換正確檔直接重送不能蓋掉原清單
+xlsx($tmp, [['亂欄', '沒有表頭'], ['x', 'y']]);
+$o = req($E, ['a' => 'batch', 'id' => $ba], 'POST', ['csrf' => $csrf($E), 'do' => 'import', 'mode' => 'append'], ['file' => ['name' => 'bad.xlsx', 'tmp_name' => $tmp, 'error' => 0]]);
+ok(str_contains($o, 'alert err') && str_contains($o, 'value="append" checked') && !str_contains($o, 'value="replace" checked'), '追加失敗：報錯且回頁仍勾「追加」');
+ok((int)$d->query("SELECT count(*) FROM donation WHERE batch_id=$ba")->fetchColumn() === 4, '追加失敗：原 4 筆不變');
+xlsx($tmp, [['訂單編號', '收件人', '送貨地點', '訂單數量', 'zip', 'city', 'address', '收據'], ['D-1', '戊', 'x', 1, '100', '臺北市中正區', '測試路5號', 'Y']]);
+req($E, ['a' => 'batch', 'id' => $ba], 'POST', ['csrf' => $csrf($E), 'do' => 'import', 'mode' => 'append'], ['file' => ['name' => 'fix.xlsx', 'tmp_name' => $tmp, 'error' => 0]]);
+ok((int)$d->query("SELECT count(*) FROM donation WHERE batch_id=$ba")->fetchColumn() === 5, '換正確檔照回頁的「追加」重送：變 5 筆、原清單保留');
+$pa = req($E, ['a' => 'batch', 'id' => $ba]);
+ok(str_contains($pa, 'value="replace" checked'), '一般進頁仍預設「取代」');
 xlsx($tmp, [['訂單編號', '收件人', '送貨地點', '訂單數量', 'zip', 'city', 'address', '收據'], ['C-1', '丁', 'x', 1, '100', '臺北市中正區', '測試路4號', 'Y']]);
 req($E, ['a' => 'batch', 'id' => $ba], 'POST', ['csrf' => $csrf($E), 'do' => 'import', 'mode' => 'replace'], ['file' => ['name' => 'r.xlsx', 'tmp_name' => $tmp, 'error' => 0]]);
 ok((int)$d->query("SELECT count(*) FROM donation WHERE batch_id=$ba")->fetchColumn() === 1, '選「取代」照舊整批換掉（剩 1 筆）');
