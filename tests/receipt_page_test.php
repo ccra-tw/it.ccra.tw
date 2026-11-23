@@ -105,6 +105,30 @@ ok(count($r3) === 2 && $r3[0]['zip'] === '234' && str_contains($r3[0]['city'], '
 ok(count($r3) === 2 && $r3[1]['send'] === false, '「無名」照整理規則判為不寄');
 ok($d->query("SELECT track FROM batch WHERE id=$b3")->fetchColumn() === '食', '家庭雲端自動帶食字軌');
 
+echo "追加匯入（11/23 繁英：一張進貨單兩個月份的檔）\n";
+req($E, ['a' => 'new'], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch', 'source' => 'ibon', 'in_date' => '115/10/01', 'items' => '']);
+$ba = (int)$d->query('SELECT max(id) FROM batch')->fetchColumn();
+$pa = req($E, ['a' => 'batch', 'id' => $ba]);
+ok(!str_contains($pa, 'name="mode"'), '空批次不顯示取代／追加選項');
+xlsx($tmp, [['訂單編號', '收件人', '送貨地點', '訂單數量', 'zip', 'city', 'address', '收據'],
+            ['A-1', '甲', 'x', 1, '100', '臺北市中正區', '測試路1號', 'Y'], ['A-2', '乙', 'x', 2, '100', '臺北市中正區', '測試路2號', 'Y']]);
+req($E, ['a' => 'batch', 'id' => $ba], 'POST', ['csrf' => $csrf($E), 'do' => 'import'], ['file' => ['name' => 'oct.xlsx', 'tmp_name' => $tmp, 'error' => 0]]);
+$pa = req($E, ['a' => 'batch', 'id' => $ba]);
+ok(str_contains($pa, 'name="mode" value="append"') && str_contains($pa, 'value="replace" checked'), '已有資料時顯示選項，預設「取代」');
+xlsx($tmp, [['訂單編號', '收件人', '送貨地點', '訂單數量', 'zip', 'city', 'address', '收據'],
+            ['A-2', '乙', 'x', 2, '100', '臺北市中正區', '測試路2號', 'Y'], ['B-1', '丙', 'x', 3, '100', '臺北市中正區', '測試路3號', 'Y']]);
+$o = req($E, ['a' => 'batch', 'id' => $ba], 'POST', ['csrf' => $csrf($E), 'do' => 'import', 'mode' => 'append'], ['file' => ['name' => 'nov.xlsx', 'tmp_name' => $tmp, 'error' => 0]]);
+$ra = $d->query("SELECT row_no, order_no, check_note FROM donation WHERE batch_id=$ba ORDER BY row_no")->fetchAll(PDO::FETCH_ASSOC);
+ok(count($ra) === 4 && array_column($ra, 'row_no') === [1, 2, 3, 4], '追加後 4 筆、序號接續 1～4' . (count($ra) === 4 ? '' : '：' . substr(strip_tags($o), 0, 300)));
+ok(count($ra) === 4 && str_contains($ra[2]['check_note'], RCPT_DUP_PREV_NOTE) && !str_contains($ra[3]['check_note'], RCPT_DUP_PREV_NOTE), '和前次重複的訂單編號（A-2）在檢核說明標出，新的（B-1）不標');
+ok((int)$d->query("SELECT count(*) FROM audit WHERE batch_id=$ba AND action='import_append'")->fetchColumn() === 1, '稽核記 import_append');
+$pa = req($E, ['a' => 'batch', 'id' => $ba, 'ok' => 'appended', 'dupprev' => 1]);
+ok(str_contains($pa, '追加匯入完成') && str_contains($pa, '有 1 筆訂單編號和先前匯入的重複'), '完成視窗與提示顯示追加與重複筆數');
+xlsx($tmp, [['訂單編號', '收件人', '送貨地點', '訂單數量', 'zip', 'city', 'address', '收據'], ['C-1', '丁', 'x', 1, '100', '臺北市中正區', '測試路4號', 'Y']]);
+req($E, ['a' => 'batch', 'id' => $ba], 'POST', ['csrf' => $csrf($E), 'do' => 'import', 'mode' => 'replace'], ['file' => ['name' => 'r.xlsx', 'tmp_name' => $tmp, 'error' => 0]]);
+ok((int)$d->query("SELECT count(*) FROM donation WHERE batch_id=$ba")->fetchColumn() === 1, '選「取代」照舊整批換掉（剩 1 筆）');
+$d->exec("DELETE FROM donation WHERE batch_id=$ba"); $d->exec("DELETE FROM audit WHERE batch_id=$ba"); $d->exec("DELETE FROM batch WHERE id=$ba");
+
 echo "配號\n";
 req($E, ['a' => 'batch', 'id' => $bid], 'POST', ['csrf' => $csrf($E), 'do' => 'assign']);
 $p = req($E, ['a' => 'batch', 'id' => $bid]);
@@ -130,7 +154,7 @@ function preq($email, $get) {
 $p = preq($E, ['id' => $bid]);
 ok(substr_count($p, 'class="page"') === 1 && str_contains($p, '物(115)09140001') && str_contains($p, '115/09/14'), '預設只印要寄的（2 筆裡 1 筆）、印收據編號與收貨日期');
 ok(substr_count(preq($E, ['id' => $bid, 'scope' => 'all']), 'class="page"') === 2, '選「全部」印 2 張');
-ok(str_contains(preq($E, ['id' => $bid, 'dx' => '2', 'dy' => '-1']), 'left:166.4mm;top:23.2mm'), '位置微調套到座標');
+ok(str_contains(preq($E, ['id' => $bid, 'dx' => '2', 'dy' => '-1']), 'left:166.4mm;top:26.2mm'), '位置微調套到座標（11/20 收據編號下調 3mm 後基準 164.4,27.2）');
 preq($E, ['id' => $bid, 'go' => '1']);
 ok((int)$d->query("SELECT count(*) FROM print_log WHERE batch_id=$bid AND kind='print'")->fetchColumn() === 1, '按列印才記錄 print_log');
 preq('vw@test', ['id' => $bid, 'go' => '1']);

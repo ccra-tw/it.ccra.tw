@@ -167,20 +167,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 $d->beginTransaction();
                 rcpt_lock_draft($d, $id);   // 整理檔案期間別人可能已配號：持鎖後再核對仍是草稿才刪除重建
-                $d->prepare('DELETE FROM donation WHERE batch_id = ?')->execute([$id]);
+                // 11/23 繁英姊（熊哥同意）：ibon 一張進貨單常分兩個月份的檔 → 可選「追加」，接在現有清單後面、不刪除
+                $append = ($_POST['mode'] ?? 'replace') === 'append';
+                $base = 0; $have = [];
+                if ($append) {
+                    $base = (int)$d->query('SELECT COALESCE(max(row_no), 0) FROM donation WHERE batch_id = ' . (int)$id)->fetchColumn();
+                    $hs = $d->prepare("SELECT order_no FROM donation WHERE batch_id = ? AND order_no <> ''");
+                    $hs->execute([$id]);
+                    $have = array_fill_keys($hs->fetchAll(PDO::FETCH_COLUMN), true);
+                } else {
+                    $d->prepare('DELETE FROM donation WHERE batch_id = ?')->execute([$id]);
+                }
                 $ins = $d->prepare('INSERT INTO donation (batch_id, row_no, order_no, name, mobile, phone, raw_addr, zip, city, address, product, qty, send, check_note, dup_note, updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+                $dupPrev = 0;
                 foreach ($j['rows'] as $i => $r) {
+                    $dupR = (string)$r['dup_note'];
+                    $prevDup = $append && (string)$r['order_no'] !== '' && isset($have[(string)$r['order_no']]);   // 同一批前次匯入已有同訂單編號（例：同一個檔匯了兩次）
+                    if ($prevDup) $dupPrev++;
                     $sendR = (bool)($r['send'] ?? true); $noteR = (string)$r['check_note'];
                     if ($sendR && rcpt_addr_nomail((string)$r['address'], (string)$r['city'])) $sendR = false;   // 繁英姊 11/20：空白／愛心捐贈／不用／少於 4 字本來就不寄（不標紅）
                     if ($sendR && rcpt_addr_incomplete((string)$r['city'], (string)$r['address'])) {   // 繁英姊 11/20 選 B
                         $sendR = false; $noteR = trim(RCPT_ADDR_NOTE . ($noteR !== '' ? '；' . $noteR : ''));
                     }
-                    $ins->execute([$id, $i + 1, $r['order_no'], $r['name'], $r['mobile'], $r['phone'], $r['raw_addr'], $r['zip'], $r['city'], $r['address'],
-                                   $r['product'], (int)($r['qty'] ?? 0), $sendR ? 'true' : 'false', $noteR, $r['dup_note'], $email]);
+                    if ($prevDup) $noteR = trim(RCPT_DUP_PREV_NOTE . ($noteR !== '' ? '；' . $noteR : ''));   // 寫進檢核說明（清單上看得到），不自動改寄發，由同工判斷
+                    $ins->execute([$id, $base + $i + 1, $r['order_no'], $r['name'], $r['mobile'], $r['phone'], $r['raw_addr'], $r['zip'], $r['city'], $r['address'],
+                                   $r['product'], (int)($r['qty'] ?? 0), $sendR ? 'true' : 'false', $noteR, $dupR, $email]);
                 }
-                rcpt_audit($d, $email, 'import', $id, count($j['rows']) . ' 筆' . ($tidy ? '（已整理檔）' : '（經地址整理）'));
+                rcpt_audit($d, $email, $append ? 'import_append' : 'import', $id, count($j['rows']) . ' 筆' . ($tidy ? '（已整理檔）' : '（經地址整理）') . ($append ? "（追加，接在第 $base 筆後；與前次重複訂單編號 $dupPrev 筆）" : ''));
                 $d->commit();
-                header("Location: ./?a=batch&id=$id&ok=imported"); exit;
+                header("Location: ./?a=batch&id=$id&ok=" . ($append ? 'appended' : 'imported') . ($append && $dupPrev ? "&dupprev=$dupPrev" : '')); exit;
             }
             if ($do === 'addr_bad_nosend') {   // 繁英姊 11/20：舊批次裡地址不完整、仍勾「寄發」的，一次改成不寄，確認後再由她逐筆勾回
                 $d->beginTransaction();
@@ -227,7 +242,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $os = $k === 'send' ? ($o ? 'Y' : 'N') : (string)$o; $vs = $k === 'send' ? ($v ? 'Y' : 'N') : (string)$v;
                         if ($os !== $vs) $chg[] = "$k: $os → $vs";
                     }
-                    if ($chg) { rcpt_audit($d, $email, $b['status'] === 'draft' ? 'edit_row' : 'edit_after_number', $id, "row $rid（批次儲存）" . implode('；', $chg)); $n++; }
+                    if ($chg) { rcpt_audit($d, $email, $b['status'] === 'draft' ? 'edit_row' : 'edit_after_number', $id, "row {$rid}（批次儲存）" . implode('；', $chg)); $n++; }
                 }
                 $d->commit();
                 rc_go("./?a=batch&id=$id" . ((($_GET['addr'] ?? '') === 'bad') ? '&addr=bad' : '') . "&ok=bulk$n");
@@ -327,7 +342,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // 新增／編輯批次出錯時回填使用者剛填的內容（繁英姊 11/18：出錯後欄位全被清空）
 $refill = ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['do'] ?? '') === 'save_batch' && $err !== '') ? $_POST : null;
 $refillOne = ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['do'] ?? '') === 'add_row' && $err !== '') ? $_POST : null;
-$okMsg = ['saved' => '已儲存。', 'imported' => '已匯入，請檢核下面的清單，確認無誤後再配號。', 'row' => '已更新這一筆。', 'added' => '已新增一筆（單筆輸入）。還要加就繼續填，全部好了再按「配號」。', 'assigned' => '已配號。', 'mailed' => '已標記寄出日期。', 'opt' => '設定已儲存。', 'optoff' => '已停用：之後不會出現在選單，舊批次不受影響。', 'opton' => '已重新啟用。'][$_GET['ok'] ?? ''] ?? '';
+$okMsg = ['saved' => '已儲存。', 'imported' => '已匯入，請檢核下面的清單，確認無誤後再配號。', 'appended' => '已追加匯入，接在原清單後面。請檢核下面的清單，確認無誤後再配號。' . ((int)($_GET['dupprev'] ?? 0) ? '有 ' . (int)$_GET['dupprev'] . ' 筆訂單編號和先前匯入的重複，已在「檢核說明」標出，請確認是否同一個檔匯了兩次。' : ''), 'row' => '已更新這一筆。', 'added' => '已新增一筆（單筆輸入）。還要加就繼續填，全部好了再按「配號」。', 'assigned' => '已配號。', 'mailed' => '已標記寄出日期。', 'opt' => '設定已儲存。', 'optoff' => '已停用：之後不會出現在選單，舊批次不受影響。', 'opton' => '已重新啟用。'][$_GET['ok'] ?? ''] ?? '';
 if (preg_match('/^bulk(\d+)$/', (string)($_GET['ok'] ?? ''), $mm)) $okMsg = "已一次儲存 {$mm[1]} 筆修改。";
 if (preg_match('/^nosend(\d+)$/', (string)($_GET['ok'] ?? ''), $mm)) $okMsg = "已把 {$mm[1]} 筆地址不完整的改為不寄；確認地址沒問題的，可在該列勾「寄發」再按存。";
 ?>
@@ -503,9 +518,14 @@ if ($addrBadIds): ?><div class="alert warn">地址不完整或有誤 <?= count($
 <div class="actions"><button type="submit">加入這一筆</button><span class="hint">加完會出現在下方清單，可再修改；全部好了再按「配號」。</span></div>
 </form>
 </section>
-<section class="panel"><h2>匯入名單 <small>.xlsx；平台原始檔或「地址整理」後的檔都可以。重新匯入會取代這一批目前的清單（包含上面單筆輸入的）。</small></h2>
-<form method="post" action="./?a=batch&id=<?= $id ?>" enctype="multipart/form-data" onsubmit="return rcBusy(this, '匯入中，請稍候…（名單多時要一兩分鐘）')">
+<section class="panel"><h2>匯入名單 <small>.xlsx；平台原始檔或「地址整理」後的檔都可以。</small></h2>
+<form method="post" action="./?a=batch&id=<?= $id ?>" enctype="multipart/form-data" onsubmit="return rcBusy(this, '匯入中，請稍候…（名單多時要幾分鐘，一萬筆約 5 分鐘內）')">
 <input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="import">
+<?php if ($rows): /* 11/23 繁英姊（熊哥同意）：一張進貨單分兩個月份的檔時可以追加 */ ?>
+<fieldset class="rc-mode" style="border:0;padding:0;margin:0 0 6px"><legend class="hint" style="padding:0">這一批已經有 <?= count($rows) ?> 筆，這次要：</legend>
+<label><input type="radio" name="mode" value="replace" checked> 取代目前清單（重新匯入，包含單筆輸入的都會換掉）</label><br>
+<label><input type="radio" name="mode" value="append"> 追加到目前清單後面（例：同一張進貨單的第二個月份檔）</label></fieldset>
+<?php endif; ?>
 <div class="actions" style="margin-top:0"><input type="file" name="file" accept=".xlsx" required aria-label="選擇名單檔"> <button type="submit">匯入</button></div>
 </form>
 <?php if ($rows): ?>
@@ -621,7 +641,7 @@ foreach ($shown as $r): $isDup = isset($dup[$r['order_no']]) || isset($inb[$r['o
 </main>
 <?php /* 匯入／配號進行中與完成的小視窗（繁英姊 11/19：「匯入或配號時可以 popup 一個小視窗『匯入中』或『配號中』，完成時出現『完成』」） */ ?>
 <dialog id="rcBusy" class="rc-dlg" aria-live="polite"><p class="rc-dlg-t"><span class="spin" aria-hidden="true"></span> <span id="rcBusyMsg">處理中…</span></p><p class="hint">請不要關閉或重新整理這個頁面，完成後會自動顯示結果。</p></dialog>
-<?php $doneMsg = ['imported' => '匯入完成', 'assigned' => '配號完成'][$_GET['ok'] ?? ''] ?? ''; if ($doneMsg): ?>
+<?php $doneMsg = ['imported' => '匯入完成', 'appended' => '追加匯入完成', 'assigned' => '配號完成'][$_GET['ok'] ?? ''] ?? ''; if ($doneMsg): ?>
 <dialog id="rcDone" class="rc-dlg"><p class="rc-dlg-t">✓ <?= h($doneMsg) ?></p><p><?= h($okMsg) ?></p><form method="dialog"><button autofocus>知道了</button></form></dialog>
 <script>document.getElementById('rcDone').showModal()</script>
 <?php endif; ?>
