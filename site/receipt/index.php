@@ -638,6 +638,9 @@ addEventListener('pageshow', function () { var d = document.getElementById('rcBu
 // 繁英姊 11/20：「每個按鈕若在執行中，請給個提示」——所有表單送出、站內換頁連結一律先顯示處理中
 document.addEventListener('submit', function (e) {
   if (e.defaultPrevented) return;   // 確認框按取消、或前端檢查擋下時不顯示
+  // 11/23 繁英姊回報：「匯入完成」小視窗的「知道了」是 <form method="dialog">，只關視窗不換頁，
+  // 被這裡當成送出而跳出「處理中」且永遠不關 → dialog 表單一律不顯示處理中
+  if ((e.target.getAttribute('method') || '').toLowerCase() === 'dialog' || (e.submitter && (e.submitter.getAttribute('formmethod') || '').toLowerCase() === 'dialog')) return;
   var d = document.getElementById('rcBusy'); if (!d || d.open) return;
   var b = e.submitter, label = b ? (b.textContent || b.value || '').trim() : '';
   rcBusyLink(label ? '「' + label.slice(0, 20) + '」處理中，請稍候…' : '處理中，請稍候…');

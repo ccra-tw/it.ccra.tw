@@ -186,6 +186,7 @@ function rcPrintBusy(e) {
 // 繁英姊 11/20：其他按鈕（例如標記寄出日期）也要顯示處理中
 document.addEventListener('submit', function (e) {
   if (e.defaultPrevented) return;
+  if ((e.target.getAttribute('method') || '').toLowerCase() === 'dialog' || (e.submitter && (e.submitter.getAttribute('formmethod') || '').toLowerCase() === 'dialog')) return;   // 11/23：只關視窗的 dialog 表單不顯示處理中
   var d = document.getElementById('rcBusy'); if (!d || d.open) return;
   var b = e.submitter, label = b ? (b.textContent || '').trim() : '';
   document.getElementById('rcBusyMsg').textContent = label ? '「' + label.slice(0, 20) + '」處理中，請稍候…' : '處理中，請稍候…';
