@@ -449,8 +449,12 @@ ok(str_contains($g1, 'window.rcPageGo=function(){var n=changed().length') && sub
 ok(str_contains($g6, 'onclick="return !window.rcPageGo || rcPageGo()">上一頁</a>'), '上一頁也有未存檢查');
 // 11/24 大沈審查 bb2b1e3：腳本語法錯誤時整段不執行、onclick 照樣放行，字串比對驗不到 → 把頁面腳本交給 node --check（主機沒有 node 時另存檔，在有 node 的機器補驗）
 preg_match_all('#<script>(.*?)</script>#s', $g1, $jsm);
-$jsf = sys_get_temp_dir() . '/rc_batch_scripts.js'; file_put_contents($jsf, implode("\n;\n", $jsm[1]));
-if (trim((string)shell_exec('command -v node 2>/dev/null')) !== '') { exec('node --check ' . escapeshellarg($jsf) . ' 2>&1', $jo, $jrc); ok($jrc === 0, '批次頁腳本 node --check 通過' . ($jrc ? '：' . implode(' ', array_slice($jo, 0, 3)) : '')); }
+// 11/24 大沈審查 c6a0e1a：暫存檔名每次不同（平行重跑不互蓋），寫檔失敗就算失敗、不去 node --check 一個空檔
+$jsf = sys_get_temp_dir() . '/rc_batch_scripts_' . getmypid() . '_' . bin2hex(random_bytes(4)) . '.js';
+$jsw = file_put_contents($jsf, implode("\n;\n", $jsm[1]));
+ok($jsw !== false && $jsw > 0 && count($jsm[1]) > 0, '批次頁腳本已抽出並寫入暫存檔');
+if ($jsw === false) echo "  （略過 node --check：暫存檔寫入失敗）\n";
+elseif (trim((string)shell_exec('command -v node 2>/dev/null')) !== '') { exec('node --check ' . escapeshellarg($jsf) . ' 2>&1', $jo, $jrc); ok($jrc === 0, '批次頁腳本 node --check 通過' . ($jrc ? '：' . implode(' ', array_slice($jo, 0, 3)) : '')); @unlink($jsf); }
 else echo "  （略過：本機沒有 node，腳本已存 {$jsf}，請在有 node 的機器執行 node --check）\n";
 $rid3 = (int)$d->query("SELECT id FROM donation WHERE batch_id=$bc AND row_no=450")->fetchColumn();
 $g3 = req($E, ['a' => 'batch', 'id' => $bc, 'p' => '3']);
