@@ -100,9 +100,19 @@ function zbx_sysline(array $x) {
     return implode('｜', $p);
 }
 
+// 快取格式版本（2026-11-25 大沈審查：主機列加了技術名稱 host 之後，舊版快取沒有這欄，
+// 設備監控會拿顯示名稱去查操作紀錄而查錯主機）。改格式就加一，舊版快取一律不當成新鮮資料。
+const ZBX_CACHE_VER = 2;
+
+function zbx_cache_read(string $cache): ?array {
+    $d = is_file($cache) ? json_decode((string)file_get_contents($cache), true) : null;
+    return is_array($d) && isset($d['hosts']) && is_array($d['hosts']) ? $d : null;
+}
+
 function zabbix_hosts() {
     $cache = STATE_DIR . '/zabbix_cache.json';
-    if (is_file($cache) && time() - filemtime($cache) < 60) return [json_decode(file_get_contents($cache), true), ''];
+    $c = zbx_cache_read($cache);
+    if ($c && ($c['v'] ?? 0) === ZBX_CACHE_VER && time() - filemtime($cache) < 60) return [$c, ''];
     $token = trim((string)@file_get_contents(STATE_DIR . '/zabbix-ops.token'));
     try {
         $hosts = zbx_call('host.get', ['output' => ['hostid', 'host', 'name', 'description'], 'filter' => ['status' => 0],
@@ -146,12 +156,13 @@ function zabbix_hosts() {
             $out[] = $row;
         }
         usort($out, fn($a, $b) => [count($b['problems']) > 0, $a['avail'] !== 1, $a['group'], $a['name']] <=> [count($a['problems']) > 0, $b['avail'] !== 1, $b['group'], $b['name']]);
-        $data = ['at' => time(), 'hosts' => $out];
+        $data = ['v' => ZBX_CACHE_VER, 'at' => time(), 'hosts' => $out];
         file_put_contents($cache, json_encode($data, JSON_UNESCAPED_UNICODE));
         return [$data, ''];
     } catch (Throwable $e) {
         error_log('zabbix: ' . $e->getMessage());
-        if (is_file($cache)) return [json_decode(file_get_contents($cache), true), '暫時讀不到 Zabbix，以下為上次取得的資料。'];
+        // 刷新失敗時仍用上次的資料顯示（可能是舊版格式，主機列沒有 host；設備監控那邊會標「暫無法對應操作紀錄」）
+        if ($c = zbx_cache_read($cache)) return [$c, '暫時讀不到 Zabbix，以下為上次取得的資料。'];
         return [null, '讀不到 Zabbix，請稍後再試。'];
     }
 }
