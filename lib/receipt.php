@@ -317,3 +317,107 @@ function rcpt_dup_orders(PDO $d, array $orderNos, ?int $exceptBatch = null): arr
     }
     return $out;
 }
+
+// ── 文中進貨單 PDF 匯入（繁英姊 11/24：「下列是文中的進貨單，請協助匯入到物資捐贈收據的收貨資料，每次都可以匯入也可以手動輸入」）
+// 文中印出的 PDF 用 Big5 編碼字型（ETenms-B5-H）且沒有 ToUnicode 表，一般 PDF 工具抽出來是亂碼；
+// 這裡直接取內容串流裡的原始字串，用 CP950 解碼，依文中進貨單的固定版面取值。只負責「帶入」，使用者核對後才存。
+function rcpt_a85_decode(string $s): ?string {
+    $s = preg_replace('/\s+/', '', $s);
+    if (str_starts_with($s, '<~')) $s = substr($s, 2);
+    $e = strpos($s, '~>'); if ($e !== false) $s = substr($s, 0, $e);
+    $out = ''; $grp = []; $n = strlen($s);
+    for ($i = 0; $i < $n; $i++) {
+        $c = $s[$i];
+        if ($c === 'z' && !$grp) { $out .= "\0\0\0\0"; continue; }
+        $o = ord($c) - 33; if ($o < 0 || $o > 84) return null;
+        $grp[] = $o;
+        if (count($grp) === 5) { $v = 0; foreach ($grp as $g) $v = $v * 85 + $g; $out .= pack('N', $v & 0xFFFFFFFF); $grp = []; }
+    }
+    if ($grp) { $k = count($grp); while (count($grp) < 5) $grp[] = 84; $v = 0; foreach ($grp as $g) $v = $v * 85 + $g; $out .= substr(pack('N', $v & 0xFFFFFFFF), 0, $k - 1); }
+    return $out;
+}
+
+function rcpt_pdf_strings(string $pdf): array {
+    $out = [];
+    // 每個物件的字典到 stream 關鍵字為止；不可跨過 endobj（否則會把前面沒有串流的物件一起吞進來）
+    if (!preg_match_all('/\bobj\s*<<((?:(?!endobj).)*?)>>\s*stream\r?\n/s', $pdf, $mm, PREG_OFFSET_CAPTURE)) return $out;
+    foreach ($mm[0] as $k => $m) {
+        $dict = $mm[1][$k][0];
+        $start = $m[1] + strlen($m[0]);
+        $end = strpos($pdf, 'endstream', $start);
+        if ($end === false) continue;
+        $raw = rtrim(substr($pdf, $start, $end - $start), "\r\n");
+        // 濾鏡依字典順序套用（文中的 PDF 是 ASCII85Decode；其他產生器常見 FlateDecode 或兩者串接）
+        preg_match_all('#/(ASCII85Decode|A85|FlateDecode|Fl)\b#', $dict, $fm);
+        $dec = $raw; $okf = true;
+        foreach ($fm[1] as $f) {
+            if ($f === 'ASCII85Decode' || $f === 'A85') $dec = rcpt_a85_decode($dec);
+            else { $z = @gzuncompress($dec); if ($z === false) { $okf = false; break; } $dec = $z; }
+        }
+        if (!$okf || $dec === null) continue;
+        if (!str_contains($dec, 'BT') || !preg_match('/T[jJ]/', $dec)) continue;   // 只要頁面內容串流
+        $buf = []; $n = strlen($dec); $i = 0;
+        while ($i < $n) {
+            $c = $dec[$i];
+            if ($c === '(') {   // 字面字串：處理跳脫與巢狀括號（Big5 第二位元組可能是 0x5C，產生器會寫成 \\）
+                $depth = 1; $s = ''; $i++;
+                while ($i < $n && $depth > 0) {
+                    $ch = $dec[$i];
+                    if ($ch === '\\') {
+                        $nx = $dec[$i + 1] ?? '';
+                        if (ctype_digit($nx) && $nx < '8') { $oct = substr($dec, $i + 1, 3); preg_match('/^[0-7]{1,3}/', $oct, $om); $s .= chr(octdec($om[0]) & 0xFF); $i += 1 + strlen($om[0]); continue; }
+                        $map = ['n' => "\n", 'r' => "\r", 't' => "\t", 'b' => "\x08", 'f' => "\x0C"];
+                        if ($nx === "\r" || $nx === "\n") { $i += 2; if ($nx === "\r" && ($dec[$i] ?? '') === "\n") $i++; continue; }
+                        $s .= $map[$nx] ?? $nx; $i += 2; continue;
+                    }
+                    if ($ch === '(') $depth++;
+                    elseif ($ch === ')') { $depth--; if ($depth === 0) { $i++; break; } }
+                    $s .= $ch; $i++;
+                }
+                $buf[] = $s; continue;
+            }
+            if ($c === '<' && ($dec[$i + 1] ?? '') !== '<') {   // 十六進位字串
+                $j = strpos($dec, '>', $i); if ($j === false) break;
+                $hex = preg_replace('/[^0-9A-Fa-f]/', '', substr($dec, $i + 1, $j - $i - 1));
+                if (strlen($hex) % 2) $hex .= '0';
+                $buf[] = (string)hex2bin($hex); $i = $j + 1; continue;
+            }
+            if (($c === 'T' && in_array($dec[$i + 1] ?? '', ['j', 'J'], true)) || $c === "'" || $c === '"') {
+                if ($buf) { $t = mb_convert_encoding(implode('', $buf), 'UTF-8', 'CP950'); $out[] = trim(str_replace("\u{3000}", ' ', $t)); }
+                $buf = []; $i += ($c === 'T') ? 2 : 1; continue;
+            }
+            $i++;
+        }
+    }
+    return $out;
+}
+
+// 回傳：po_no、in_date（民國 115/11/06）、supplier_code、supplier_name、track（食／物，取自收據編號）、receipt_no、
+//       title（收據抬頭）、attn（收件人）、addr（寄件地址）、purpose（捐贈用途）、items [[code, name, qty, unit, price], ...]
+// 讀不出來就丟例外（訊息給使用者看）
+function rcpt_parse_wenzhong_pdf(string $pdf): array {
+    if (!str_starts_with($pdf, '%PDF')) throw new RuntimeException('這個檔案不是 PDF');
+    $t = array_values(array_filter(rcpt_pdf_strings($pdf), fn($x) => $x !== null));
+    $at = array_search('進貨單', $t, true);
+    if ($at === false) throw new RuntimeException('讀不到「進貨單」標題：請上傳文中列印的進貨單 PDF');
+    $r = ['po_no' => '', 'in_date' => '', 'supplier_code' => '', 'supplier_name' => '', 'track' => '', 'receipt_no' => '',
+          'title' => '', 'attn' => '', 'addr' => '', 'purpose' => '', 'items' => []];
+    // 表頭值依版面順序：客戶代號、客戶名稱、聯絡人、聯絡電話、聯絡地址、單據日期、單據號碼、收貨日期、收據抬頭、收件人、寄件地址、捐贈用途、頁次
+    $v = array_slice($t, $at + 1, 13);
+    if (count($v) < 12 || !preg_match('#^\d{3}/\d{2}/\d{2}$#', $v[5]) || !preg_match('#^\d{3}/\d{2}/\d{2}$#', $v[7])) throw new RuntimeException('進貨單表頭的格式和預期不同，請改用手動輸入，並把這個 PDF 傳給資訊部');
+    [$r['supplier_code'], $r['supplier_name']] = [$v[0], $v[1]];
+    $r['po_no'] = $v[6]; $r['in_date'] = $v[7];
+    [$r['title'], $r['attn'], $r['addr'], $r['purpose']] = [$v[8], $v[9], $v[10], $v[11]];
+    foreach ($t as $x) if (preg_match('/^([食物])\(\d{3}\)\d+$/u', $x, $m)) { $r['track'] = $m[1]; $r['receipt_no'] = $x; break; }
+    // 明細：序號（4 碼）→ 品名 → 單位 → 庫別 → 數量 → 單價 → 金額 → 產品代號
+    $num = fn($s) => (float)str_replace(',', '', $s);
+    for ($i = $at + 13, $n = count($t); $i + 7 < $n; $i++) {
+        if (!preg_match('/^\d{4}$/', $t[$i]) || preg_match('/^[\d,.]+$/', $t[$i + 1])) continue;
+        if (!preg_match('/^[\d,]+(\.\d+)?$/', $t[$i + 4]) || !preg_match('/^[A-Za-z0-9-]+$/', $t[$i + 7])) continue;
+        $qty = $num($t[$i + 4]); $price = $t[$i + 5] === '' ? null : $num($t[$i + 5]);
+        $r['items'][] = [$t[$i + 7], $t[$i + 1], $qty == (int)$qty ? (int)$qty : $qty, $t[$i + 2], $price !== null && $price == (int)$price ? (int)$price : $price];
+        $i += 7;
+    }
+    if (!$r['items']) throw new RuntimeException('讀不到進貨明細，請改用手動輸入，並把這個 PDF 傳給資訊部');
+    return $r;
+}

@@ -82,7 +82,7 @@ ok((int)$d->query("SELECT count(*) FROM batch WHERE in_date IN ('2026-11-18','20
 $d->exec("DELETE FROM batch WHERE in_date IN ('2026-11-18','2026-11-19')");
 $nw = req($E, ['a' => 'new']);
 ok(str_contains($nw, 'type="date"') && str_contains($nw, 'value="' . date('Y-m-d') . '"'), '新增批次的收貨日期是日曆欄位、預設今天');
-ok(str_contains(req($E, []), '新增批次（匯入名單）'), '入口名稱寫明「新增批次（匯入名單）」');
+ok(str_contains(req($E, []), '➕ 匯入名單') && str_contains(req($E, []), '📋 收據清單') && str_contains(req($E, []), '🔍 查詢捐贈人'), '功能表名稱（繁英姊 11/24：收據清單／匯入名單／新增收據／查詢捐贈人／設定）');
 
 echo "匯入（已整理過的檔，不跑地址整理）\n";
 $tmp = sys_get_temp_dir() . '/rcpt-page-' . getmypid() . '.xlsx';
@@ -363,7 +363,7 @@ $po = req($E, ['a' => 'batch', 'id' => $mo[1], 'only' => $mo[2]]);
 ok(substr_count($po, '<tr id="r') === 1 && str_contains($po, '只顯示查詢的這一筆') && str_contains($po, '顯示整批'), '按「修改」後只出現這個人的那一列，並可回到整批');
 ok(str_contains($po, 'only=' . $mo[2] . '">') || str_contains($po, '&amp;only=' . $mo[2]), '這一列的存檔表單帶著 only，存完仍只顯示這一筆');
 echo "單筆輸入（繁英姊 11/18 第 7 項）\n";
-ok(str_contains(req($E, []), '＋ 單筆輸入'), '分頁有「＋ 單筆輸入」入口');
+ok(str_contains(req($E, []), '➕ 新增收據'), '分頁有「➕ 新增收據」（單筆輸入）入口');
 ok(!str_contains(req('vw@test', []), '單筆輸入'), '唯讀者看不到單筆輸入');
 req($E, ['a' => 'new', 'single' => '1'], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch', 'single' => '1', 'source' => 'ibon', 'in_date' => '115/09/21', 'items' => '']);
 $bs = (int)$d->query("SELECT max(id) FROM batch")->fetchColumn();
@@ -498,6 +498,43 @@ $fp = preq($E, ['id' => $bf, 'one' => $rf['id']]);
 ok(str_contains($fp, 'class="page food"') && str_contains($fp, '新東陽原味肉醬罐頭160g') && !str_contains($fp, '收據不能列印'), '被拒後補印不受影響（食字軌收據照常印出舊品名）');
 $fPost(['product' => '新東陽原味肉醬罐頭160g', 'tax_id' => '96979933']);
 ok($d->query("SELECT tax_id FROM donation WHERE id = {$rf['id']}")->fetchColumn() === '96979933' && str_contains(preq($E, ['id' => $bf, 'one' => $rf['id']]), '統編 96979933'), '品名未改時照常存；收據印出統編');
+echo "文中進貨單 PDF 帶入（繁英姊 11/24）\n";
+// 仿文中列印的 PDF：Big5 字串、ASCII85 串流、沒有 ToUnicode；假資料
+function wz_pdf(array $tokens): string {
+    $a85 = function (string $b): string { $o = ''; $n = strlen($b);
+        for ($i = 0; $i < $n; $i += 4) { $c = substr($b, $i, 4); $k = strlen($c); $c = str_pad($c, 4, "\0"); $v = unpack('N', $c)[1];
+            if ($v === 0 && $k === 4) { $o .= 'z'; continue; } $g = ''; for ($j = 0; $j < 5; $j++) { $g = chr($v % 85 + 33) . $g; $v = intdiv($v, 85); } $o .= substr($g, 0, $k + 1); }
+        return $o . '~>'; };
+    $cs = "BT\n/F0 9 Tf\n";
+    foreach ($tokens as $t) { $b = mb_convert_encoding($t, 'CP950', 'UTF-8'); $cs .= '(' . strtr($b, ['\\' => '\\\\', '(' => '\\(', ')' => '\\)']) . ") Tj\n"; }
+    $cs .= "ET\n"; $st = $a85($cs);
+    return "%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n5 0 obj\n<< /Length " . strlen($st) . " /Filter /ASCII85Decode >>\nstream\n$st\nendstream\nendobj\n%%EOF\n";
+}
+$wzTok = ['社團法人中華基督教救助協會', '客戶代號:', '客戶名稱:', '聯 絡 人:', '聯絡電話:', '聯絡地址:', '單據日期:', '單據號碼:', '收貨日期:', '收據抬頭:', '收 件 人:', '寄件地址:', '捐贈用途:', '頁　　次:',
+    '進貨單', '990001', '測試量販股份有限公司', '王小明', '', '台北市中正區測試路1號', '115/11/05', '11511050009', '115/11/06', '測試量販股份有限公司', '測試分店 陳主任', '新北市板橋區文化路一段100號', '食物銀行', '1 / 1',
+    '批號', '有效期限', '收據編號:', '食(115)11060009',
+    '0001', '測試肉醬罐頭160g(大)', '罐', '八里倉庫', '1,200.0', '45.000', '54,000.00', 'B03004', '備註:', '12罐/盒', '115', '20290726', '4710057500120',
+    '0002', '許功蓋測試麵', '包', '八里倉庫', '30.0', '', '0.00', 'B04035', '115', '20271113', '4710043025569', '以下空白'];
+$wzFile = tempnam(sys_get_temp_dir(), 'wz') . '.pdf'; file_put_contents($wzFile, wz_pdf($wzTok));
+$pz = rcpt_parse_wenzhong_pdf((string)file_get_contents($wzFile));
+ok($pz['po_no'] === '11511050009' && $pz['in_date'] === '115/11/06' && $pz['supplier_code'] === '990001' && $pz['track'] === '食', '解析：單據號碼、收貨日期（不是單據日期）、客戶代號、字軌');
+ok($pz['title'] === '測試量販股份有限公司' && $pz['attn'] === '測試分店 陳主任' && $pz['addr'] === '新北市板橋區文化路一段100號', '解析：收據抬頭、收件人、寄件地址');
+ok(count($pz['items']) === 2 && $pz['items'][0] === ['B03004', '測試肉醬罐頭160g(大)', 1200, '罐', 45] && $pz['items'][1][1] === '許功蓋測試麵' && $pz['items'][1][4] === null, '解析：明細（括號跳脫、Big5 第二位元組 0x5C 的字、空白單價）');
+$bad = false; try { rcpt_parse_wenzhong_pdf("%PDF-1.4\n%%EOF"); } catch (RuntimeException $e) { $bad = str_contains($e->getMessage(), '進貨單'); }
+ok($bad, '不是進貨單的 PDF 給看得懂的錯誤');
+$pu = req($E, ['a' => 'new'], 'POST', ['csrf' => $csrf($E), 'do' => 'pdf_prefill'], ['file' => ['name' => '文中進貨單.pdf', 'tmp_name' => $wzFile, 'error' => 0, 'size' => filesize($wzFile)]]);
+ok(str_contains($pu, 'value="11511050009"') && str_contains($pu, 'value="2026-11-06"') && str_contains($pu, 'value="測試肉醬罐頭160g(大)"') && str_contains($pu, '已從「文中進貨單.pdf」帶入'), '上傳後新增批次表單已帶入單號、收貨日期、明細');
+ok(str_contains($pu, '「食」字軌') && str_contains($pu, '供應商「990001 測試量販股份有限公司」不在清單') && str_contains($pu, 'name="pf_name" value="測試量販股份有限公司"'), '提示字軌與不在清單的供應商；捐贈者以隱藏欄位帶到儲存');
+ok(!(int)$d->query("SELECT count(*) FROM batch WHERE po_no = '11511050009'")->fetchColumn(), '只帶入表單，還沒建批次');
+$srcF = (string)$d->query("SELECT code FROM option_item WHERE kind = 'source' AND extra = '食' AND active ORDER BY sort, id LIMIT 1")->fetchColumn();
+$sv = req($E, ['a' => 'new'], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch', 'source' => $srcF, 'po_no' => '11511050009', 'in_date' => '115/11/06',
+    'it_code' => ['B03004'], 'it_name' => ['測試肉醬罐頭160g(大)'], 'it_qty' => ['1200'], 'it_unit' => ['罐'], 'it_price' => ['45'],
+    'pf_name' => '測試量販股份有限公司', 'pf_attn' => '測試分店 陳主任', 'pf_addr' => '新北市板橋區文化路一段100號']);
+$bpz = (int)$d->query("SELECT id FROM batch WHERE po_no = '11511050009'")->fetchColumn();
+ok($bpz > 0 && str_contains($sv, 'pf=1') && str_contains($sv, 'pf_name='), '儲存後轉到批次頁並帶捐贈者' . ($bpz ? '' : '：' . substr(strip_tags($sv), 0, 200)));
+$ps = req($E, ['a' => 'batch', 'id' => $bpz, 'pf' => '1', 'pf_name' => '測試量販股份有限公司', 'pf_attn' => '測試分店 陳主任', 'pf_addr' => '新北市板橋區文化路一段100號']);
+ok(str_contains($ps, 'id="s_name" name="name" value="測試量販股份有限公司"') && str_contains($ps, 'id="s_city" name="city" value="新北市板橋區"') && str_contains($ps, 'value="文化路一段100號"') && str_contains($ps, '收件人「測試分店 陳主任」'), '單筆輸入帶入收據抬頭、拆好的縣市區與地址，並提示收件人');
+@unlink($wzFile);
 $bdraft = (int)$d->query("SELECT id FROM batch WHERE status = 'draft' ORDER BY id DESC LIMIT 1")->fetchColumn();
 if ($bdraft) {
     ok(str_contains(req($E, ['a' => 'batch', 'id' => $bdraft]), 'name="tax_id"'), '單筆輸入表單有統一編號欄');

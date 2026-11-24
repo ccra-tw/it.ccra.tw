@@ -40,6 +40,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         need_edit($canEdit);
         $do = $_POST['do'] ?? '';
         try {
+            if ($do === 'pdf_prefill') {   // 繁英姊 11/24：文中進貨單 PDF 帶入收貨資料（只帶入表單，按「儲存」才建批次）
+                $f = $_FILES['file'] ?? null;
+                if (!$f || (int)$f['error'] !== UPLOAD_ERR_OK) throw new RuntimeException('上傳失敗，請重新選擇進貨單 PDF');
+                if (!preg_match('/\.pdf$/i', (string)$f['name']) || (int)$f['size'] > 5 * 1024 * 1024) throw new RuntimeException('請上傳文中列印的進貨單 PDF（5MB 以內）');
+                $pdf = rcpt_parse_wenzhong_pdf((string)file_get_contents($f['tmp_name']));
+                $srcOk = array_values(array_filter(rcpt_options($d, 'source'), fn($o) => $o['extra'] === $pdf['track']));
+                $supOk = array_column(rcpt_options($d, 'supplier'), 'name', 'code');
+                $pdfRefill = ['po_no' => $pdf['po_no'], 'in_date' => $pdf['in_date'],
+                    'source' => count($srcOk) === 1 ? $srcOk[0]['code'] : '',
+                    'supplier_code' => isset($supOk[$pdf['supplier_code']]) ? $pdf['supplier_code'] : '',
+                    'items' => implode("\n", array_map(fn($it) => implode("\t", array_map(fn($v) => str_replace(["\t", "\n"], ' ', (string)$v), $it)), $pdf['items'])),
+                    'pf_name' => $pdf['title'], 'pf_attn' => $pdf['attn'], 'pf_addr' => $pdf['addr']];
+                $pdfInfo = ['track' => $pdf['track'], 'receipt_no' => $pdf['receipt_no'], 'srcs' => array_column($srcOk, 'code'),
+                    'sup_missing' => isset($supOk[$pdf['supplier_code']]) ? '' : trim($pdf['supplier_code'] . ' ' . $pdf['supplier_name']),
+                    'n' => count($pdf['items']), 'file' => (string)$f['name']];
+                rcpt_audit($d, $email, 'pdf_prefill', null, "{$pdf['po_no']} {$pdfInfo['file']} 明細 {$pdfInfo['n']} 項");
+            }
             if ($do === 'save_batch') {
                 // 產品明細改表格輸入（繁英姊 11/19：「原先是表格能夠依每個項目填寫的」）：每列轉回一行「代號	品名	數量	單位	單價」，交給下面同一套解析；
                 // 用 tab 分隔，品名裡有逗號也不會被切開。沒有表格欄位時（舊表單、測試）照舊讀 items 文字。
@@ -107,6 +124,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
                 $d->commit();
+                $pf = trim((string)($_POST['pf_name'] ?? ''));   // 進貨單 PDF 帶入的捐贈者（收據抬頭／收件人／寄件地址），儲存後帶到單筆輸入
+                if ($pf !== '' && !$cur) rc_go('./?a=batch&id=' . $id . '&ok=saved&' . http_build_query(['pf' => 1, 'pf_name' => $pf, 'pf_attn' => trim((string)($_POST['pf_attn'] ?? '')), 'pf_addr' => trim((string)($_POST['pf_addr'] ?? ''))]) . '#single');
                 header("Location: ./?a=batch&id=$id&ok=saved" . (($_POST['single'] ?? '') === '1' ? '#single' : '')); exit;
             }
             if ($do === 'add_row') {       // 單筆輸入（繁英姊 11/18 驗收第 7 項：臨時來捐、電話捐贈，一次開一張）：只加在尚未配號的批次，配號檢查與匯入的一樣
@@ -353,6 +372,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 // 新增／編輯批次出錯時回填使用者剛填的內容（繁英姊 11/18：出錯後欄位全被清空）
 $refill = ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['do'] ?? '') === 'save_batch' && $err !== '') ? $_POST : null;
+if ($refill === null && isset($pdfRefill) && $err === '') { $refill = $pdfRefill; $a = 'new'; }   // 進貨單 PDF 帶入
 $refillOne = ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['do'] ?? '') === 'add_row' && $err !== '') ? $_POST : null;
 // 11/23 大沈審查：匯入出錯回頁時保留使用者選的匯入方式（原本跳回「取代」，換對的檔直接重送會把原清單蓋掉）；初次進頁仍預設取代
 $importMode = ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['do'] ?? '') === 'import' && $err !== '' && ($_POST['mode'] ?? '') === 'append') ? 'append' : 'replace';
@@ -386,9 +406,9 @@ if (preg_match('/^nosend(\d+)$/', (string)($_GET['ok'] ?? ''), $mm)) $okMsg = "�
 <main class="rc">
 <?php
 $tab = in_array($a, ['new', 'search', 'settings'], true) ? $a : 'list';
-$head = ['list' => ['批次清單', '每次收貨建一個批次：匯入名單、檢核、配號、列印收據。'],
+$head = ['list' => ['收據清單', '每次收貨建一個批次：匯入名單、檢核、配號、列印收據。'],
          'new' => [$a === 'edit' ? '編輯批次' : (isset($_GET['single']) ? '單筆輸入' : '新增批次'), isset($_GET['single']) ? '第一步：填收貨資料並儲存。第二步：在批次頁「單筆輸入」填捐物人，可連續加好幾位。' : '第一步：填收貨資料並儲存。第二步：在批次頁匯入名單（.xlsx）。'],
-         'search' => ['查詢捐物人', '用姓名、電話、收據編號或訂單編號找，可看收據或補印。'],
+         'search' => ['查詢捐贈人', '用姓名、電話、收據編號或訂單編號找，可看收據或補印。'],
          'settings' => ['設定', '來源、供應商、套餐每套金額：可新增、修改、停用。停用後不出現在選單，舊批次保留原本的值。']][$tab];
 if ($a === 'batch') $head = ['批次明細', '檢核名單、配號、列印收據。'];
 if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影響編號的欄位。'];
@@ -399,10 +419,11 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
   <span class="chip <?= $canEdit ? 'ok' : '' ?>"><?= $canEdit ? '開收據權限' : '唯讀（只能查看）' ?></span></div>
 </div>
 <nav class="tabs" aria-label="收據系統功能">
-  <a href="./"<?= $tab === 'list' && $a !== 'batch' ? ' aria-current="page"' : '' ?>>批次清單</a>
-  <?php if ($canEdit): ?><a href="./?a=new"<?= $a === 'new' && !isset($_GET['single']) ? ' aria-current="page"' : '' ?>>＋ 新增批次（匯入名單）</a><a href="./?a=new&amp;single=1"<?= $a === 'new' && isset($_GET['single']) ? ' aria-current="page"' : '' ?>>＋ 單筆輸入</a><?php endif; ?>
-  <a href="./?a=search"<?= $tab === 'search' ? ' aria-current="page"' : '' ?>>查詢捐物人</a>
-  <?php if ($canEdit): ?><a href="./?a=settings"<?= $tab === 'settings' ? ' aria-current="page"' : '' ?>>設定</a><?php endif; ?>
+  <!-- 11/24 繁英姊：功能表改名「📋 收據清單｜➕ 匯入名單｜➕ 新增收據｜🔍 查詢捐贈人｜⚙️ 設定」，較容易明白 -->
+  <a href="./"<?= $tab === 'list' && $a !== 'batch' ? ' aria-current="page"' : '' ?>>📋 收據清單</a>
+  <?php if ($canEdit): ?><a href="./?a=new"<?= $a === 'new' && !isset($_GET['single']) ? ' aria-current="page"' : '' ?>>➕ 匯入名單</a><a href="./?a=new&amp;single=1"<?= $a === 'new' && isset($_GET['single']) ? ' aria-current="page"' : '' ?>>➕ 新增收據</a><?php endif; ?>
+  <a href="./?a=search"<?= $tab === 'search' ? ' aria-current="page"' : '' ?>>🔍 查詢捐贈人</a>
+  <?php if ($canEdit): ?><a href="./?a=settings"<?= $tab === 'settings' ? ' aria-current="page"' : '' ?>>⚙️ 設定</a><?php endif; ?>
 </nav>
 <?php if ($err): ?><div class="alert err" role="alert"><?= h($err) ?></div><?php endif; ?>
 <?php if ($okMsg): ?><div class="alert ok" role="status"><?= h($okMsg) ?></div><?php endif; ?>
@@ -415,7 +436,7 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
 <tr><td data-l="收貨日期" class="mono"><?= h(rcpt_date_to_roc($r['in_date'])) ?></td><td data-l="來源"><?= h($r['source']) ?> <span class="chip"><?= h($r['track']) ?></span></td>
 <td data-l="進貨單號"><a href="./?a=batch&id=<?= (int)$r['id'] ?>"><?= h($r['po_no'] ?: '（未填單號）') ?></a></td><td class="n" data-l="筆數"><?= (int)$r['n'] ?></td><td class="n" data-l="數量"><?= (int)$r['q'] ?></td>
 <td data-l="收據起訖" class="mono"><?= $r['first_no'] ? h(rcpt_range_text($r['first_no'], $r['last_no'])) : '—' ?></td><td data-l="狀態"><?= $r['status'] === 'draft' ? '<span class="chip draft">草稿</span>' : '<span class="chip ok">已配號</span>' ?></td></tr>
-<?php endforeach; if (!$rows): ?><tr><td colspan="7" class="empty">還沒有批次。<?php if ($canEdit): ?>按上方「＋ 新增批次（匯入名單）」開始：先填收貨資料，儲存後在批次頁匯入名單。<?php endif; ?></td></tr><?php endif; ?>
+<?php endforeach; if (!$rows): ?><tr><td colspan="7" class="empty">還沒有批次。<?php if ($canEdit): ?>按上方「➕ 匯入名單」開始：先填收貨資料，儲存後在批次頁匯入名單。<?php endif; ?></td></tr><?php endif; ?>
 </table></div></div>
 
 <?php elseif ($a === 'new' || $a === 'edit'):
@@ -432,7 +453,20 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
         $prevContents = (string)$d->query("SELECT contents FROM batch WHERE track = '物' AND contents <> '' ORDER BY in_date DESC, id DESC LIMIT 1")->fetchColumn();
     } ?>
 <?php if ($locked): ?><div class="alert warn">已配號：只能補進貨單號、供應商、經手人、每套內含與信件內容。</div><?php endif; ?>
+<?php if (!$b): ?>
+<section class="panel"><h2>匯入文中進貨單 <small>選文中列印的進貨單 PDF，自動帶入下面的收貨資料；不匯入就直接手動填。</small></h2>
+<form method="post" action="./?a=new" enctype="multipart/form-data" onsubmit="return rcBusy(this, '讀取進貨單中…')">
+<input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="pdf_prefill">
+<div class="actions" style="margin-top:0"><input type="file" name="file" accept=".pdf,application/pdf" required aria-label="選擇進貨單 PDF"> <button type="submit" class="ghost">讀取並帶入</button></div>
+</form>
+<?php if (isset($pdfInfo)): ?><div class="alert ok" role="status">已從「<?= h($pdfInfo['file']) ?>」帶入：進貨單號、收貨日期、產品明細 <?= (int)$pdfInfo['n'] ?> 項<?= $refill['supplier_code'] !== '' ? '、供應商' : '' ?>，以及收據抬頭／收件人／寄件地址（儲存後帶到單筆輸入）。請核對後按「儲存」。</div>
+<?php if ($pdfInfo['track'] !== ''): ?><div class="alert <?= $refill['source'] === '' ? 'warn' : 'ok' ?>">收據編號 <?= h($pdfInfo['receipt_no']) ?> 是「<?= h($pdfInfo['track']) ?>」字軌<?= $refill['source'] === '' ? '：請在「來源」選一個' . h($pdfInfo['track']) . '字軌的來源' . ($pdfInfo['srcs'] ? '（' . h(implode('、', $pdfInfo['srcs'])) . '）' : '（設定裡還沒有' . h($pdfInfo['track']) . '字軌的來源，請先新增）') : '，已選好來源，可以改選' ?>。</div><?php endif; ?>
+<?php if ($pdfInfo['sup_missing'] !== ''): ?><div class="alert warn">供應商「<?= h($pdfInfo['sup_missing']) ?>」不在清單，請到「設定」新增後再選（或先空白，之後補）。</div><?php endif; ?>
+<?php endif; ?>
+</section>
+<?php endif; ?>
 <form method="post" action="./?a=<?= $b ? 'edit&id=' . (int)$b['id'] : 'new' ?>">
+<?php foreach (['pf_name', 'pf_attn', 'pf_addr'] as $pk) if (!$b && ($refill[$pk] ?? '') !== ''): ?><input type="hidden" name="<?= $pk ?>" value="<?= h((string)$refill[$pk]) ?>"><?php endif; ?>
 <input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="save_batch"><?php if (isset($_GET['single']) || ($refill['single'] ?? '') === '1'): ?><input type="hidden" name="single" value="1"><?php endif; ?>
 <section class="panel"><h2>收貨資料</h2>
 <div class="grid">
@@ -527,8 +561,16 @@ if ($addrBadIds): ?><div class="alert warn">地址不完整或有誤 <?= count($
 <?php endif; ?>
 </section>
 <?php if ($b['status'] === 'draft' && $canEdit): ?>
-<?php $o1 = $refillOne ?? []; $ov = fn($k, $dflt = '') => h((string)($o1[$k] ?? $dflt)); ?>
+<?php $o1 = $refillOne ?? [];
+    $pfOn = !$refillOne && !empty($_GET['pf']) && trim((string)($_GET['pf_name'] ?? '')) !== '';
+    if ($pfOn) {   // 進貨單 PDF 帶入的捐贈者：收據抬頭 → 捐物人；寄件地址拆成縣市區＋地址（拆不出來就整段放地址）
+        $pa = trim((string)($_GET['pf_addr'] ?? ''));
+        $pm = preg_match('/^(\d{3,6})?\s*(\S{2,3}[縣市]\S{1,4}?[區鄉鎮市])(.+)$/u', $pa, $pq) ? $pq : null;
+        $o1 = ['name' => trim((string)$_GET['pf_name']), 'zip' => $pm[1] ?? '', 'city' => $pm[2] ?? '', 'address' => $pm ? trim($pm[3]) : $pa, 'send' => '1'];
+    }
+    $ov = fn($k, $dflt = '') => h((string)($o1[$k] ?? $dflt)); ?>
 <section class="panel" id="single"><h2>單筆輸入 <small>臨時來捐、電話捐贈：一次填一位，可連續加好幾位</small></h2>
+<?php if ($pfOn): ?><div class="alert ok" role="status">已帶入進貨單的捐贈者：收據抬頭「<?= h($o1['name']) ?>」<?= trim((string)($_GET['pf_attn'] ?? '')) !== '' ? '、收件人「' . h(trim((string)$_GET['pf_attn'])) . '」' : '' ?>、寄件地址。可以修改，核對後按「加入這一筆」。<?= trim((string)($_GET['pf_attn'] ?? '')) !== '' ? '（收件人沒有獨立欄位，需要的話請寫在地址最後，例如「立德路117號 Lion Lin主任收」。）' : '' ?></div><?php endif; ?>
 <form method="post" action="./?a=batch&amp;id=<?= $id ?>#single">
 <input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="add_row">
 <div class="grid">
