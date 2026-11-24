@@ -447,6 +447,11 @@ $g99 = req($E, ['a' => 'batch', 'id' => $bc, 'p' => '99']);
 ok(substr_count($g99, '<tr id="r') === 101, '頁碼超過時停在最後一頁');
 ok(str_contains($g1, 'window.rcPageGo=function(){var n=changed().length') && substr_count($g1, 'onclick="return !window.rcPageGo || rcPageGo()"') === 2 * 6, '換頁前檢查本頁未存修改：上下頁碼與下一頁都接 rcPageGo（大沈 11/24 審查）');
 ok(str_contains($g6, 'onclick="return !window.rcPageGo || rcPageGo()">上一頁</a>'), '上一頁也有未存檢查');
+// 11/24 大沈審查 bb2b1e3：腳本語法錯誤時整段不執行、onclick 照樣放行，字串比對驗不到 → 把頁面腳本交給 node --check（主機沒有 node 時另存檔，在有 node 的機器補驗）
+preg_match_all('#<script>(.*?)</script>#s', $g1, $jsm);
+$jsf = sys_get_temp_dir() . '/rc_batch_scripts.js'; file_put_contents($jsf, implode("\n;\n", $jsm[1]));
+if (trim((string)shell_exec('command -v node 2>/dev/null')) !== '') { exec('node --check ' . escapeshellarg($jsf) . ' 2>&1', $jo, $jrc); ok($jrc === 0, '批次頁腳本 node --check 通過' . ($jrc ? '：' . implode(' ', array_slice($jo, 0, 3)) : '')); }
+else echo "  （略過：本機沒有 node，腳本已存 {$jsf}，請在有 node 的機器執行 node --check）\n";
 $rid3 = (int)$d->query("SELECT id FROM donation WHERE batch_id=$bc AND row_no=450")->fetchColumn();
 $g3 = req($E, ['a' => 'batch', 'id' => $bc, 'p' => '3']);
 ok(str_contains($g3, 'id="r' . $rid3 . '"') && str_contains($g3, 'p=3"><input type="hidden" name="csrf"'), '第 3 頁有第 450 列，單列存檔表單帶 p=3');

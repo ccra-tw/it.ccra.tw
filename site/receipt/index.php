@@ -562,9 +562,7 @@ if ($addrBadIds): ?><div class="alert warn">地址不完整或有誤 <?= count($
     return out;
   }
   // 11/24 大沈審查：換頁前檢查本頁有沒有未儲存的修改，有就先問（取消＝留在本頁儲存）
-  window.rcPageGo=function(){var n=changed().length; return !n || confirm('這一頁還有 '+n+' 列改了沒儲存，換頁會放棄這些修改。
-
-按「確定」放棄修改並換頁；按「取消」留在本頁，先按「全部儲存」。');};
+  window.rcPageGo=function(){var n=changed().length; return !n || confirm('這一頁還有 '+n+' 列改了沒儲存，換頁會放棄這些修改。\n\n按「確定」放棄修改並換頁；按「取消」留在本頁，先按「全部儲存」。');};
   document.addEventListener('input',function(){var n=changed().length;document.getElementById('bulkHint').textContent=n?('目前改了 '+n+' 列，按左邊一次儲存。'):'可以連續改好幾列的地址、勾寄發，最後按這裡一次存。';});
   document.addEventListener('change',function(){var n=changed().length;document.getElementById('bulkHint').textContent=n?('目前改了 '+n+' 列，按左邊一次儲存。'):'可以連續改好幾列的地址、勾寄發，最後按這裡一次存。';});
   f.addEventListener('submit',function(e){var rows=changed(); if(!rows.length){e.preventDefault();alert('還沒有改過任何一列');return;} document.getElementById('bulkRows').value=JSON.stringify(rows);});
