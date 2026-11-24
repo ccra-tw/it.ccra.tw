@@ -68,11 +68,11 @@ file_put_contents($zc, json_encode(['v' => ZBX_CACHE_VER, 'at' => time(), 'hosts
 ok(zbx_cache_read($zc, false) === null && zbx_cache_read($zc, true) === null, '目前版本但主機列是字串 → 整份不採用');
 [$zd, $zmsg] = zabbix_hosts();
 ok($zd === null || zbx_row_ok($zd['hosts'][0] ?? [], false), '格式不符的快取不會流到設備監控（不是重抓成功，就是回傳 null）');
-foreach ([['avail' => '1'], ['group' => null], ['problems' => 'x'], ['problems' => ['x']]] as $bad) {
+foreach ([['avail' => '1'], ['group' => null], ['problems' => 'x'], ['problems' => ['x']], ['problems' => [['name' => ['陣列'], 'severity' => 2]]], ['problems' => [['name' => '磁碟過慢', 'severity' => '2']]]] as $bad) {
     file_put_contents($zc, json_encode(['v' => ZBX_CACHE_VER, 'at' => time(), 'hosts' => [$zrow(['host' => 'demo-host-01'] + $bad)]]));
     ok(zbx_cache_read($zc, false) === null, '欄位型別不符拒收：' . json_encode($bad, JSON_UNESCAPED_UNICODE));
 }
-file_put_contents($zc, json_encode(['v' => ZBX_CACHE_VER, 'at' => time(), 'hosts' => [$zrow(['host' => 'demo-host-01'])]]));
+file_put_contents($zc, json_encode(['v' => ZBX_CACHE_VER, 'at' => time(), 'hosts' => [$zrow(['host' => 'demo-host-01', 'problems' => [['name' => '磁碟過慢', 'severity' => 2, 'clock' => 1]]])]]));
 [$zd, $zmsg] = zabbix_hosts();
 ok($zmsg === '' && ($zd['hosts'][0]['host'] ?? '') === 'demo-host-01', '新版有效快取（含 host）未滿 60 秒直接採用');
 file_put_contents($zc, '{壞掉的 JSON');

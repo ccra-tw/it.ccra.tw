@@ -110,7 +110,7 @@ function zbx_row_ok($r, bool $needHost): bool {
     if (!is_array($r)) return false;
     foreach (['hostid', 'name', 'group'] as $k) if (!isset($r[$k]) || !is_string($r[$k])) return false;
     if (!array_key_exists('avail', $r) || !is_int($r['avail']) || !isset($r['problems']) || !is_array($r['problems'])) return false;
-    foreach ($r['problems'] as $p) if (!is_array($p) || !isset($p['name'], $p['severity'])) return false;
+    foreach ($r['problems'] as $p) if (!is_array($p) || !isset($p['name'], $p['severity']) || !is_string($p['name']) || !is_int($p['severity'])) return false;   // 產生端寫入 name 字串、severity 整數
     if ($needHost && (!isset($r['host']) || !is_string($r['host']) || $r['host'] === '')) return false;
     return true;
 }
