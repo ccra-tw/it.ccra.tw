@@ -561,6 +561,10 @@ if ($addrBadIds): ?><div class="alert warn">地址不完整或有誤 <?= count($
     });
     return out;
   }
+  // 11/24 大沈審查：換頁前檢查本頁有沒有未儲存的修改，有就先問（取消＝留在本頁儲存）
+  window.rcPageGo=function(){var n=changed().length; return !n || confirm('這一頁還有 '+n+' 列改了沒儲存，換頁會放棄這些修改。
+
+按「確定」放棄修改並換頁；按「取消」留在本頁，先按「全部儲存」。');};
   document.addEventListener('input',function(){var n=changed().length;document.getElementById('bulkHint').textContent=n?('目前改了 '+n+' 列，按左邊一次儲存。'):'可以連續改好幾列的地址、勾寄發，最後按這裡一次存。';});
   document.addEventListener('change',function(){var n=changed().length;document.getElementById('bulkHint').textContent=n?('目前改了 '+n+' 列，按左邊一次儲存。'):'可以連續改好幾列的地址、勾寄發，最後按這裡一次存。';});
   f.addEventListener('submit',function(e){var rows=changed(); if(!rows.length){e.preventDefault();alert('還沒有改過任何一列');return;} document.getElementById('bulkRows').value=JSON.stringify(rows);});
@@ -577,9 +581,9 @@ $shown = array_slice($shown, ($pg - 1) * RCPT_PAGE, RCPT_PAGE);
 ?>
 <?php if ($pgN > 1): $pgBase = './?a=batch&amp;id=' . $id . (($_GET['addr'] ?? '') === 'bad' ? '&amp;addr=bad' : ''); ?>
 <nav class="actions pager" aria-label="明細分頁" style="margin:8px 0;flex-wrap:wrap">第 <?= ($pg - 1) * RCPT_PAGE + 1 ?>–<?= min($pgTotal, $pg * RCPT_PAGE) ?> 筆，共 <?= $pgTotal ?> 筆
-<?php if ($pg > 1): ?><a class="btn ghost sm" href="<?= $pgBase ?>&amp;p=<?= $pg - 1 ?>">上一頁</a><?php endif; ?>
-<?php for ($i = 1; $i <= $pgN; $i++): ?><?= $i === $pg ? '<b class="btn sm" aria-current="page">' . $i . '</b>' : '<a class="btn ghost sm" href="' . $pgBase . '&amp;p=' . $i . '">' . $i . '</a>' ?> <?php endfor; ?>
-<?php if ($pg < $pgN): ?><a class="btn ghost sm" href="<?= $pgBase ?>&amp;p=<?= $pg + 1 ?>">下一頁</a><?php endif; ?>
+<?php if ($pg > 1): ?><a class="btn ghost sm" href="<?= $pgBase ?>&amp;p=<?= $pg - 1 ?>" onclick="return !window.rcPageGo || rcPageGo()">上一頁</a><?php endif; ?>
+<?php for ($i = 1; $i <= $pgN; $i++): ?><?= $i === $pg ? '<b class="btn sm" aria-current="page">' . $i . '</b>' : '<a class="btn ghost sm" href="' . $pgBase . '&amp;p=' . $i . '" onclick="return !window.rcPageGo || rcPageGo()">' . $i . '</a>' ?> <?php endfor; ?>
+<?php if ($pg < $pgN): ?><a class="btn ghost sm" href="<?= $pgBase ?>&amp;p=<?= $pg + 1 ?>" onclick="return !window.rcPageGo || rcPageGo()">下一頁</a><?php endif; ?>
 </nav>
 <?php endif; ?>
 <div class="panel flush"><div class="tbl">
@@ -602,9 +606,9 @@ $shown = array_slice($shown, ($pg - 1) * RCPT_PAGE, RCPT_PAGE);
 </table></div></div>
 <?php if ($pgN > 1): $pgBase = './?a=batch&amp;id=' . $id . (($_GET['addr'] ?? '') === 'bad' ? '&amp;addr=bad' : ''); ?>
 <nav class="actions pager" aria-label="明細分頁" style="margin:8px 0;flex-wrap:wrap">第 <?= ($pg - 1) * RCPT_PAGE + 1 ?>–<?= min($pgTotal, $pg * RCPT_PAGE) ?> 筆，共 <?= $pgTotal ?> 筆
-<?php if ($pg > 1): ?><a class="btn ghost sm" href="<?= $pgBase ?>&amp;p=<?= $pg - 1 ?>">上一頁</a><?php endif; ?>
-<?php for ($i = 1; $i <= $pgN; $i++): ?><?= $i === $pg ? '<b class="btn sm" aria-current="page">' . $i . '</b>' : '<a class="btn ghost sm" href="' . $pgBase . '&amp;p=' . $i . '">' . $i . '</a>' ?> <?php endfor; ?>
-<?php if ($pg < $pgN): ?><a class="btn ghost sm" href="<?= $pgBase ?>&amp;p=<?= $pg + 1 ?>">下一頁</a><?php endif; ?>
+<?php if ($pg > 1): ?><a class="btn ghost sm" href="<?= $pgBase ?>&amp;p=<?= $pg - 1 ?>" onclick="return !window.rcPageGo || rcPageGo()">上一頁</a><?php endif; ?>
+<?php for ($i = 1; $i <= $pgN; $i++): ?><?= $i === $pg ? '<b class="btn sm" aria-current="page">' . $i . '</b>' : '<a class="btn ghost sm" href="' . $pgBase . '&amp;p=' . $i . '" onclick="return !window.rcPageGo || rcPageGo()">' . $i . '</a>' ?> <?php endfor; ?>
+<?php if ($pg < $pgN): ?><a class="btn ghost sm" href="<?= $pgBase ?>&amp;p=<?= $pg + 1 ?>" onclick="return !window.rcPageGo || rcPageGo()">下一頁</a><?php endif; ?>
 </nav>
 <?php endif; ?>
 <?php } ?>

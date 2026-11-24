@@ -445,6 +445,8 @@ $g6 = req($E, ['a' => 'batch', 'id' => $bc, 'p' => '6']);
 ok(substr_count($g6, '<tr id="r') === 101 && str_contains($g6, '第 1001–1101 筆') && !str_contains($g6, '下一頁'), '最後一頁 101 列、沒有下一頁');
 $g99 = req($E, ['a' => 'batch', 'id' => $bc, 'p' => '99']);
 ok(substr_count($g99, '<tr id="r') === 101, '頁碼超過時停在最後一頁');
+ok(str_contains($g1, 'window.rcPageGo=function(){var n=changed().length') && substr_count($g1, 'onclick="return !window.rcPageGo || rcPageGo()"') === 2 * 6, '換頁前檢查本頁未存修改：上下頁碼與下一頁都接 rcPageGo（大沈 11/24 審查）');
+ok(str_contains($g6, 'onclick="return !window.rcPageGo || rcPageGo()">上一頁</a>'), '上一頁也有未存檢查');
 $rid3 = (int)$d->query("SELECT id FROM donation WHERE batch_id=$bc AND row_no=450")->fetchColumn();
 $g3 = req($E, ['a' => 'batch', 'id' => $bc, 'p' => '3']);
 ok(str_contains($g3, 'id="r' . $rid3 . '"') && str_contains($g3, 'p=3"><input type="hidden" name="csrf"'), '第 3 頁有第 450 列，單列存檔表單帶 p=3');
