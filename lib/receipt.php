@@ -239,6 +239,14 @@ function rcpt_food_missing(PDO $d, int $batchId): array {
     return $out;
 }
 
+// 大沈審 4c2dfc0：食字軌單列改品名時，在同一交易驗證品名對得到有單位的進貨明細（對不到會讓補印 409）
+function rcpt_food_product_ok(PDO $d, int $batchId, string $product): bool {
+    if (trim($product) === '') return false;
+    $s = $d->prepare("SELECT 1 FROM batch_item WHERE batch_id = ? AND name = ? AND trim(unit) <> '' LIMIT 1");
+    $s->execute([$batchId, $product]);
+    return (bool)$s->fetchColumn();
+}
+
 function rcpt_food_missing_text(array $miss): string {
     $parts = array_map(fn($m) => "第 {$m[0]} 列{$m[1]}", array_slice($miss, 0, 5));
     return '食字軌收據要印品名與單位，有 ' . count($miss) . ' 列不完整（' . implode('；', $parts) . (count($miss) > 5 ? '…' : '')

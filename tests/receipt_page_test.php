@@ -476,6 +476,28 @@ ok($v2['order_no'] === 'LATE-0001' && $v2['product'] === '補登品項' && $v2['
 ok(str_contains((string)$d->query("SELECT detail FROM audit WHERE action='edit_after_number' AND batch_id=$bs ORDER BY id DESC LIMIT 1")->fetchColumn(), 'order_no:  → LATE-0001'), '補登留改前改後稽核');
 req($E, ['a' => 'batch', 'id' => $bs], 'POST', ['csrf' => $csrf($E), 'do' => 'rows_bulk', 'rows' => json_encode([['rid' => $r2['id'], 'name' => $r2['name'], 'zip' => '', 'city' => '', 'address' => '', 'send' => false, 'mailed_on' => '', 'order_no' => 'LATE-0001', 'product' => '補登品項', 'tax_id' => '87654321']])]);
 ok($d->query("SELECT tax_id FROM donation WHERE id = {$r2['id']}")->fetchColumn() === '87654321', '全部儲存也存統編');
+// 大沈審 4c2dfc0：統編欄不可在整理前就被截斷；食字軌已配號後品名改成未列品項要被擋，補印不受影響；被擋時畫面保留輸入
+ok(!preg_match('#name="tax_id"[^>]*maxlength#', $gb2), '統編欄沒有字數上限（先整理分隔符號再判斷 8 位）');
+$rowPost(['order_no' => 'LATE-0001', 'product' => '補登品項', 'tax_id' => '１２-３４-５６-７８']);
+ok($d->query("SELECT tax_id FROM donation WHERE id = {$r2['id']}")->fetchColumn() === '12345678', '貼上「１２-３４-５６-７８」整理成 12345678');
+$rjt = $rowPost(['order_no' => 'LATE-0001', 'product' => '補登品項', 'tax_id' => '12-34']);
+ok(str_contains($rjt, '統一編號要是 8 位數字') && str_contains($rjt, 'value="12-34"') && str_contains($rjt, '畫面保留了您輸入的內容'), '統編被擋時畫面保留剛輸入的值');
+$d->exec("INSERT INTO batch (source, track, in_date, status, first_no, last_no, created_by) VALUES ('食測', '食', '2026-11-24', 'numbered', '食(115)11240001', '食(115)11240001', 'test')");
+$bf = (int)$d->query("SELECT max(id) FROM batch")->fetchColumn();
+$d->exec("INSERT INTO batch_item (batch_id, code, name, qty, unit) VALUES ($bf, 'B03004', '新東陽原味肉醬罐頭160g', 10, '罐')");
+$d->exec("INSERT INTO donation (batch_id, row_no, seq, receipt_no, name, zip, city, address, product, qty, send) VALUES ($bf, 1, 1, '食(115)11240001', '好市多股份有限公司', '112', '台北市北投區', '立德路117號', '新東陽原味肉醬罐頭160g', 10, true)");
+$rf = $d->query("SELECT id, name FROM donation WHERE batch_id = $bf")->fetch(PDO::FETCH_ASSOC);
+$fPost = fn($extra) => req($E, ['a' => 'batch', 'id' => $bf], 'POST', array_merge(['csrf' => $csrf($E), 'do' => 'row', 'rid' => $rf['id'], 'name' => $rf['name'], 'zip' => '112', 'city' => '台北市北投區', 'address' => '立德路117號', 'send' => '1'], $extra));
+$fr = $fPost(['product' => 'SHEN-UAT-未列品項']);
+ok(str_contains($fr, '不在這一批的進貨明細') && str_contains($fr, '第 1 列'), '食字軌已配號後填未列品名 → 單列儲存被拒並指出列號');
+ok($d->query("SELECT product FROM donation WHERE id = {$rf['id']}")->fetchColumn() === '新東陽原味肉醬罐頭160g', '被拒後舊品名不變');
+ok(str_contains($fr, 'value="SHEN-UAT-未列品項"'), '被拒時畫面保留剛輸入的品名');
+$fb = req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'rows_bulk', 'rows' => json_encode([['rid' => $rf['id'], 'name' => $rf['name'], 'zip' => '112', 'city' => '台北市北投區', 'address' => '立德路117號', 'send' => true, 'mailed_on' => '', 'product' => 'SHEN-UAT-未列品項']])]);
+ok(str_contains($fb, '不在這一批的進貨明細') && $d->query("SELECT product FROM donation WHERE id = {$rf['id']}")->fetchColumn() === '新東陽原味肉醬罐頭160g', '全部儲存同樣擋下、舊品名不變');
+$fp = preq($E, ['id' => $bf, 'one' => $rf['id']]);
+ok(str_contains($fp, 'class="page food"') && str_contains($fp, '新東陽原味肉醬罐頭160g') && !str_contains($fp, '收據不能列印'), '被拒後補印不受影響（食字軌收據照常印出舊品名）');
+$fPost(['product' => '新東陽原味肉醬罐頭160g', 'tax_id' => '96979933']);
+ok($d->query("SELECT tax_id FROM donation WHERE id = {$rf['id']}")->fetchColumn() === '96979933' && str_contains(preq($E, ['id' => $bf, 'one' => $rf['id']]), '統編 96979933'), '品名未改時照常存；收據印出統編');
 $bdraft = (int)$d->query("SELECT id FROM batch WHERE status = 'draft' ORDER BY id DESC LIMIT 1")->fetchColumn();
 if ($bdraft) {
     ok(str_contains(req($E, ['a' => 'batch', 'id' => $bdraft]), 'name="tax_id"'), '單筆輸入表單有統一編號欄');
