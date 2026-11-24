@@ -436,6 +436,22 @@ $o01 = req($E, ['a' => 'batch', 'id' => $bt], 'POST', ['csrf' => $csrf($E), 'do'
 ok(str_contains($o01, '不能以 0 開頭') && str_contains($o01, 'value="01"') && (int)$d->query("SELECT count(*) FROM donation WHERE batch_id=$bt AND name='前導零測試'")->fetchColumn() === 0, '數量 01 擋下並說明不能以 0 開頭');
 $fq = req($E, ['a' => 'batch', 'id' => $bt]);
 ok(str_contains($fq, 'pattern="[1-9１-９][0-9０-９]{0,4}"'), '前端 pattern 與伺服器規則一致（首字 1～9、至多 5 位）');
+echo "批次明細分頁（繁英姊 11/24：5,089 筆一次畫出太慢）
+";
+$d->exec("UPDATE batch SET first_no='CH-00001', last_no='CH-01101' WHERE id=$bc");   // 已配號批次要有收據起訖，批次頁才畫得出來
+$g1 = req($E, ['a' => 'batch', 'id' => $bc]);
+ok(substr_count($g1, '<tr id="r') === RCPT_PAGE && str_contains($g1, '共 1101 筆') && str_contains($g1, '下一頁') && str_contains($g1, '<b>1101</b>'), '第 1 頁只畫 ' . RCPT_PAGE . ' 列，上方筆數仍是整批 1101');
+$g6 = req($E, ['a' => 'batch', 'id' => $bc, 'p' => '6']);
+ok(substr_count($g6, '<tr id="r') === 101 && str_contains($g6, '第 1001–1101 筆') && !str_contains($g6, '下一頁'), '最後一頁 101 列、沒有下一頁');
+$g99 = req($E, ['a' => 'batch', 'id' => $bc, 'p' => '99']);
+ok(substr_count($g99, '<tr id="r') === 101, '頁碼超過時停在最後一頁');
+$rid3 = (int)$d->query("SELECT id FROM donation WHERE batch_id=$bc AND row_no=450")->fetchColumn();
+$g3 = req($E, ['a' => 'batch', 'id' => $bc, 'p' => '3']);
+ok(str_contains($g3, 'id="r' . $rid3 . '"') && str_contains($g3, 'p=3"><input type="hidden" name="csrf"'), '第 3 頁有第 450 列，單列存檔表單帶 p=3');
+$gs = req($E, ['a' => 'batch', 'id' => $bc, 'p' => '3'], 'POST', ['csrf' => $csrf($E), 'do' => 'row', 'rid' => $rid3, 'name' => '分頁存檔', 'zip' => '100', 'city' => '台北市', 'address' => '分頁路1號', 'send' => '1']);
+ok(str_contains($gs, 'X-TEST-LOCATION: ./?a=batch&id=' . $bc . '&p=3&ok=row#r' . $rid3), '在第 3 頁存檔後回到第 3 頁');
+$gb = req($E, ['a' => 'batch', 'id' => $bc, 'p' => '3'], 'POST', ['csrf' => $csrf($E), 'do' => 'rows_bulk', 'rows' => json_encode([['rid' => $rid3, 'name' => '分頁批次', 'zip' => '100', 'city' => '台北市', 'address' => '分頁路2號', 'send' => true, 'mailed_on' => '']])]);
+ok(str_contains($gb, 'X-TEST-LOCATION: ./?a=batch&id=' . $bc . '&p=3&ok=bulk'), '全部儲存後也回到第 3 頁');
 @unlink($tmp);
 echo $fail ? "❌ 失敗 {$fail}／{$n}\n" : "✅ 全部通過 {$n} 項\n";
 exit($fail ? 1 : 0);

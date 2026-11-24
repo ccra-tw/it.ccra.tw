@@ -10,6 +10,7 @@ require_once __DIR__ . '/db.php';
 const RCPT_TRACKS = ['物', '食'];
 const RCPT_SOURCES = ['ibon' => '物', 'i預購' => '物', '家庭雲端' => '食', '個人' => '食', '企業團體' => '食'];
 const RCPT_ROLES = ['edit', 'view'];
+const RCPT_PAGE = 200;   // 11/24 繁英姊：批次明細每頁筆數（5,089 筆一次畫出太慢）
 
 function rcpt_db(): PDO {
     $d = itdb('receipt');

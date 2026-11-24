@@ -22,6 +22,8 @@ function batch_get(PDO $d, int $id): ?array {
     $s = $d->prepare('SELECT * FROM batch WHERE id = ?'); $s->execute([$id]);
     return $s->fetch(PDO::FETCH_ASSOC) ?: null;
 }
+// 11/24 明細分頁：存檔、轉址時帶回目前頁碼
+function rc_pq(): string { $p = (int)($_GET['p'] ?? 1); return $p > 1 ? '&p=' . $p : ''; }
 function need_edit($canEdit) { if (!$canEdit) { http_response_code(403); exit('您的權限只能查詢。'); } }
 
 // 轉址（測試接縫：命令列＋測試 schema 時把目的地印出來，讓測試驗得到 Location；大沈 d836044 審查要求）
@@ -128,7 +130,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $newId = (int)$insOne->fetchColumn();   // 清單列的錨點是 donation.id，不是 row_no（大沈 d836044：新增首筆導到 #r1，列卻是 #r5135）
                 rcpt_audit($d, $email, 'add_row', $id, "row $n 單筆輸入");
                 $d->commit();
-                rc_go("./?a=batch&id=$id&ok=added#r$newId");
+                $nAll = (int)$d->query('SELECT COUNT(*) FROM donation WHERE batch_id = ' . $id)->fetchColumn(); $lastP = max(1, (int)ceil($nAll / RCPT_PAGE));
+                rc_go("./?a=batch&id=$id" . ($lastP > 1 ? "&p=$lastP" : '') . "&ok=added#r$newId");
             }
             if ($do === 'import') {
                 $b = batch_get($d, $id);
@@ -245,7 +248,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($chg) { rcpt_audit($d, $email, $b['status'] === 'draft' ? 'edit_row' : 'edit_after_number', $id, "row {$rid}（批次儲存）" . implode('；', $chg)); $n++; }
                 }
                 $d->commit();
-                rc_go("./?a=batch&id=$id" . ((($_GET['addr'] ?? '') === 'bad') ? '&addr=bad' : '') . "&ok=bulk$n");
+                rc_go("./?a=batch&id=$id" . ((($_GET['addr'] ?? '') === 'bad') ? '&addr=bad' : '') . rc_pq() . "&ok=bulk$n");
             }
             if ($do === 'row') {           // 改單筆：草稿時檢核用；配號後也可改（業務單位 11/12：原本不要收據、後來來電索取），收據編號不變、留改前改後
                 // 大沈 R-itsu-1112-01 複驗 P1：讀舊值、更新、稽核在同一交易；鎖順序同配號（先批次、再明細），稽核失敗整筆回滾
@@ -278,7 +281,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 rcpt_audit($d, $email, $b['status'] === 'draft' ? 'edit_row' : 'edit_after_number', $id, "row $rid " . implode('；', $chg));
                 $d->commit();
                 // 繁英姊 11/20：在「地址不完整或有誤」篩選頁按存，要回到同一個篩選頁繼續校對
-                rc_go("./?a=batch&id=$id" . ((int)($_GET['only'] ?? 0) ? '&only=' . $rid : '') . ((($_GET['addr'] ?? '') === 'bad') ? '&addr=bad' : '') . "&ok=row#r$rid");
+                rc_go("./?a=batch&id=$id" . ((int)($_GET['only'] ?? 0) ? '&only=' . $rid : '') . ((($_GET['addr'] ?? '') === 'bad') ? '&addr=bad' : '') . rc_pq() . "&ok=row#r$rid");
             }
             if ($do === 'mailed') {        // 整份標寄出日期（列印頁送來這份的 id）
                 $date = rcpt_roc_to_date($_POST['mailed_on'] ?? '');
@@ -539,9 +542,9 @@ if ($addrBadIds): ?><div class="alert warn">地址不完整或有誤 <?= count($
 <?php endif; ?>
 <?php if ((int)($_GET['only'] ?? 0)): ?><div class="alert ok" role="status">只顯示查詢的這一筆。<a href="./?a=batch&amp;id=<?= $id ?>">顯示整批 <?= count($rows) ?> 筆</a></div><?php endif; ?>
 <?php if ($canEdit && $rows): ?>
-<form id="bulkForm" method="post" action="./?a=batch&amp;id=<?= $id ?><?= ($_GET['addr'] ?? '') === 'bad' ? '&amp;addr=bad' : '' ?>" class="actions" style="margin:0 0 8px">
+<form id="bulkForm" method="post" action="./?a=batch&amp;id=<?= $id ?><?= ($_GET['addr'] ?? '') === 'bad' ? '&amp;addr=bad' : '' ?><?= h(rc_pq()) ?>" class="actions" style="margin:0 0 8px">
 <input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="rows_bulk"><input type="hidden" name="rows" id="bulkRows">
-<button type="submit" id="bulkBtn">全部儲存（只存有改過的列）</button><span class="hint" id="bulkHint">可以連續改好幾列的地址、勾寄發，最後按這裡一次存。</span>
+<button type="submit" id="bulkBtn">全部儲存（只存有改過的列）</button><span class="hint" id="bulkHint">可以連續改好幾列的地址、勾寄發，最後按這裡一次存（只存這一頁）。</span>
 </form>
 <script>
 (function(){
@@ -564,13 +567,24 @@ if ($addrBadIds): ?><div class="alert warn">地址不完整或有誤 <?= count($
 })();
 </script>
 <?php endif; ?>
-<div class="panel flush"><div class="tbl">
-<table class="rows"><tr class="hd"><th>#</th><th>收據編號</th><th>訂單編號</th><th>收件人</th><th>郵遞區號／縣市區／地址</th><?php if ($b['track'] === '食'): ?><th>品名</th><?php endif; ?><th class="n">數量</th><th>寄發</th><th>檢核說明</th><th>寄出日期</th><?php if ($canEdit): ?><th></th><?php endif; ?></tr>
 <?php // 查詢結果按「修改」只顯示那一筆（繁英姊 11/19：「按修改結果出現所有的資料，而不是這個人的資料」）；統計仍以整批計
 $only = (int)($_GET['only'] ?? 0);
 $shown = $only ? array_values(array_filter($rows, fn($r) => (int)$r['id'] === $only)) : $rows;
 if (($_GET['addr'] ?? '') === 'bad') $shown = array_values(array_filter($shown, fn($r) => in_array((int)$r['id'], $addrBadIds, true)));   // 繁英姊 11/20：篩選標紅的
-foreach ($shown as $r): $isDup = isset($dup[$r['order_no']]) || isset($inb[$r['order_no']]); $fid = 'f' . (int)$r['id']; ?>
+// 繁英姊 11/24：5,089 筆的批次一次畫出全部，頁面太慢、看不出有沒有載完 → 明細表每頁 RCPT_PAGE 筆；上方統計與警示仍以整批計
+$pgTotal = count($shown); $pgN = max(1, (int)ceil($pgTotal / RCPT_PAGE)); $pg = min($pgN, max(1, (int)($_GET['p'] ?? 1)));
+$shown = array_slice($shown, ($pg - 1) * RCPT_PAGE, RCPT_PAGE);
+?>
+<?php if ($pgN > 1): $pgBase = './?a=batch&amp;id=' . $id . (($_GET['addr'] ?? '') === 'bad' ? '&amp;addr=bad' : ''); ?>
+<nav class="actions pager" aria-label="明細分頁" style="margin:8px 0;flex-wrap:wrap">第 <?= ($pg - 1) * RCPT_PAGE + 1 ?>–<?= min($pgTotal, $pg * RCPT_PAGE) ?> 筆，共 <?= $pgTotal ?> 筆
+<?php if ($pg > 1): ?><a class="btn ghost sm" href="<?= $pgBase ?>&amp;p=<?= $pg - 1 ?>">上一頁</a><?php endif; ?>
+<?php for ($i = 1; $i <= $pgN; $i++): ?><?= $i === $pg ? '<b class="btn sm" aria-current="page">' . $i . '</b>' : '<a class="btn ghost sm" href="' . $pgBase . '&amp;p=' . $i . '">' . $i . '</a>' ?> <?php endfor; ?>
+<?php if ($pg < $pgN): ?><a class="btn ghost sm" href="<?= $pgBase ?>&amp;p=<?= $pg + 1 ?>">下一頁</a><?php endif; ?>
+</nav>
+<?php endif; ?>
+<div class="panel flush"><div class="tbl">
+<table class="rows"><tr class="hd"><th>#</th><th>收據編號</th><th>訂單編號</th><th>收件人</th><th>郵遞區號／縣市區／地址</th><?php if ($b['track'] === '食'): ?><th>品名</th><?php endif; ?><th class="n">數量</th><th>寄發</th><th>檢核說明</th><th>寄出日期</th><?php if ($canEdit): ?><th></th><?php endif; ?></tr>
+<?php foreach ($shown as $r): $isDup = isset($dup[$r['order_no']]) || isset($inb[$r['order_no']]); $fid = 'f' . (int)$r['id']; ?>
 <tr id="r<?= (int)$r['id'] ?>" class="<?= $isDup ? 'dup' : (in_array((int)$r['id'], $addrBadIds, true) ? 'addrbad' : (!$r['send'] ? 'bad' : '')) ?>">
 <td data-l="#"><?= (int)$r['row_no'] ?></td><td data-l="收據編號" class="mono"><?= h($r['receipt_no']) ?></td><td data-l="訂單編號" class="mono"><?= h($r['order_no']) ?><?= isset($dup[$r['order_no']]) ? '<br><small>已開：' . h($dup[$r['order_no']][1]) . '</small>' : '' ?><?= isset($inb[$r['order_no']]) ? '<br><small>名單內重複</small>' : '' ?></td>
 <?php if ($canEdit): ?>
@@ -578,7 +592,7 @@ foreach ($shown as $r): $isDup = isset($dup[$r['order_no']]) || isset($inb[$r['o
 <td data-l="地址" class="addr"><input form="<?= $fid ?>" type="text" name="zip" value="<?= h($r['zip']) ?>" style="width:5em" aria-label="郵遞區號"> <input form="<?= $fid ?>" type="text" name="city" value="<?= h($r['city']) ?>" style="width:9em" aria-label="縣市區"> <input form="<?= $fid ?>" type="text" name="address" value="<?= h($r['address']) ?>" style="width:16em" aria-label="地址"><br><small><?= h($r['raw_addr']) ?></small></td>
 <?php if ($b['track'] === '食'): ?><td data-l="品名" class="<?= isset($fmiss[(int)$r['row_no']]) ? 'bad' : '' ?>"><?= h($r['product']) ?><?= isset($fmiss[(int)$r['row_no']]) ? '<br><small>' . h($fmiss[(int)$r['row_no']]) . '</small>' : '' ?></td><?php endif; ?><td data-l="數量" class="n"><?= (int)$r['qty'] ?></td><td data-l="寄發"><input form="<?= $fid ?>" type="checkbox" name="send" <?= $r['send'] ? 'checked' : '' ?> aria-label="寄發"></td><td data-l="檢核說明"><?= h($r['check_note']) ?></td>
 <td data-l="寄出日期"><input form="<?= $fid ?>" type="text" name="mailed_on" value="<?= $r['mailed_on'] ? h(rcpt_date_to_roc($r['mailed_on'])) : '' ?>" placeholder="115/11/12" style="width:7em" aria-label="寄出日期"></td>
-<td class="act"><form id="<?= $fid ?>" style="display:inline" method="post" action="./?a=batch&id=<?= $id ?><?= $only ? '&amp;only=' . $only : '' ?><?= ($_GET['addr'] ?? '') === 'bad' ? '&amp;addr=bad' : '' ?>"><input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="row"><input type="hidden" name="rid" value="<?= (int)$r['id'] ?>"><button class="sm">存</button></form>
+<td class="act"><form id="<?= $fid ?>" style="display:inline" method="post" action="./?a=batch&id=<?= $id ?><?= $only ? '&amp;only=' . $only : '' ?><?= ($_GET['addr'] ?? '') === 'bad' ? '&amp;addr=bad' : '' ?><?= h(rc_pq()) ?>"><input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="row"><input type="hidden" name="rid" value="<?= (int)$r['id'] ?>"><button class="sm">存</button></form>
 <?php if ($r['receipt_no']): ?><a href="./print.php?id=<?= $id ?>&one=<?= (int)$r['id'] ?>" onclick="rcBusyLink('開啟列印頁面中，張數多時要等一下…')">補印</a><?php endif; ?></td>
 <?php else: ?>
 <td data-l="收件人"><?= h($r['name']) ?></td><td data-l="地址"><?= h($r['zip'] . ' ' . $r['city'] . $r['address']) ?></td><?php if ($b['track'] === '食'): ?><td data-l="品名" class="<?= isset($fmiss[(int)$r['row_no']]) ? 'bad' : '' ?>"><?= h($r['product']) ?><?= isset($fmiss[(int)$r['row_no']]) ? '<br><small>' . h($fmiss[(int)$r['row_no']]) . '</small>' : '' ?></td><?php endif; ?><td data-l="數量" class="n"><?= (int)$r['qty'] ?></td><td data-l="寄發"><?= $r['send'] ? '<span class="chip ok">寄</span>' : '<span class="chip">不寄</span>' ?></td><td data-l="檢核說明"><?= h($r['check_note']) ?></td>
@@ -586,6 +600,13 @@ foreach ($shown as $r): $isDup = isset($dup[$r['order_no']]) || isset($inb[$r['o
 <?php endif; ?></tr>
 <?php endforeach; if (!$rows): ?><tr><td colspan="11" class="empty">這一批還沒有名單<?= $canEdit && $b['status'] === 'draft' ? '，請先在上方匯入。' : '。' ?></td></tr><?php endif; ?>
 </table></div></div>
+<?php if ($pgN > 1): $pgBase = './?a=batch&amp;id=' . $id . (($_GET['addr'] ?? '') === 'bad' ? '&amp;addr=bad' : ''); ?>
+<nav class="actions pager" aria-label="明細分頁" style="margin:8px 0;flex-wrap:wrap">第 <?= ($pg - 1) * RCPT_PAGE + 1 ?>–<?= min($pgTotal, $pg * RCPT_PAGE) ?> 筆，共 <?= $pgTotal ?> 筆
+<?php if ($pg > 1): ?><a class="btn ghost sm" href="<?= $pgBase ?>&amp;p=<?= $pg - 1 ?>">上一頁</a><?php endif; ?>
+<?php for ($i = 1; $i <= $pgN; $i++): ?><?= $i === $pg ? '<b class="btn sm" aria-current="page">' . $i . '</b>' : '<a class="btn ghost sm" href="' . $pgBase . '&amp;p=' . $i . '">' . $i . '</a>' ?> <?php endfor; ?>
+<?php if ($pg < $pgN): ?><a class="btn ghost sm" href="<?= $pgBase ?>&amp;p=<?= $pg + 1 ?>">下一頁</a><?php endif; ?>
+</nav>
+<?php endif; ?>
 <?php } ?>
 
 <?php elseif ($a === 'settings'):
