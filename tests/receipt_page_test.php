@@ -481,7 +481,7 @@ ok(!preg_match('#name="tax_id"[^>]*maxlength#', $gb2), '統編欄沒有字數上
 $rowPost(['order_no' => 'LATE-0001', 'product' => '補登品項', 'tax_id' => '１２-３４-５６-７８']);
 ok($d->query("SELECT tax_id FROM donation WHERE id = {$r2['id']}")->fetchColumn() === '12345678', '貼上「１２-３４-５６-７８」整理成 12345678');
 $rjt = $rowPost(['order_no' => 'LATE-0001', 'product' => '補登品項', 'tax_id' => '12-34']);
-ok(str_contains($rjt, '統一編號要是 8 位數字') && str_contains($rjt, 'value="12-34"') && str_contains($rjt, '畫面保留了您輸入的內容'), '統編被擋時畫面保留剛輸入的值');
+ok(str_contains($rjt, '統一編號要是 8 位數字') && str_contains($rjt, '"tax_id":"12-34"') && str_contains($rjt, 'name="tax_id" value="12345678"') && str_contains($rjt, '畫面保留了您輸入的內容'), '統編被擋時保留剛輸入的值（由頁尾腳本填入；欄位初始值仍是資料庫值，換頁會算成未存修改——大沈複審 4744424）');
 $d->exec("INSERT INTO batch (source, track, in_date, status, first_no, last_no, created_by) VALUES ('食測', '食', '2026-11-24', 'numbered', '食(115)11240001', '食(115)11240001', 'test')");
 $bf = (int)$d->query("SELECT max(id) FROM batch")->fetchColumn();
 $d->exec("INSERT INTO batch_item (batch_id, code, name, qty, unit) VALUES ($bf, 'B03004', '新東陽原味肉醬罐頭160g', 10, '罐')");
@@ -491,7 +491,12 @@ $fPost = fn($extra) => req($E, ['a' => 'batch', 'id' => $bf], 'POST', array_merg
 $fr = $fPost(['product' => 'SHEN-UAT-未列品項']);
 ok(str_contains($fr, '不在這一批的進貨明細') && str_contains($fr, '第 1 列'), '食字軌已配號後填未列品名 → 單列儲存被拒並指出列號');
 ok($d->query("SELECT product FROM donation WHERE id = {$rf['id']}")->fetchColumn() === '新東陽原味肉醬罐頭160g', '被拒後舊品名不變');
-ok(str_contains($fr, 'value="SHEN-UAT-未列品項"'), '被拒時畫面保留剛輸入的品名');
+ok(str_contains($fr, '"product":"SHEN-UAT-未列品項"') && str_contains($fr, 'name="product" value="新東陽原味肉醬罐頭160g"'), '被拒時保留剛輸入的品名（腳本填入），初始值仍是舊品名');
+preg_match_all('#<script>(.*?)</script>#s', $fr, $frm); $frf = sys_get_temp_dir() . '/rc_refill_' . getmypid() . '.js'; file_put_contents($frf, implode("
+;
+", $frm[1]));
+echo "  （回填頁腳本已存 {$frf}，有 node 的機器可 node --check）
+";
 $fb = req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'rows_bulk', 'rows' => json_encode([['rid' => $rf['id'], 'name' => $rf['name'], 'zip' => '112', 'city' => '台北市北投區', 'address' => '立德路117號', 'send' => true, 'mailed_on' => '', 'product' => 'SHEN-UAT-未列品項']])]);
 ok(str_contains($fb, '不在這一批的進貨明細') && $d->query("SELECT product FROM donation WHERE id = {$rf['id']}")->fetchColumn() === '新東陽原味肉醬罐頭160g', '全部儲存同樣擋下、舊品名不變');
 $fp = preq($E, ['id' => $bf, 'one' => $rf['id']]);

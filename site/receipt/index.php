@@ -521,13 +521,16 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
         if (($_POST['do'] ?? '') === 'row') $rowRefill[(int)($_POST['rid'] ?? 0)] = $_POST + ['send' => null];
         elseif (($_POST['do'] ?? '') === 'rows_bulk') foreach ((array)json_decode((string)($_POST['rows'] ?? ''), true) as $it) if (is_array($it)) $rowRefill[(int)($it['rid'] ?? 0)] = $it;
     }
-    if ($rowRefill) foreach ($rows as &$rr) {
-        $rf = $rowRefill[(int)$rr['id']] ?? null; if (!$rf) continue;
-        foreach (['name', 'zip', 'city', 'address', 'order_no', 'product', 'tax_id'] as $k) if (isset($rf[$k])) $rr[$k] = (string)$rf[$k];
-        if (array_key_exists('send', $rf)) $rr['send'] = !empty($rf['send']);
-        if (isset($rf['mailed_on'])) $rr['mailed_on'] = rcpt_roc_to_date((string)$rf['mailed_on']) ?? $rr['mailed_on'];
+    // 大沈複審 4744424：欄位初始值（defaultValue）維持資料庫值，回填值由頁尾腳本填進欄位 →
+    // changed() 會把它們算成「未儲存的修改」，換頁會提醒、全部儲存也會一起送出
+    $rfJs = [];
+    foreach ($rowRefill as $rid => $rf) {
+        if ($rid <= 0) continue;
+        $o = [];
+        foreach (['name', 'zip', 'city', 'address', 'order_no', 'product', 'tax_id', 'mailed_on'] as $k) if (isset($rf[$k])) $o[$k] = (string)$rf[$k];
+        if (array_key_exists('send', $rf)) $o['send'] = !empty($rf['send']);
+        $rfJs[$rid] = $o;
     }
-    unset($rr);
     $dup = $rows ? rcpt_dup_orders($d, array_column($rows, 'order_no'), $id) : [];
     $inb = rcpt_dup_in_batch($d, $id);
     $fmiss = $b['track'] === '食' ? array_column(rcpt_food_missing($d, $id), 1, 0) : [];   // 食字軌缺品名／單位的列（列號 => 說明）
@@ -670,6 +673,12 @@ $shown = array_slice($shown, ($pg - 1) * RCPT_PAGE, RCPT_PAGE);
 <?php endif; ?></tr>
 <?php endforeach; if (!$rows): ?><tr><td colspan="12" class="empty">這一批還沒有名單<?= $canEdit && $b['status'] === 'draft' ? '，請先在上方匯入。' : '。' ?></td></tr><?php endif; ?>
 </table></div></div>
+<?php if ($canEdit && $rfJs): ?><script>
+(function(){var rf=<?= json_encode($rfJs, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+  Object.keys(rf).forEach(function(rid){var v=rf[rid];
+    document.querySelectorAll('[form="f'+rid+'"]').forEach(function(el){if(!(el.name in v))return; if(el.type==='checkbox') el.checked=!!v[el.name]; else el.value=v[el.name];});});
+  document.dispatchEvent(new Event('input'));})();
+</script><?php endif; ?>
 <?php if ($pgN > 1): $pgBase = './?a=batch&amp;id=' . $id . (($_GET['addr'] ?? '') === 'bad' ? '&amp;addr=bad' : ''); ?>
 <nav class="actions pager" aria-label="明細分頁" style="margin:8px 0;flex-wrap:wrap">第 <?= ($pg - 1) * RCPT_PAGE + 1 ?>–<?= min($pgTotal, $pg * RCPT_PAGE) ?> 筆，共 <?= $pgTotal ?> 筆
 <?php if ($pg > 1): ?><a class="btn ghost sm" href="<?= $pgBase ?>&amp;p=<?= $pg - 1 ?>" onclick="return !window.rcPageGo || rcPageGo()">上一頁</a><?php endif; ?>
