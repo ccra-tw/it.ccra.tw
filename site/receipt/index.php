@@ -116,6 +116,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!preg_match('/^[1-9][0-9]{0,4}$/', $qRaw)) throw new RuntimeException('數量請填正整數（1～99999），例如 1、2；不能有小數，也不能以 0 開頭');   // 大沈 d836044：1.5 曾被直接轉成 1
                 $qty = (int)$qRaw;
                 $send = isset($_POST['send']);
+                $taxId = rcpt_tax_id((string)($_POST['tax_id'] ?? ''));
                 $zip = trim($_POST['zip'] ?? ''); $city = trim($_POST['city'] ?? ''); $addr = trim($_POST['address'] ?? '');
                 if ($send && $addr === '') throw new RuntimeException('要寄收據的話請填地址；不寄請取消勾選「寄收據」');
                 $addrBad = $send && rcpt_addr_incomplete($city, $addr);
@@ -124,9 +125,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 rcpt_lock_draft($d, $id);
                 $s2 = $d->prepare('SELECT COALESCE(MAX(row_no), 0) FROM donation WHERE batch_id = ?'); $s2->execute([$id]);
                 $n = (int)$s2->fetchColumn() + 1;
-                $insOne = $d->prepare('INSERT INTO donation (batch_id, row_no, order_no, name, mobile, phone, raw_addr, zip, city, address, product, qty, send, check_note, dup_note, updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id');
+                $insOne = $d->prepare('INSERT INTO donation (batch_id, row_no, order_no, name, mobile, phone, raw_addr, zip, city, address, product, qty, send, check_note, dup_note, tax_id, updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id');
                 $insOne->execute([$id, $n, trim($_POST['order_no'] ?? ''), $name, trim($_POST['mobile'] ?? ''), trim($_POST['phone'] ?? ''), trim("$zip $city$addr"),
-                             $zip, $city, $addr, trim($_POST['product'] ?? ''), $qty, $send ? 'true' : 'false', $addrBad ? '單筆輸入；' . RCPT_ADDR_NOTE : '單筆輸入', '', $email]);
+                             $zip, $city, $addr, trim($_POST['product'] ?? ''), $qty, $send ? 'true' : 'false', $addrBad ? '單筆輸入；' . RCPT_ADDR_NOTE : '單筆輸入', '', $taxId, $email]);
                 $newId = (int)$insOne->fetchColumn();   // 清單列的錨點是 donation.id，不是 row_no（大沈 d836044：新增首筆導到 #r1，列卻是 #r5135）
                 rcpt_audit($d, $email, 'add_row', $id, "row $n 單筆輸入");
                 $d->commit();
@@ -223,8 +224,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $sb = $d->prepare('SELECT status FROM batch WHERE id = ? FOR UPDATE'); $sb->execute([$id]);
                 $b = $sb->fetch(PDO::FETCH_ASSOC);
                 if (!$b) throw new RuntimeException('找不到批次');
-                $s0 = $d->prepare('SELECT name, zip, city, address, send, mailed_on FROM donation WHERE id = ? AND batch_id = ? FOR UPDATE');
-                $up = $d->prepare('UPDATE donation SET name = ?, send = ?, zip = ?, city = ?, address = ?, mailed_on = ?, updated_by = ?, updated_at = now() WHERE id = ? AND batch_id = ?');
+                $s0 = $d->prepare('SELECT name, zip, city, address, send, mailed_on, order_no, product, tax_id, receipt_no FROM donation WHERE id = ? AND batch_id = ? FOR UPDATE');
+                $up = $d->prepare('UPDATE donation SET name = ?, send = ?, zip = ?, city = ?, address = ?, mailed_on = ?, order_no = ?, product = ?, tax_id = ?, updated_by = ?, updated_at = now() WHERE id = ? AND batch_id = ?');
                 $clr = $d->prepare("UPDATE donation SET check_note = trim(both '；' from replace(replace(replace(check_note, ?, ''), ?, ''), '；；', '；')) WHERE id = ? AND batch_id = ?");
                 $n = 0;
                 foreach ($items as $it) {
@@ -235,9 +236,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $mailDate = $mail === '' ? null : rcpt_roc_to_date($mail);
                     if ($mail !== '' && !$mailDate) throw new RuntimeException("寄出日期格式不對（例：115/11/12）：$mail");
                     $newv = ['name' => trim((string)($it['name'] ?? $old['name'])), 'zip' => trim((string)($it['zip'] ?? '')), 'city' => trim((string)($it['city'] ?? '')),
-                             'address' => trim((string)($it['address'] ?? '')), 'send' => !empty($it['send']), 'mailed_on' => $mailDate];
+                             'address' => trim((string)($it['address'] ?? '')), 'send' => !empty($it['send']), 'mailed_on' => $mailDate,
+                             'order_no' => trim((string)($it['order_no'] ?? $old['order_no'])), 'product' => trim((string)($it['product'] ?? $old['product'])),
+                             'tax_id' => rcpt_tax_id((string)($it['tax_id'] ?? $old['tax_id']))];
                     if ($newv['name'] === '') throw new RuntimeException('收件人不能空白');
-                    $up->execute([$newv['name'], $newv['send'] ? 'true' : 'false', $newv['zip'], $newv['city'], $newv['address'], $newv['mailed_on'], $email, $rid, $id]);
+                    if ($old['receipt_no'] !== null && $newv['order_no'] !== $old['order_no'] && ($t = rcpt_order_taken($d, $newv['order_no'], $rid)) !== null) throw new RuntimeException("訂單編號 {$newv['order_no']} 已經開過收據 {$t}，同一張訂單只能有一張有效收據");
+                    $up->execute([$newv['name'], $newv['send'] ? 'true' : 'false', $newv['zip'], $newv['city'], $newv['address'], $newv['mailed_on'], $newv['order_no'], $newv['product'], $newv['tax_id'], $email, $rid, $id]);
                     if (!rcpt_addr_incomplete($newv['city'], $newv['address'])) $clr->execute([RCPT_ADDR_NOTE, RCPT_ADDR_NOTE_OLD, $rid, $id]);
                     $chg = [];
                     foreach ($newv as $k => $v) {
@@ -257,17 +261,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $b = $sb->fetch(PDO::FETCH_ASSOC);
                 if (!$b) throw new RuntimeException('找不到批次');
                 $rid = (int)$_POST['rid'];
-                $s0 = $d->prepare('SELECT name, zip, city, address, send, mailed_on FROM donation WHERE id = ? AND batch_id = ? FOR UPDATE'); $s0->execute([$rid, $id]);
+                $s0 = $d->prepare('SELECT name, zip, city, address, send, mailed_on, order_no, product, tax_id, receipt_no FROM donation WHERE id = ? AND batch_id = ? FOR UPDATE'); $s0->execute([$rid, $id]);
                 $old = $s0->fetch(PDO::FETCH_ASSOC);
                 if (!$old) throw new RuntimeException('找不到這一筆');
                 $mail = trim($_POST['mailed_on'] ?? '');
                 $mailDate = $mail === '' ? null : rcpt_roc_to_date($mail);
                 if ($mail !== '' && !$mailDate) throw new RuntimeException('寄出日期格式不對（例：115/11/12）');
                 $newv = ['name' => trim($_POST['name'] ?? $old['name']), 'zip' => trim($_POST['zip'] ?? ''), 'city' => trim($_POST['city'] ?? ''),
-                         'address' => trim($_POST['address'] ?? ''), 'send' => isset($_POST['send']), 'mailed_on' => $mailDate];
+                         'address' => trim($_POST['address'] ?? ''), 'send' => isset($_POST['send']), 'mailed_on' => $mailDate,
+                         'order_no' => trim((string)($_POST['order_no'] ?? $old['order_no'])), 'product' => trim((string)($_POST['product'] ?? $old['product'])),
+                         'tax_id' => rcpt_tax_id((string)($_POST['tax_id'] ?? $old['tax_id']))];
                 if ($newv['name'] === '') throw new RuntimeException('收件人不能空白');
-                $d->prepare('UPDATE donation SET name = ?, send = ?, zip = ?, city = ?, address = ?, mailed_on = ?, updated_by = ?, updated_at = now() WHERE id = ? AND batch_id = ?')
-                  ->execute([$newv['name'], $newv['send'] ? 'true' : 'false', $newv['zip'], $newv['city'], $newv['address'], $newv['mailed_on'], $email, $rid, $id]);
+                if ($old['receipt_no'] !== null && $newv['order_no'] !== $old['order_no'] && ($t = rcpt_order_taken($d, $newv['order_no'], $rid)) !== null) throw new RuntimeException("訂單編號 {$newv['order_no']} 已經開過收據 {$t}，同一張訂單只能有一張有效收據");
+                $d->prepare('UPDATE donation SET name = ?, send = ?, zip = ?, city = ?, address = ?, mailed_on = ?, order_no = ?, product = ?, tax_id = ?, updated_by = ?, updated_at = now() WHERE id = ? AND batch_id = ?')
+                  ->execute([$newv['name'], $newv['send'] ? 'true' : 'false', $newv['zip'], $newv['city'], $newv['address'], $newv['mailed_on'], $newv['order_no'], $newv['product'], $newv['tax_id'], $email, $rid, $id]);
                 if (!rcpt_addr_incomplete($newv['city'], $newv['address'])) {   // 繁英姊 11/20：地址改完整後，拿掉「自動不寄」的檢核說明（寄發由她勾選）
                     $d->prepare("UPDATE donation SET check_note = trim(both '；' from replace(replace(replace(check_note, ?, ''), ?, ''), '；；', '；')) WHERE id = ? AND batch_id = ?")
                       ->execute([RCPT_ADDR_NOTE, RCPT_ADDR_NOTE_OLD, $rid, $id]);
@@ -518,6 +525,7 @@ if ($addrBadIds): ?><div class="alert warn">地址不完整或有誤 <?= count($
 <div><label for="s_product">品名<?= $b['track'] === '食' ? '（要和上面產品明細的品名一樣）' : '' ?></label><input type="text" id="s_product" name="product" value="<?= $ov('product') ?>" list="s_products"><datalist id="s_products"><?php foreach ($items as $it): ?><option value="<?= h($it['name']) ?>"><?php endforeach; ?></datalist></div>
 <div><label for="s_qty">數量（份）*</label><input type="text" id="s_qty" name="qty" value="<?= $ov('qty', '1') ?>" inputmode="numeric" pattern="[1-9１-９][0-9０-９]{0,4}" title="請填 1～99999 的正整數，不能以 0 開頭，例如 1、2" required></div>
 <div><label for="s_order">訂單編號（沒有可空白）</label><input type="text" id="s_order" name="order_no" value="<?= $ov('order_no') ?>"></div>
+<div><label for="s_tax">統一編號（公司行號，沒有可空白）</label><input type="text" id="s_tax" name="tax_id" value="<?= $ov('tax_id') ?>" inputmode="numeric" maxlength="10" placeholder="8 位數字"></div>
 </div>
 <p><label style="display:inline-flex;align-items:center;gap:8px;margin:12px 0 0"><input type="checkbox" name="send" value="1"<?= $o1 && !isset($o1['send']) ? '' : ' checked' ?>> 寄收據</label></p>
 <div class="actions"><button type="submit">加入這一筆</button><span class="hint">加完會出現在下方清單，可再修改；全部好了再按「配號」。</span></div>
@@ -584,23 +592,25 @@ $shown = array_slice($shown, ($pg - 1) * RCPT_PAGE, RCPT_PAGE);
 <?php if ($pg < $pgN): ?><a class="btn ghost sm" href="<?= $pgBase ?>&amp;p=<?= $pg + 1 ?>" onclick="return !window.rcPageGo || rcPageGo()">下一頁</a><?php endif; ?>
 </nav>
 <?php endif; ?>
+<?php if ($canEdit && $b['track'] === '食'): ?><datalist id="rc_products"><?php foreach ($items as $it): ?><option value="<?= h($it['name']) ?>"><?php endforeach; ?></datalist><?php endif; ?>
 <div class="panel flush"><div class="tbl">
-<table class="rows"><tr class="hd"><th>#</th><th>收據編號</th><th>訂單編號</th><th>收件人</th><th>郵遞區號／縣市區／地址</th><?php if ($b['track'] === '食'): ?><th>品名</th><?php endif; ?><th class="n">數量</th><th>寄發</th><th>檢核說明</th><th>寄出日期</th><?php if ($canEdit): ?><th></th><?php endif; ?></tr>
+<table class="rows"><tr class="hd"><th>#</th><th>收據編號</th><th>訂單編號</th><th>收件人</th><th>統編</th><th>郵遞區號／縣市區／地址</th><?php if ($b['track'] === '食'): ?><th>品名</th><?php endif; ?><th class="n">數量</th><th>寄發</th><th>檢核說明</th><th>寄出日期</th><?php if ($canEdit): ?><th></th><?php endif; ?></tr>
 <?php foreach ($shown as $r): $isDup = isset($dup[$r['order_no']]) || isset($inb[$r['order_no']]); $fid = 'f' . (int)$r['id']; ?>
 <tr id="r<?= (int)$r['id'] ?>" class="<?= $isDup ? 'dup' : (in_array((int)$r['id'], $addrBadIds, true) ? 'addrbad' : (!$r['send'] ? 'bad' : '')) ?>">
-<td data-l="#"><?= (int)$r['row_no'] ?></td><td data-l="收據編號" class="mono"><?= h($r['receipt_no']) ?></td><td data-l="訂單編號" class="mono"><?= h($r['order_no']) ?><?= isset($dup[$r['order_no']]) ? '<br><small>已開：' . h($dup[$r['order_no']][1]) . '</small>' : '' ?><?= isset($inb[$r['order_no']]) ? '<br><small>名單內重複</small>' : '' ?></td>
+<td data-l="#"><?= (int)$r['row_no'] ?></td><td data-l="收據編號" class="mono"><?= h($r['receipt_no']) ?></td><td data-l="訂單編號" class="mono"><?php if ($canEdit): ?><input form="<?= $fid ?>" type="text" name="order_no" value="<?= h($r['order_no']) ?>" style="width:9em" aria-label="訂單編號" placeholder="可補登"><?php else: ?><?= h($r['order_no']) ?><?php endif; ?><?= isset($dup[$r['order_no']]) ? '<br><small>已開：' . h($dup[$r['order_no']][1]) . '</small>' : '' ?><?= isset($inb[$r['order_no']]) ? '<br><small>名單內重複</small>' : '' ?></td>
 <?php if ($canEdit): ?>
 <td data-l="收件人"><input form="<?= $fid ?>" type="text" name="name" value="<?= h($r['name']) ?>" style="width:7em" aria-label="收件人"></td>
+<td data-l="統編"><input form="<?= $fid ?>" type="text" name="tax_id" value="<?= h($r['tax_id']) ?>" style="width:6.5em" inputmode="numeric" maxlength="10" aria-label="統一編號" placeholder="8 碼"></td>
 <td data-l="地址" class="addr"><input form="<?= $fid ?>" type="text" name="zip" value="<?= h($r['zip']) ?>" style="width:5em" aria-label="郵遞區號"> <input form="<?= $fid ?>" type="text" name="city" value="<?= h($r['city']) ?>" style="width:9em" aria-label="縣市區"> <input form="<?= $fid ?>" type="text" name="address" value="<?= h($r['address']) ?>" style="width:16em" aria-label="地址"><br><small><?= h($r['raw_addr']) ?></small></td>
-<?php if ($b['track'] === '食'): ?><td data-l="品名" class="<?= isset($fmiss[(int)$r['row_no']]) ? 'bad' : '' ?>"><?= h($r['product']) ?><?= isset($fmiss[(int)$r['row_no']]) ? '<br><small>' . h($fmiss[(int)$r['row_no']]) . '</small>' : '' ?></td><?php endif; ?><td data-l="數量" class="n"><?= (int)$r['qty'] ?></td><td data-l="寄發"><input form="<?= $fid ?>" type="checkbox" name="send" <?= $r['send'] ? 'checked' : '' ?> aria-label="寄發"></td><td data-l="檢核說明"><?= h($r['check_note']) ?></td>
+<?php if ($b['track'] === '食'): ?><td data-l="品名" class="<?= isset($fmiss[(int)$r['row_no']]) ? 'bad' : '' ?>"><input form="<?= $fid ?>" type="text" name="product" value="<?= h($r['product']) ?>" list="rc_products" style="width:10em" aria-label="品名" placeholder="可補登"><?= isset($fmiss[(int)$r['row_no']]) ? '<br><small>' . h($fmiss[(int)$r['row_no']]) . '</small>' : '' ?></td><?php endif; ?><td data-l="數量" class="n"><?= (int)$r['qty'] ?></td><td data-l="寄發"><input form="<?= $fid ?>" type="checkbox" name="send" <?= $r['send'] ? 'checked' : '' ?> aria-label="寄發"></td><td data-l="檢核說明"><?= h($r['check_note']) ?></td>
 <td data-l="寄出日期"><input form="<?= $fid ?>" type="text" name="mailed_on" value="<?= $r['mailed_on'] ? h(rcpt_date_to_roc($r['mailed_on'])) : '' ?>" placeholder="115/11/12" style="width:7em" aria-label="寄出日期"></td>
 <td class="act"><form id="<?= $fid ?>" style="display:inline" method="post" action="./?a=batch&id=<?= $id ?><?= $only ? '&amp;only=' . $only : '' ?><?= ($_GET['addr'] ?? '') === 'bad' ? '&amp;addr=bad' : '' ?><?= h(rc_pq()) ?>"><input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="row"><input type="hidden" name="rid" value="<?= (int)$r['id'] ?>"><button class="sm">存</button></form>
 <?php if ($r['receipt_no']): ?><a href="./print.php?id=<?= $id ?>&one=<?= (int)$r['id'] ?>" onclick="rcBusyLink('開啟列印頁面中，張數多時要等一下…')">補印</a><?php endif; ?></td>
 <?php else: ?>
-<td data-l="收件人"><?= h($r['name']) ?></td><td data-l="地址"><?= h($r['zip'] . ' ' . $r['city'] . $r['address']) ?></td><?php if ($b['track'] === '食'): ?><td data-l="品名" class="<?= isset($fmiss[(int)$r['row_no']]) ? 'bad' : '' ?>"><?= h($r['product']) ?><?= isset($fmiss[(int)$r['row_no']]) ? '<br><small>' . h($fmiss[(int)$r['row_no']]) . '</small>' : '' ?></td><?php endif; ?><td data-l="數量" class="n"><?= (int)$r['qty'] ?></td><td data-l="寄發"><?= $r['send'] ? '<span class="chip ok">寄</span>' : '<span class="chip">不寄</span>' ?></td><td data-l="檢核說明"><?= h($r['check_note']) ?></td>
+<td data-l="收件人"><?= h($r['name']) ?></td><td data-l="統編" class="mono"><?= h($r['tax_id']) ?></td><td data-l="地址"><?= h($r['zip'] . ' ' . $r['city'] . $r['address']) ?></td><?php if ($b['track'] === '食'): ?><td data-l="品名" class="<?= isset($fmiss[(int)$r['row_no']]) ? 'bad' : '' ?>"><?= h($r['product']) ?><?= isset($fmiss[(int)$r['row_no']]) ? '<br><small>' . h($fmiss[(int)$r['row_no']]) . '</small>' : '' ?></td><?php endif; ?><td data-l="數量" class="n"><?= (int)$r['qty'] ?></td><td data-l="寄發"><?= $r['send'] ? '<span class="chip ok">寄</span>' : '<span class="chip">不寄</span>' ?></td><td data-l="檢核說明"><?= h($r['check_note']) ?></td>
 <td data-l="寄出日期"><?= $r['mailed_on'] ? h(rcpt_date_to_roc($r['mailed_on'])) : '' ?></td>
 <?php endif; ?></tr>
-<?php endforeach; if (!$rows): ?><tr><td colspan="11" class="empty">這一批還沒有名單<?= $canEdit && $b['status'] === 'draft' ? '，請先在上方匯入。' : '。' ?></td></tr><?php endif; ?>
+<?php endforeach; if (!$rows): ?><tr><td colspan="12" class="empty">這一批還沒有名單<?= $canEdit && $b['status'] === 'draft' ? '，請先在上方匯入。' : '。' ?></td></tr><?php endif; ?>
 </table></div></div>
 <?php if ($pgN > 1): $pgBase = './?a=batch&amp;id=' . $id . (($_GET['addr'] ?? '') === 'bad' ? '&amp;addr=bad' : ''); ?>
 <nav class="actions pager" aria-label="明細分頁" style="margin:8px 0;flex-wrap:wrap">第 <?= ($pg - 1) * RCPT_PAGE + 1 ?>–<?= min($pgTotal, $pg * RCPT_PAGE) ?> 筆，共 <?= $pgTotal ?> 筆

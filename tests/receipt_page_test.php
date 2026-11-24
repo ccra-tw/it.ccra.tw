@@ -463,6 +463,25 @@ $gs = req($E, ['a' => 'batch', 'id' => $bc, 'p' => '3'], 'POST', ['csrf' => $csr
 ok(str_contains($gs, 'X-TEST-LOCATION: ./?a=batch&id=' . $bc . '&p=3&ok=row#r' . $rid3), '在第 3 頁存檔後回到第 3 頁');
 $gb = req($E, ['a' => 'batch', 'id' => $bc, 'p' => '3'], 'POST', ['csrf' => $csrf($E), 'do' => 'rows_bulk', 'rows' => json_encode([['rid' => $rid3, 'name' => '分頁批次', 'zip' => '100', 'city' => '台北市', 'address' => '分頁路2號', 'send' => true, 'mailed_on' => '']])]);
 ok(str_contains($gb, 'X-TEST-LOCATION: ./?a=batch&id=' . $bc . '&p=3&ok=bulk'), '全部儲存後也回到第 3 頁');
+echo "統一編號、訂單編號與品名補登（繁英姊 11/24）\n";
+$r2 = $d->query("SELECT id, name FROM donation WHERE batch_id = $bs AND row_no = 2")->fetch(PDO::FETCH_ASSOC);
+$gb2 = req($E, ['a' => 'batch', 'id' => $bs]);
+ok(str_contains($gb2, 'name="tax_id"') && str_contains($gb2, 'name="order_no"') && str_contains($gb2, '<th>統編</th>'), '已配號批次的清單有統編欄、訂單編號可編輯');
+$rowPost = fn($extra) => req($E, ['a' => 'batch', 'id' => $bs], 'POST', array_merge(['csrf' => $csrf($E), 'do' => 'row', 'rid' => $r2['id'], 'name' => $r2['name'], 'zip' => '', 'city' => '', 'address' => ''], $extra));
+ok(str_contains($rowPost(['order_no' => 'SINGLE-1119-1']), '已經開過收據'), '補登的訂單編號已有有效收據時擋下（看得懂的訊息）');
+ok(str_contains($rowPost(['order_no' => '', 'tax_id' => '1234']), '統一編號要是 8 位數字'), '統編不是 8 位數字擋下');
+$rowPost(['order_no' => 'LATE-0001', 'product' => '補登品項', 'tax_id' => '１２３４ ５６７８']);
+$v2 = $d->query("SELECT order_no, product, tax_id, receipt_no FROM donation WHERE id = {$r2['id']}")->fetch(PDO::FETCH_ASSOC);
+ok($v2['order_no'] === 'LATE-0001' && $v2['product'] === '補登品項' && $v2['tax_id'] === '12345678' && $v2['receipt_no'] !== null, '配號後補登訂單編號、品名、統編（全形與空白整理掉），收據編號不變');
+ok(str_contains((string)$d->query("SELECT detail FROM audit WHERE action='edit_after_number' AND batch_id=$bs ORDER BY id DESC LIMIT 1")->fetchColumn(), 'order_no:  → LATE-0001'), '補登留改前改後稽核');
+req($E, ['a' => 'batch', 'id' => $bs], 'POST', ['csrf' => $csrf($E), 'do' => 'rows_bulk', 'rows' => json_encode([['rid' => $r2['id'], 'name' => $r2['name'], 'zip' => '', 'city' => '', 'address' => '', 'send' => false, 'mailed_on' => '', 'order_no' => 'LATE-0001', 'product' => '補登品項', 'tax_id' => '87654321']])]);
+ok($d->query("SELECT tax_id FROM donation WHERE id = {$r2['id']}")->fetchColumn() === '87654321', '全部儲存也存統編');
+$bdraft = (int)$d->query("SELECT id FROM batch WHERE status = 'draft' ORDER BY id DESC LIMIT 1")->fetchColumn();
+if ($bdraft) {
+    ok(str_contains(req($E, ['a' => 'batch', 'id' => $bdraft]), 'name="tax_id"'), '單筆輸入表單有統一編號欄');
+    req($E, ['a' => 'batch', 'id' => $bdraft], 'POST', ['csrf' => $csrf($E), 'do' => 'add_row', 'name' => '公司捐贈', 'qty' => '1', 'tax_id' => '24536806']);
+    ok($d->query("SELECT tax_id FROM donation WHERE batch_id = $bdraft AND name = '公司捐贈'")->fetchColumn() === '24536806', '單筆輸入存統編');
+}
 @unlink($tmp);
 echo $fail ? "❌ 失敗 {$fail}／{$n}\n" : "✅ 全部通過 {$n} 項\n";
 exit($fail ? 1 : 0);

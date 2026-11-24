@@ -160,6 +160,20 @@ function rcpt_addr_nomail(string $addr, ?string $city = null): bool {
     $a = trim(preg_replace('/\s+/u', '', $addr));
     return $a === '' || $a === '空白' || mb_strpos($a, '愛心捐贈') !== false || mb_strpos($a, '不用') !== false || mb_strlen($a) < 4;
 }
+// 繁英姊 11/24：收據要能填統一編號（公司行號捐贈）。空白或 8 位數字；全形數字、空白、連字號先整理掉
+function rcpt_tax_id(string $s): string {
+    $t = preg_replace('/[\s\-－]/u', '', mb_convert_kana(trim($s), 'n', 'UTF-8'));
+    if ($t !== '' && !preg_match('/^[0-9]{8}$/', $t)) throw new RuntimeException("統一編號要是 8 位數字：$s");
+    return $t;
+}
+// 繁英姊 11/24：訂單編號可補登；同一訂單編號只能有一張有效收據（資料庫 donation_order_issued 也會擋），先擋下來給看得懂的訊息
+function rcpt_order_taken(PDO $d, string $orderNo, int $rid): ?string {
+    if ($orderNo === '') return null;
+    $s = $d->prepare("SELECT receipt_no FROM donation WHERE order_no = ? AND id <> ? AND receipt_no IS NOT NULL AND NOT void LIMIT 1");
+    $s->execute([$orderNo, $rid]);
+    $r = $s->fetchColumn();
+    return $r === false ? null : (string)$r;
+}
 function rcpt_addr_incomplete(string $city, string $addr): bool {
     $s = $city . $addr;
     if (rcpt_addr_nomail($addr, $city)) return false;   // 本來就不寄的，不標紅（見上）
