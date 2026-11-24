@@ -1,0 +1,135 @@
+/* 物資捐贈收據系統（/receipt/）樣式 — CCRA CI（2026-11-18 熊哥：「收據系統你沒有做到符合CCRA CI」「介面也要美化」）
+   只用 site.css 的 CCRA 色票：Logo 信號紅 --red、和平鴿黃 --yellow、救助綠 --green，深墨藍 --ink；深色模式跟著 site.css 走。
+   不載 form.css（那是 CCNDA 莫蘭迪藍綠，CCEA／CCNDA 與 CCRA 各用各的標準）。需先載入 site.css。 */
+/* 大沈 945b50c 審查（2026-11-18）：白字配協會綠 3.65:1／深色 2.28:1 未達 WCAG AA 4.5:1 → 按鈕與作用中分頁用成對文字／背景色。
+   淺色 #0b7a3b＋白字 5.44:1；深色 #2bc46b＋深綠字 #062512 7.19:1；紅鈕 #c81e27＋白字 5.72:1。協會綠仍作識別色。 */
+:root{--rc-btn:#0b7a3b;--rc-btn-fg:#fff;--rc-red:#c81e27}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--rc-btn:#2bc46b;--rc-btn-fg:#062512}}
+:root[data-theme="dark"]{--rc-btn:#2bc46b;--rc-btn-fg:#062512}
+.rc{max-width:1240px;margin:0 auto;padding:0 16px 48px}
+.rcpage .bar .wrap{max-width:1240px}
+.rc-head{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 18px;margin:22px 0 14px}
+.rc-head h1{margin:0;font-size:clamp(22px,3.4vw,30px);font-weight:900;letter-spacing:.02em}
+.rc-head p{margin:2px 0 0;color:var(--muted);font-size:14.5px}
+.rc-head .chips{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+
+/* 分頁導覽 */
+.tabs{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 18px;padding:6px;border-radius:999px;background:var(--panel);border:1px solid var(--edge);width:max-content;max-width:100%;box-shadow:var(--glow)}
+.tabs a{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:999px;text-decoration:none;font-weight:800;font-size:15px;color:var(--ink-2);transition:background .15s,color .15s}
+.tabs a:hover{background:color-mix(in srgb,var(--green) 10%,transparent);color:var(--ink)}
+.tabs a[aria-current=page]{background:var(--rc-btn);color:var(--rc-btn-fg)}
+@media (max-width:560px){.tabs{width:100%;border-radius:18px}.tabs a{flex:1 1 auto;justify-content:center}}
+
+/* 標籤 */
+.chip{display:inline-flex;align-items:center;gap:5px;padding:3px 11px;border-radius:999px;font-size:13px;font-weight:800;line-height:1.5;white-space:nowrap;
+  background:color-mix(in srgb,var(--ink) 7%,transparent);color:var(--ink-2)}
+.chip.ok{background:color-mix(in srgb,var(--green) 16%,transparent);color:color-mix(in srgb,var(--green) 80%,var(--ink))}
+.chip.draft{background:color-mix(in srgb,var(--yellow) 26%,transparent);color:color-mix(in srgb,#8a6100 70%,var(--ink))}
+.chip.warn{background:color-mix(in srgb,var(--red) 14%,transparent);color:color-mix(in srgb,var(--red) 85%,var(--ink))}
+.chip.test{background:var(--yellow);color:#3d2b00}
+
+/* 面板 */
+.panel{background:var(--panel);border:1px solid var(--edge);border-radius:20px;padding:18px 20px;margin:0 0 16px;box-shadow:var(--glow);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.panel h2{margin:0 0 12px;font-size:18px;font-weight:900}
+.panel h2 small{font-weight:500;color:var(--muted);font-size:13.5px;margin-left:8px}
+.panel.flush{padding:6px 6px 2px}
+
+/* 提示 */
+.alert{display:flex;gap:10px;align-items:flex-start;padding:12px 16px;border-radius:14px;margin:0 0 14px;font-weight:700;border:1px solid transparent}
+.alert::before{flex:none;font-weight:900}
+.alert.err{background:color-mix(in srgb,var(--red) 11%,var(--panel));border-color:color-mix(in srgb,var(--red) 35%,transparent);color:color-mix(in srgb,var(--red) 75%,var(--ink))}
+.alert.err::before{content:"！"}
+.alert.ok{background:color-mix(in srgb,var(--green) 12%,var(--panel));border-color:color-mix(in srgb,var(--green) 35%,transparent)}
+.alert.ok::before{content:"✓";color:var(--green)}
+.alert.warn{background:color-mix(in srgb,var(--yellow) 18%,var(--panel));border-color:color-mix(in srgb,var(--yellow) 55%,transparent)}
+.alert.warn::before{content:"⚠"}
+
+/* 數字卡 */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin:0 0 14px}
+.stat{background:var(--panel);border:1px solid var(--edge);border-radius:16px;padding:12px 16px}
+.stat small{display:block;color:var(--muted);font-size:13px;font-weight:700}
+.stat b{font-size:26px;font-weight:900;line-height:1.3}
+.stat em{font-style:normal;font-size:13px;margin-left:6px}
+
+/* 按鈕 */
+.btn,.rc button{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:0;border-radius:999px;padding:10px 20px;
+  font:800 15px/1.2 "Noto Sans TC",sans-serif;cursor:pointer;text-decoration:none;color:var(--rc-btn-fg);background:var(--rc-btn);
+  box-shadow:0 8px 18px -10px color-mix(in srgb,var(--green) 80%,transparent);transition:transform .12s,filter .12s}
+.btn:hover,.rc button:hover{filter:brightness(1.07);transform:translateY(-1px)}
+.btn:disabled,.rc button:disabled{opacity:.5;cursor:default;transform:none}
+.btn.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--edge);box-shadow:none}
+.btn.ghost:hover{border-color:var(--green)}
+.btn.red{background:var(--rc-red);color:#fff;box-shadow:0 8px 18px -10px color-mix(in srgb,var(--red) 80%,transparent)}
+.rc button.sm,.btn.sm{padding:6px 14px;font-size:14px}
+.actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:14px 0 0}
+
+/* 表單 */
+.rc label{display:block;margin:12px 0 5px;font-weight:800;font-size:14.5px}
+.rc input[type=text],.rc input[type=date],.rc select,.rc textarea{width:100%;font:inherit;color:inherit;background:color-mix(in srgb,var(--paper) 70%,var(--panel));
+  border:1.5px solid var(--edge);border-radius:12px;padding:9px 12px;box-sizing:border-box;transition:border-color .15s,box-shadow .15s}
+.rc input:focus,.rc select:focus,.rc textarea:focus{border-color:var(--green);box-shadow:0 0 0 3px color-mix(in srgb,var(--green) 18%,transparent)}
+/* 鍵盤焦點要看得到（大沈審查：原本 :focus 取消 outline） */
+.rc input:focus-visible,.rc select:focus-visible,.rc textarea:focus-visible,.rc button:focus-visible,.rc a:focus-visible,.btn:focus-visible,.tabs a:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.rc input[readonly],.rc select:disabled,.rc textarea[readonly]{opacity:.65}
+.rc input[type=file]{font:inherit;padding:8px;border:1.5px dashed var(--edge);border-radius:12px;width:100%;max-width:520px;background:transparent}
+.rc input[type=checkbox]{width:20px;height:20px;accent-color:var(--green)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:0 18px}
+.hint{color:var(--muted);font-size:13.5px;margin:4px 0 0}
+.searchbar{display:flex;gap:10px;align-items:center}
+.searchbar input{flex:1}
+
+/* 表格 */
+.tbl{overflow-x:auto}
+table.rows{border-collapse:separate;border-spacing:0;width:100%;font-size:15px}
+.rows th{position:sticky;top:0;text-align:left;white-space:nowrap;font-size:13px;font-weight:800;color:var(--muted);letter-spacing:.04em;padding:10px 12px;
+  background:color-mix(in srgb,var(--ink) 5%,var(--panel));border-bottom:1px solid var(--edge)}
+.rows th:first-child{border-top-left-radius:14px}.rows th:last-child{border-top-right-radius:14px}
+.rows td{padding:10px 12px;border-bottom:1px solid var(--edge);vertical-align:top}
+.rows tr:last-child td{border-bottom:0}
+.rows tbody tr:hover td{background:color-mix(in srgb,var(--green) 5%,transparent)}
+.rows .n{text-align:right;font-variant-numeric:tabular-nums}
+.rows a{color:var(--green);font-weight:800;text-decoration:none}
+.rows a:hover{text-decoration:underline}
+.rows td small{color:var(--muted)}
+.rows tr.bad td{background:color-mix(in srgb,var(--red) 7%,transparent)}
+.rows td.bad{background:color-mix(in srgb,var(--red) 10%,transparent)}
+.rows tr.addrbad td{background:color-mix(in srgb,var(--red) 18%,transparent)}   /* 繁英 11/20：地址不完整 */
+.rows tr.dup td{background:color-mix(in srgb,var(--yellow) 20%,transparent)}
+.rows .empty{text-align:center;color:var(--muted);padding:28px}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:14px}
+.rows td.mono{white-space:nowrap}
+.rows input[type=text]{padding:6px 9px;border-radius:9px;font-size:14.5px}
+.rows td.addr input{margin:0 0 4px}
+.rows td.act{white-space:nowrap}
+.rows td.act a{display:inline-block;margin-left:8px;font-size:14px}
+.rows td.act a:first-child{margin-left:0}
+.rows tr:target td{background:color-mix(in srgb,var(--yellow) 22%,transparent)}
+
+/* 手機（大沈 R-itsu-1112-01：390px 寬時表格 813px、「存」在畫面外）：窄螢幕每筆一張卡片，欄名由 data-l 帶出 */
+@media (max-width:700px){
+  .tbl{overflow:visible}
+  table.rows,.rows tbody,.rows tr,.rows td{display:block;width:auto}
+  .rows tr.hd{display:none}
+  .rows tr{border:1px solid var(--edge);border-radius:16px;margin:10px 0;padding:8px 14px;background:var(--panel)}
+  .rows td{border:none;padding:4px 0}
+  .rows tbody tr:hover td{background:transparent}
+  .rows td[data-l]::before{content:attr(data-l) '：';font-weight:800;color:var(--muted);font-size:13px}
+  .rows td.n{text-align:left}
+  .rows td,.rows td.mono,.rows td.act{white-space:normal;overflow-wrap:anywhere}
+  .rc-head .chips{margin-left:0}
+  .pages{padding:0 8px 40px}
+  .rows input[type=text]{width:100%!important;margin:3px 0}
+  .rows button{width:100%;margin-top:6px}
+  .panel.flush{padding:0 4px;background:transparent;border:0;box-shadow:none;backdrop-filter:none}
+}
+
+/* 匯入／配號進行中與完成的小視窗（繁英姊 11/19） */
+.rc-dlg{border:0;border-radius:18px;padding:22px 26px;max-width:min(420px,90vw);background:var(--paper);color:var(--ink);box-shadow:0 20px 50px -20px rgba(0,0,0,.45)}
+.rc-dlg::backdrop{background:rgba(10,19,40,.45)}
+.rc-dlg-t{margin:0 0 8px;font-size:18px;font-weight:900;display:flex;align-items:center;gap:10px}
+.rc-dlg form{margin:14px 0 0;text-align:right}
+.spin{display:inline-block;width:20px;height:20px;border:3px solid var(--rc-btn);border-right-color:transparent;border-radius:50%;animation:rcspin .8s linear infinite}
+@keyframes rcspin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none;border-right-color:var(--rc-btn)}}
+.chunks{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0 0}

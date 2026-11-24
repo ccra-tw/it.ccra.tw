@@ -5,6 +5,7 @@ $r = json_decode((string)getenv('ITCCRA_REQ'), true);
 $_SERVER['REQUEST_METHOD'] = $r['method'] ?? 'GET';
 $_GET = $r['get'] ?? [];
 $_POST = $r['post'] ?? [];
+$_FILES = $r['files'] ?? [];   // 上傳測試（receipt）：{欄位: {name, tmp_name, error}}
 if (isset($r['raw'])) $GLOBALS['ITCCRA_RAW_BODY'] = $r['raw'];   // JSON 端點（如 ops/push.php）讀的請求本文
 chdir(dirname($r['page']));
 include $r['page'];

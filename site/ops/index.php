@@ -9,7 +9,6 @@ require '/var/www/it-lib/zabbix.php';
 require '/var/www/it-lib/graph.php';   // 主任有約取消時撤回行事曆邀請（同 /meet/ 那支的專用 App，只有行事曆權限）
 require '/var/www/it-lib/svc_apply.php';   // 資訊服務申請（v2.0 單一入口，GitHub #7）
 require '/var/www/it-lib/survey.php';   // 軟體與系統使用調查（專屬連結免登入，統計只在戰情室，熊哥 10-16）
-require '/var/www/it-lib/devprojects.php';   // 開發案狀態（熊哥 10-21：比照 CCNDA 戰情室，GitHub #18）
 require '/var/www/it-lib/hostlog.php';   // 主機操作紀錄（熊哥 11-03：每次主機操作都要留紀錄，設備監控展開看得到最近幾筆）
 $id = access_identity();
 $email = strtolower($id['email']);
@@ -294,6 +293,8 @@ function barcls($v) { return $v === null ? '' : ($v >= 90 ? 'hi' : ($v >= 75 ? '
 .sec{display:flex;align-items:baseline;gap:10px;margin:0 0 10px}
 .sec h2{margin:0;font-size:18px}
 .sec small{color:var(--muted)}
+.sec h2{white-space:nowrap}
+@media (max-width:600px){.sec{flex-direction:column;align-items:flex-start;gap:2px}}   /* 大沈 11-20 審查＋熊哥「排版不理想」：窄螢幕標題與說明上下排，標題不被擠成兩行 */
 .item{border-top:1px solid var(--edge);padding:12px 0}
 .item:first-of-type{border-top:0}
 .row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
@@ -337,6 +338,16 @@ details.zh{margin-top:6px;border-bottom:1px dashed var(--edge);padding-bottom:6p
 details.zh summary{cursor:pointer;list-style:none;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:14px}
 details.zh summary::-webkit-details-marker{display:none}
 details.zh summary .dot{width:9px;height:9px;border-radius:50%;background:#2e9e6a;flex:none}
+details.zh summary .zname{min-width:0;overflow-wrap:anywhere}   /* 大沈 11-20 四審：601px 以上長英文名也要能折行 */
+.zacc{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11.5px;font-weight:800;white-space:nowrap}
+.zacc.m{background:color-mix(in srgb,var(--teal) 16%,var(--panel));color:var(--teal-d)}
+.zacc.r{background:var(--cream);border:1px solid var(--edge);color:var(--muted)}
+details.zh summary .zsub{display:inline-flex;flex-wrap:wrap;gap:4px 8px;align-items:center;min-width:0}
+details.zh summary .zsub .no{overflow-wrap:anywhere}
+.zsys,.zdesc{overflow-wrap:anywhere;white-space:pre-line}   /* 熊哥 11-20：系統資訊與說明 */
+/* 大沈 11-20 審查：手機主機列固定兩區——狀態點＋名稱一列，IP 與網站數在次列對齊名稱；桌機維持同列 */
+@media (max-width:600px){details.zh summary{display:grid;grid-template-columns:9px minmax(0,1fr);column-gap:8px;row-gap:2px}
+  details.zh summary .zsub{grid-column:2}details.zh summary .zacc{grid-column:2;justify-self:start}}
 details.zh.badh summary .dot{background:var(--red)}
 details.zh .zsites{margin:6px 0 0 17px;padding:0;list-style:none;font-size:13px}
 details.zh .zsites a{color:var(--teal);word-break:break-all}
@@ -479,11 +490,9 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
     <?php endif; ?>
   </div>
 
-  <?php [$dpData, $dpWarn] = devprojects_data(); ?>
-  <div class="box" id="devprojects">
-    <div class="sec"><h2>🧩 開發案狀態</h2><small><?= $dpData ? '更新於 ' . h(substr((string)($dpData['updated_at'] ?? ''), 11, 5)) . '・每小時更新' : '' ?>・項目＝未結的 GitHub issue 與對應 Planner 票</small></div>
-    <?= devprojects_render($dpData, $dpWarn) ?>
-  </div>
+  <a class="box hostbox" href="dev.php" id="devprojects">
+    <div class="sec" style="margin:0"><h2>🧩 開發案狀態</h2><small>查看開發案狀態 →</small></div>
+  </a>
 
   <a class="box hostbox <?= $bad ? 'bad' : 'good' ?>" href="/status/" id="hosts">
     <div class="sec" style="margin:0"><h2><?= $bad ? '🔴' : '🟢' ?> 網站監控</h2><small><?= $up ? '更新於 ' . h(date('H:i', $up['at'])) : '' ?>　點這裡看詳情 →</small></div>
@@ -508,9 +517,12 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
         <p class="hostsum" style="margin-top:2px"><b><?= count($list) - $nb ?></b> 正常　<b class="<?= $nb ? 'red' : '' ?>"><?= $nb ?></b> 有狀況</p>
         <?php foreach ($list as $x): $isBad = $x['avail'] !== 1 || $x['problems']; $sites = $zbSites[(string)$x['hostid']] ?? []; ?>
           <details class="zh <?= $isBad ? 'badh' : '' ?>"<?= $isBad ? ' open' : '' ?>>
-            <summary><span class="dot"></span><?= h($x['name']) ?><?php if ($sites): ?> <span class="meta" style="margin:0">（<?= count($sites) ?> 個網站）</span><?php endif; ?></summary>
+            <?php $zShowIp = !empty($x['ip']) && strpos($x['name'], $x['ip']) === false; ?>
+            <summary><span class="dot"></span><span class="zname"><?= h($x['name']) ?></span><?php if ($zShowIp || $sites): ?><span class="zsub"><?php if ($zShowIp): ?><span class="no"><?= h($x['ip']) ?></span><?php endif; ?><?php if ($sites): ?><span class="meta" style="margin:0">（<?= count($sites) ?> 個網站）</span><?php endif; ?></span><?php endif; ?><?php if ($zAcc = zbx_access_tag($x['hostid'])): ?><span class="zacc <?= $zAcc['level'] === 'manage' ? 'm' : 'r' ?>"><?= h($zAcc['text']) ?>・<?= h($zAcc['via']) ?></span><?php endif; ?></summary>
             <?php if ($isBad): ?><p class="meta" style="margin:4px 0 0 17px"><?= $x['avail'] === 2 ? (!empty($x['ping_only']) ? 'ping 不通' : '連不到') : ($x['avail'] === 0 ? '狀態未知' : '') ?><?php foreach (array_slice($x['problems'], 0, 2) as $p) echo h(SEV[$p['severity']] ?? '') . '：' . h($p['name']) . '　'; ?></p><?php endif; ?>
             <p class="meta" style="margin:4px 0 0 17px"><?= !empty($x['ping_only']) ? '只做 ping 監控' : 'CPU ' . pct($x['cpu']) . '　記憶體 ' . pct($x['mem']) . '　磁碟 ' . pct($x['disk']) ?></p>
+            <?php if ($sys = zbx_sysline($x)): ?><p class="meta zsys" style="margin:2px 0 0 17px">系統：<?= h($sys) ?></p><?php endif; ?>
+            <?php if (!empty($x['desc'])): ?><p class="meta zdesc" style="margin:2px 0 0 17px">說明：<?= h($x['desc']) ?></p><?php endif; ?>
             <?php if ($sites): ?><ul class="zsites"><?php foreach ($sites as $s): ?><li><a href="https://<?= h($s) ?>" target="_blank" rel="noopener"><?= h($s) ?></a></li><?php endforeach; ?></ul><?php endif; ?>
             <?php $hk = (string)($x['host'] ?? $x['name']); $logs = $zbLogs[strtolower($hk)] ?? []; ?>
             <p class="meta" style="margin:6px 0 0 17px">最近操作：<?php if (!$logs): ?>尚無紀錄<?php endif; ?></p>
@@ -521,6 +533,7 @@ table.srv a{color:var(--ink);font-weight:800;text-decoration:none} table.srv a:h
       </div>
       <?php endforeach; ?>
     </div>
+    <p class="meta"><span class="zacc m">大蘇可管理</span> 可登入協助處理　<span class="zacc r">大蘇可查看</span> 可登入唯讀查看　實際範圍依各台標籤後的登入方式　未標註＝只有 Zabbix 監控，異常時大蘇會通報、但要請負責人處理</p>
     <?php if ($zbSitesAt): ?><p class="meta">網站對照更新於 <?= h($zbSitesAt) ?>（各主機 IIS／nginx 設定每日自動抓取）</p><?php endif; ?>
     <?php if ($zbErr): ?><p class="meta"><?= h($zbErr) ?></p><?php endif; ?>
     <?php endif; ?>

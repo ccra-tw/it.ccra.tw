@@ -1,0 +1,95 @@
+<?php
+// 物資捐贈收據系統（lib/receipt.php）測試。純函式在任何機器可跑；配號與資料表要 ITCCRA_TEST_DB=1（寫 receipt_test schema）。
+// 用法：php tests/receipt_test.php <lib 目錄> [db]
+$LIB = $argv[1] ?? __DIR__ . '/../lib';
+require $LIB . '/receipt.php';
+$fail = 0; $n = 0;
+function ok($cond, $msg) { global $fail, $n; $n++; echo ($cond ? "  ✅ " : "  ❌ ") . $msg . "\n"; if (!$cond) $fail++; }
+function throws(callable $f): bool { try { $f(); return false; } catch (Throwable $e) { return true; } }
+
+echo "收據編號格式\n";
+ok(rcpt_no('物', '2026-09-14', 1) === '物(115)09140001', '物(115)09140001');
+ok(rcpt_no('物', '2026-07-31', 5375) === '物(115)07315375', '業務單位實例 物(115)07315375');
+ok(rcpt_no('食', '2027-01-05', 12) === '食(116)01050012', '跨年：116 年');
+ok(throws(fn() => rcpt_no('物', '2026-09-14', 0)), '流水號 0 擋下');
+ok(throws(fn() => rcpt_no('物', '2026-09-14', 10000)), '流水號 10000 擋下');
+ok(throws(fn() => rcpt_no('X', '2026-09-14', 1)), '未知字軌擋下');
+ok(rcpt_range_text('物(115)09140001', '物(115)09145089') === '物(115)09140001~5089', '起訖字串與文中報關單號相同寫法');
+ok(rcpt_range_text('物(115)09140001', '物(115)09140001') === '物(115)09140001', '只有一張時不加 ~');
+
+echo "網頁測試環境判斷（/receipt-test/）\n";
+ok(itdb_web_test('fpm-fcgi', ['ITCCRA_DB_SUFFIX' => '_web']) === true, 'nginx 設了 _web → 測試環境');
+ok(itdb_web_test('fpm-fcgi', []) === false, '沒設 → 正式環境');
+ok(itdb_web_test('fpm-fcgi', ['HTTP_ITCCRA_DB_SUFFIX' => '_web']) === false, '瀏覽器送同名標頭（變成 HTTP_*）蓋不到');
+ok(itdb_web_test('fpm-fcgi', ['ITCCRA_DB_SUFFIX' => '_test']) === false, '值不是 _web 不算（含命令列測試用的 _test）');
+ok(itdb_web_test('cli', ['ITCCRA_DB_SUFFIX' => '_web']) === false, '命令列不吃這個值（命令列另用 ITCCRA_TEST_DB）');
+
+echo "民國日期\n";
+ok(rcpt_roc_to_date('115/09/14') === '2026-09-14', '115/09/14');
+ok(rcpt_roc_to_date('115/9/4') === '2026-09-04', '115/9/4');
+ok(rcpt_roc_to_date('1150914') === '2026-09-14', '1150914');
+ok(rcpt_roc_to_date('115/02/30') === null, '不存在的日期回 null');
+ok(rcpt_roc_to_date('１１５／１１／１８') === '2026-11-18', '全形 １１５／１１／１８');
+ok(rcpt_roc_to_date('115年11月18日') === '2026-11-18', '115年11月18日');
+ok(rcpt_roc_to_date('民國115年1月8日') === '2026-01-08', '民國115年1月8日');
+ok(rcpt_roc_to_date('2026-11-18') === '2026-11-18', '日曆欄位西元 2026-11-18');
+ok(rcpt_roc_to_date('2026-02-30') === null, '西元不存在的日期回 null');
+ok(rcpt_roc_to_date('') === null, '空白回 null');
+ok(rcpt_date_to_roc('2026-09-14') === '115/09/14', '西元轉民國');
+
+if (($argv[2] ?? '') === 'db') {
+    putenv('ITCCRA_TEST_DB=1');
+    echo "配號（receipt_test schema）\n";
+    itdb('receipt')->exec('DROP SCHEMA IF EXISTS receipt_test CASCADE; CREATE SCHEMA receipt_test');   // 測試 schema 每次重建，資料表定義改了也跟得上
+    $d = rcpt_db();
+    $d->exec('TRUNCATE batch, batch_item, donation, print_log, audit RESTART IDENTITY CASCADE');
+    $mk = function (string $wms, string $date, int $rows) use ($d) {
+        $d->prepare("INSERT INTO batch (source, track, po_no, in_date, created_by) VALUES ('ibon','物',?,?,'t@x')")->execute([$wms, $date]);
+        $id = (int)$d->lastInsertId();
+        $s = $d->prepare('INSERT INTO donation (batch_id, row_no, name) VALUES (?,?,?)');
+        for ($i = 1; $i <= $rows; $i++) $s->execute([$id, $i, "測試$i"]);
+        return $id;
+    };
+    $a = $mk('T001', '2026-09-14', 3);
+    $r = rcpt_assign($d, $a, 't@x');
+    ok($r['first'] === '物(115)09140001' && $r['last'] === '物(115)09140003', '第一批 0001～0003');
+    $b = $mk('T002', '2026-09-14', 2);
+    $r = rcpt_assign($d, $b, 't@x');
+    ok($r['first'] === '物(115)09140004' && $r['range'] === '物(115)09140004~0005', '同日第二批接續 0004～0005');
+    ok(throws(fn() => rcpt_assign($d, $b, 't@x')), '已配號批次不能重配');
+    $c = $mk('T003', '2026-09-15', 1);
+    ok(rcpt_assign($d, $c, 't@x')['first'] === '物(115)09150001', '換日從 0001 起');
+    $d->exec("UPDATE donation SET void = true WHERE receipt_no = '物(115)09140005'");
+    $e = $mk('T004', '2026-09-14', 1);
+    ok(rcpt_assign($d, $e, 't@x')['first'] === '物(115)09140006', '作廢號碼不重用');
+    $d->exec("UPDATE donation SET order_no = 'ORD-' || row_no || '-' || batch_id");
+    $dup = rcpt_dup_orders($d, ['ORD-1-' . $a, 'ORD-9-9', ''], $b);
+    ok(isset($dup['ORD-1-' . $a]) && $dup['ORD-1-' . $a][1] === '物(115)09140001' && count($dup) === 1, '訂單編號重複檢查：找得到已開過的、找不到的不列');
+    ok(rcpt_dup_orders($d, ['ORD-1-' . $a], $a) === [], '同一批自己不算重複');
+    $f = $mk('T005', '2026-09-16', 0);
+    ok(throws(fn() => rcpt_assign($d, $f, 't@x')), '沒有明細不能配號');
+    ok($d->query("SELECT status FROM batch WHERE po_no = 'T005'")->fetchColumn() === 'draft', '配號失敗時批次保持草稿（交易回復）');
+}
+echo "地址完整性（繁英姊 11/20：要有路／街／大道＋號，巷、村里可無）\n";
+ok(!rcpt_addr_incomplete('新北市', '不用') && rcpt_addr_nomail('不用'), '「不用」→ 本來就不寄、不標紅（繁英 11/20 更正）');
+ok(!rcpt_addr_incomplete('新北市永和區', '') && rcpt_addr_nomail(''), '地址空白 → 不寄、不標紅');
+ok(rcpt_addr_nomail('愛心捐贈') && rcpt_addr_nomail('空白') && rcpt_addr_nomail('永和'), '愛心捐贈／空白／少於4字 → 本來就不寄');
+ok(!rcpt_addr_nomail('保生路1號'), '保生路1號 → 不是本來就不寄');
+ok(!rcpt_addr_incomplete('', '祝天好心情~') && rcpt_addr_nomail('祝天好心情~', ''), '沒有縣市的留言「祝天好心情~」→ 本來就不寄、不標紅');
+ok(rcpt_addr_incomplete('', '新北市中正路'), '縣市欄空但地址有市、缺號 → 仍標紅');
+ok(rcpt_addr_incomplete('新北市永和區', '保生路一段'), '有路沒有號 → 不完整');
+ok(!rcpt_addr_incomplete('新北市永和區', '保生路1號20樓'), '保生路1號20樓 → 完整');
+ok(!rcpt_addr_incomplete('臺北市中正區', '重慶南路一段122號'), '一段＋號 → 完整');
+ok(!rcpt_addr_incomplete('高雄市', '中山二路100巷3號'), '有巷 → 完整');
+ok(!rcpt_addr_incomplete('臺中市', '臺灣大道三段99號'), '大道 → 完整');
+ok(!rcpt_addr_incomplete('花蓮縣', '中正街5號'), '街 → 完整');
+ok(!rcpt_addr_incomplete('南投縣', '信義鄉東埔村') && rcpt_addr_nomail('信義鄉東埔村', '南投縣'), '只有村、沒有路號 → 本來就不寄（繁英 11/20）');
+ok(rcpt_addr_nomail('一木衛生行', '嘉義市'), '店名、沒有路號 → 本來就不寄');
+ok(!rcpt_addr_incomplete('臺北市', '台北郵局第12號信箱') && !rcpt_addr_nomail('台北郵局第12號信箱', '臺北市'), '郵政信箱有號 → 完整、要寄（繁英 11/20）');
+ok(!rcpt_addr_incomplete('新北市永和區', '郵政1234號信箱'), '郵政 1234 號信箱 → 完整');
+ok(rcpt_addr_incomplete('新北市三重區', '大義街16號新北市'), '門牌後又接縣市 → 標紅');
+ok(!rcpt_addr_incomplete('新北市三重區', '大義街16號3樓'), '門牌後接樓層 → 完整');
+ok(rcpt_addr_incomplete('新北市蘆洲區', '中山一路路204號1樓'), '「路路」重複字 → 標紅');
+ok(!rcpt_addr_incomplete('新北市蘆洲區', '中山一路204號1樓'), '改好後 → 完整');
+echo $fail ? "❌ 失敗 $fail／$n\n" : "✅ 全部通過 $n 項\n";
+exit($fail ? 1 : 0);

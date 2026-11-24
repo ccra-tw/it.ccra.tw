@@ -51,10 +51,13 @@ ok(strpos($h2, 'dp-warn') !== false && strpos($h2, '項目甲') !== false, '過�
 $h3 = devprojects_render(null, '還沒有開發案資料');
 ok(strpos($h3, '還沒有開發案資料') !== false && strpos($h3, 'dp-proj') === false, '無資料時只顯示說明');
 
-echo "戰情室頁面有接上\n";
+echo "開發案狀態在次頁 ops/dev.php，首頁只留入口（熊哥 11-20：戰情室資料太多）\n";
 $ops = file_get_contents("$SITE/ops/index.php");
-ok(strpos($ops, "devprojects.php'") !== false, '戰情室有載入 devprojects.php');
-ok(strpos($ops, 'devprojects_render($dpData, $dpWarn)') !== false, '戰情室有輸出卡片');
+$dev = file_get_contents("$SITE/ops/dev.php");
+ok(strpos($dev, "devprojects.php'") !== false, '次頁有載入 devprojects.php');
+ok(strpos($dev, 'devprojects_render(') !== false, '次頁有輸出卡片');
+ok(strpos($ops, 'devprojects_render(') === false, '首頁不再輸出開發案卡片');
+ok(strpos($ops, 'href="dev.php"') !== false, '首頁有次頁入口');
 
 @unlink($f); @rmdir($dir);
 echo "$n 項，失敗 $fail\n";

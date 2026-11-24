@@ -5,6 +5,31 @@ $SITE = $argv[1]; $LIB = $argv[2];
 if (!defined('STATE_DIR')) define('STATE_DIR', sys_get_temp_dir());
 require $LIB . '/zabbix.php';
 $fail = 0; $n = 0;
+
+echo "主機 IP：依 main／useip／dns 取，迴路位址交給本機代理補值（大沈 11-20 審查）\n";
+ok(zbx_pick_ip([['type'=>1,'main'=>1,'useip'=>1,'ip'=>'192.168.200.50','dns'=>'']]) === '192.168.200.50', '單一介面 → 它的 ip');
+ok(zbx_pick_ip([['type'=>1,'main'=>0,'useip'=>0,'ip'=>'10.0.0.9','dns'=>'old.test'],['type'=>1,'main'=>1,'useip'=>1,'ip'=>'192.168.200.7','dns'=>'']]) === '192.168.200.7', '第一筆不是主要介面且保留舊 ip → 取第二筆主要介面，不顯示舊值');
+ok(zbx_pick_ip([['type'=>1,'main'=>1,'useip'=>0,'ip'=>'10.0.0.9','dns'=>'hq.ccra.test']]) === 'hq.ccra.test', 'DNS-only 主要介面（useip=0）→ 顯示 dns，不顯示殘留的 ip');
+ok(zbx_pick_ip([['type'=>2,'main'=>1,'useip'=>1,'ip'=>'192.168.1.2'],['type'=>1,'main'=>1,'useip'=>1,'ip'=>'192.168.1.1']]) === '192.168.1.1', '兩個主要介面 → 代理介面優先於 SNMP');
+ok(zbx_pick_ip([['type'=>1,'main'=>1,'useip'=>1,'ip'=>'::1']]) === '', 'IPv6 迴路 ::1 → 空字串（交給本機代理補值）');
+ok(zbx_pick_ip([['type'=>1,'main'=>1,'useip'=>1,'ip'=>'127.0.0.1']]) === '', 'IPv4 迴路 → 空字串');
+ok(zbx_pick_ip([['type'=>1,'main'=>1,'useip'=>1,'ip'=>'127.0.0.1'],['type'=>2,'main'=>1,'useip'=>1,'ip'=>'192.168.100.9']]) === '192.168.100.9', '主要介面是迴路、另有真實介面 → 取真實介面');
+ok(zbx_pick_ip([]) === '', '沒有介面 → 空字串');
+ok((zbx_access_tag('10084')['level'] ?? '') === 'manage', 'ITSrv01 標可管理');
+ok((zbx_access_tag('10689')['text'] ?? '') === '大蘇可查看', 'HQ 標可查看（唯讀）');
+ok(zbx_os_short('Linux version 7.0.0-1020-azure (buildd@lcy02-amd64-058) (x86_64-linux-gnu-gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0) #21~24.04.2-Ubuntu SMP') === 'Linux 7.0.0-1020-azure', 'Linux 版本字串只留核心版號');
+ok(zbx_os_short('Windows Server 2022 Standard 20348.1.amd64fre.fe_release.210507-1500 Build 20348.5761') === 'Windows Server 2022 Standard（Build 20348.5761）', 'Windows Server 去掉內部版號、留組建號');
+ok(zbx_os_short('Windows 10 Pro 26100.1.amd64fre.ge_release.240331-1435 Build 26300.997') === 'Windows 11 Pro（Build 26300.997）', '組建號 22000 以上的「Windows 10」改稱 Windows 11');
+ok(zbx_os_short('Windows 10 Pro 19041.1.amd64fre.vb_release.191206-1406 Build 19045.784') === 'Windows 10 Pro（Build 19045.784）', '真正的 Windows 10 不改名');
+ok(zbx_os_short('Linux neh 5.10.55+ #90080 SMP Wed Jul 22 00:25:34 CST 2026 x86_64') === 'Linux 5.10.55+', 'NAS 的 SNMP sysDescr');
+ok(zbx_os_short('USG FLEX 700H') === 'USG FLEX 700H', '防火牆型號原樣');
+ok(zbx_sysline(['os' => 'Linux 7.0.0-43-generic', 'cores' => 4, 'memtotal' => 7784030208, 'uptime' => 845488]) === 'Linux 7.0.0-43-generic｜4 核｜記憶體 7 GB｜開機 9 天', '完整一行');
+ok(zbx_sysline(['os' => '', 'cores' => null, 'memtotal' => null, 'uptime' => 12186]) === '開機 3 小時', '不到一天顯示小時、缺欄位略過');
+ok(zbx_sysline(['os' => '', 'cores' => null, 'memtotal' => null, 'uptime' => null]) === '', '全缺 → 空字串（頁面不顯示該行）');
+ok(zbx_access_tag('10690') === null, 'SERVER3 沒開通 → 不標，不假裝有權限');
+ok(zbx_pick_ip([['type'=>1,'main'=>1,'useip'=>0,'ip'=>'','dns'=>'127.monitor.example']]) === '127.monitor.example', 'DNS 名稱以 127. 開頭 → 照樣顯示，不當迴路（大沈二審）');
+ok(zbx_pick_ip([['type'=>1,'main'=>1,'useip'=>1,'ip'=>'0:0:0:0:0:0:0:1']]) === '', 'IPv6 迴路展開寫法 0:0:0:0:0:0:0:1 → 空字串（大沈二審）');
+ok(zbx_pick_ip([['type'=>1,'main'=>1,'useip'=>1,'ip'=>'127.12.34.56']]) === '', '127/8 其他位址 → 空字串');
 function ok($cond, $msg) { global $fail, $n; $n++; echo ($cond ? "  ✅ " : "  ❌ ") . $msg . "\n"; if (!$cond) $fail++; }
 
 echo "可用狀態：有代理看代理，只有 ping 看 ping\n";
