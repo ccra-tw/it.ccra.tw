@@ -10,8 +10,9 @@ const HOSTLOG_TEXT = ['what', 'why', 'change', 'verify', 'undo'];   // 關鍵字
 const HOSTLOG_TZ = 'Asia/Taipei';
 const HOSTLOG_PER_PAGE = 50;
 // 時間一律以台北時間格式化後交給頁面，不依賴資料庫連線的時區設定
+// 操作時間顯示到秒（2026-11-24 大沈審查：解析保留秒數後，網頁與 CSV 也要看得到，否則同分鐘的兩筆無法回查）
 const HOSTLOG_COLS = "id, ts, ts_note, operator, operator_email, host, kind, what, why, change, verify, undo, ticket, created_at, created_by,
-    to_char(ts AT TIME ZONE 'Asia/Taipei', 'YYYY-MM-DD HH24:MI') AS ts_local,
+    to_char(ts AT TIME ZONE 'Asia/Taipei', 'YYYY-MM-DD HH24:MI:SS') AS ts_local,
     to_char(created_at AT TIME ZONE 'Asia/Taipei', 'YYYY-MM-DD HH24:MI') AS created_local";
 
 function hostlog_db(): PDO {

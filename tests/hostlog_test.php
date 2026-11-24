@@ -56,6 +56,9 @@ $a1 = hostlog_add(base(['host' => 'SECHOST', 'ts' => hostlog_parse_time('2026-10
 $a2 = hostlog_add(base(['host' => 'SECHOST', 'ts' => hostlog_parse_time('2026-10-05 09:30:01')[0], 'what' => '先做的']));
 [$r] = hostlog_search(['host' => 'SECHOST']);
 ok(array_column($r, 'what') === ['後做的', '先做的'], '同一分鐘內依秒數排序，不是依編號');
+ok(array_column($r, 'ts_local') === ['2026-10-05 09:30:59', '2026-10-05 09:30:01'], '列表顯示到秒，同分鐘兩筆看得出先後');
+$fh = fopen('php://memory', 'w+'); hostlog_export_csv('2026-10', $fh); rewind($fh); $csv = stream_get_contents($fh); fclose($fh);
+ok(strpos($csv, '2026-10-05 09:30:59') !== false && strpos($csv, '2026-10-05 09:30:01') !== false, 'CSV 匯出的時間欄也到秒');
 $d->exec("DELETE FROM entry WHERE host = 'SECHOST'");
 ok($thrown(base(['what' => 'x', 'ts_note' => '晚上，當時 password=abc123'])), '時間說明裡含密碼也拒收');
 
@@ -76,7 +79,7 @@ ok($t === 1 && $r[0]['id'] == $id2, '操作人篩選');
 ok($t === 1 && $r[0]['id'] == $id1, '工單篩選');
 [$r, $t] = hostlog_search([]);
 ok($t === 3 && $r[0]['id'] == $id3 && $r[1]['id'] == $id2, '全部列出，新的在前（時間不明的以建立時間排序）');
-ok($r[2]['ts_local'] === '2026-10-05 09:30', '列表時間以台北時間顯示');
+ok($r[2]['ts_local'] === '2026-10-05 09:30:00', '列表時間以台北時間顯示');
 [$r, $t] = hostlog_search([], 2, 2);
 ok($t === 3 && count($r) === 1 && $r[0]['id'] == $id1, '分頁：第二頁取到剩下的');
 ok(hostlog_hosts() === ['TESTHOST1', 'testhost2'], '主機下拉選單取不重複主機');
@@ -105,7 +108,7 @@ $o = req('ituncle@ccra.org.tw', 'ops/hostlog.php', 'POST', [], $post + ['csrf' =
 [$r, $t] = hostlog_search(['host' => 'TESTHOST3']);
 ok($t === 1 && strpos($o, '已新增一筆') !== false, '帶正確 csrf 新增成功');
 ok(($r[0]['operator'] ?? '') === IT_STAFF['ituncle@ccra.org.tw'] && $r[0]['operator_email'] === 'ituncle@ccra.org.tw', '操作人取登入身分，表單送來的名字不採用');
-ok(($r[0]['ts_local'] ?? '') === '2026-11-03 10:00', '表單時間照台北時間存');
+ok(($r[0]['ts_local'] ?? '') === '2026-11-03 10:00:00', '表單時間照台北時間存');
 $o = req('ituncle@ccra.org.tw', 'ops/hostlog.php', 'POST', [], ['csrf' => $csrf, 'host' => 'TESTHOST3', 'kind' => '其他', 'time' => '', 'ts_note' => '', 'what' => 'x']);
 ok(strpos($o, '要有操作時間') !== false && hostlog_search(['host' => 'TESTHOST3'])[1] === 1, '沒時間也沒說明：顯示錯誤、不寫入');
 
@@ -119,7 +122,7 @@ ok($rc === 0 && strpos($out, '已新增 2 筆') !== false, '命令列 add 印出
 [$r, $t] = hostlog_search(['host' => 'CLIHOST']);
 $byWhat = array_column($r, null, 'what');
 ok($t === 2, '兩筆都寫入');
-ok(($byWhat['推 host_sites.json']['ts_local'] ?? '') === '2026-11-02 23:05' && $byWhat['推 host_sites.json']['ts_note'] === null, '確切時間存成時間欄（台北時間）');
+ok(($byWhat['推 host_sites.json']['ts_local'] ?? '') === '2026-11-02 23:05:00' && $byWhat['推 host_sites.json']['ts_note'] === null, '確切時間存成時間欄（台北時間）');
 ok(isset($byWhat['Get-Service']) && $byWhat['Get-Service']['ts'] === null && $byWhat['Get-Service']['ts_note'] === '11/01 下午（約略）', '不確定的時間存成時間說明、時間欄留空');
 ok(($byWhat['Get-Service']['operator'] ?? '') === 'IT大蘇' && $byWhat['Get-Service']['operator_email'] === 'ituncle@ccra.org.tw', 'who／who_email 預設 IT大蘇');
 [$rc, $out, $err] = cli(['add'], json_encode([['host' => 'CLIHOST', 'time' => '2026-11-02 23:05', 'type' => '其他', 'what' => 'ok'], ['host' => 'CLIHOST', 'type' => '亂寫', 'what' => 'x']], JSON_UNESCAPED_UNICODE));
