@@ -109,6 +109,18 @@ $o = req('ituncle@ccra.org.tw', 'ops/hostlog.php', 'POST', [], $post + ['csrf' =
 ok($t === 1 && strpos($o, '已新增一筆') !== false, '帶正確 csrf 新增成功');
 ok(($r[0]['operator'] ?? '') === IT_STAFF['ituncle@ccra.org.tw'] && $r[0]['operator_email'] === 'ituncle@ccra.org.tw', '操作人取登入身分，表單送來的名字不採用');
 ok(($r[0]['ts_local'] ?? '') === '2026-11-03 10:00:00', '表單時間照台北時間存');
+ok(strpos($o, 'type="datetime-local" name="time" step="1"') !== false, '時間欄位 step="1"，瀏覽器才接受非整分鐘的秒數');
+foreach (['2026-11-03T11:00:59' => '網頁後做的', '2026-11-03T11:00:01' => '網頁先做的'] as $tm => $w)
+    req('ituncle@ccra.org.tw', 'ops/hostlog.php', 'POST', [], ['csrf' => $csrf, 'host' => 'WEBSEC', 'kind' => '其他', 'time' => $tm, 'what' => $w]);
+[$r] = hostlog_search(['host' => 'WEBSEC']);
+ok(array_column($r, 'ts_local') === ['2026-11-03 11:00:59', '2026-11-03 11:00:01'] && array_column($r, 'what') === ['網頁後做的', '網頁先做的'], '網頁新增同分鐘不同秒的兩筆：秒數照存、依秒數排序');
+$o3 = req('ituncle@ccra.org.tw', 'ops/hostlog.php', 'GET', ['host' => 'WEBSEC']);
+ok(strpos($o3, '2026-11-03 11:00:59') !== false && strpos($o3, '2026-11-03 11:00:01') !== false && strpos($o3, '11:00:59') < strpos($o3, '11:00:01'), '網頁列表顯示到秒、新的在前');
+$fh = fopen('php://memory', 'w+'); hostlog_export_csv('2026-11', $fh); rewind($fh); fread($fh, 3); $hdr = fgetcsv($fh, 0, ',', '"', ''); $col = array_search('時間', $hdr); $idc = array_search('編號', $hdr); $got = [];
+while (($row = fgetcsv($fh, 0, ',', '"', '')) !== false) if (in_array($row[$col], ['2026-11-03 11:00:01', '2026-11-03 11:00:59'], true)) $got[] = $row[$col];
+fclose($fh);
+ok($got === ['2026-11-03 11:00:01', '2026-11-03 11:00:59'], 'CSV 以 fgetcsv 定位「時間」欄：兩筆秒數正確、依時間先後');
+$d->exec("DELETE FROM entry WHERE host = 'WEBSEC'");
 $o = req('ituncle@ccra.org.tw', 'ops/hostlog.php', 'POST', [], ['csrf' => $csrf, 'host' => 'TESTHOST3', 'kind' => '其他', 'time' => '', 'ts_note' => '', 'what' => 'x']);
 ok(strpos($o, '要有操作時間') !== false && hostlog_search(['host' => 'TESTHOST3'])[1] === 1, '沒時間也沒說明：顯示錯誤、不寫入');
 

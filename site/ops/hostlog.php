@@ -117,7 +117,7 @@ form.add textarea{min-height:4.5em;font-family:ui-monospace,Consolas,monospace}
     <label>主機（例如 ITSrv01、CCEAW2012）<input name="host" required maxlength="64" pattern="[A-Za-z0-9._\-]+" list="hl-hosts" value="<?= $fv('host') ?>"></label>
     <datalist id="hl-hosts"><?php foreach ($hosts as $x): ?><option value="<?= h($x) ?>"><?php endforeach; ?></datalist>
     <label>類型<select name="kind" required><?php foreach (HOSTLOG_KINDS as $k): ?><option<?= ($form['kind'] ?? '') === $k ? ' selected' : '' ?>><?= h($k) ?></option><?php endforeach; ?></select></label>
-    <label>操作時間（台北時間；不確定就清空，改寫下一欄）<input type="datetime-local" name="time" value="<?= $fv('time', date('Y-m-d\TH:i')) ?>"></label>
+    <label>操作時間（台北時間；不確定就清空，改寫下一欄）<input type="datetime-local" name="time" step="1" value="<?= $fv('time', date('Y-m-d\TH:i')) ?>"></label>
     <label>時間說明（不確定確切時間時填，例如「11/02 晚上」）<input name="ts_note" maxlength="200" value="<?= $fv('ts_note') ?>"></label>
     <label>做了什麼（實際指令、檔案、設定項目）<textarea name="what" required><?= $fv('what') ?></textarea></label>
     <label>原因<textarea name="why"><?= $fv('why') ?></textarea></label>
