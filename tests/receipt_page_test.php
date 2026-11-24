@@ -43,7 +43,7 @@ ok(str_contains(req($E, ['a' => 'settings'], 'POST', ['csrf' => $csrf($E), 'do' 
 req($E, ['a' => 'settings'], 'POST', ['csrf' => $csrf($E), 'do' => 'opt_save', 'kind' => 'set_price', 'code' => '５００']);
 ok((bool)$d->query("SELECT 1 FROM option_item WHERE kind='set_price' AND code='500'")->fetchColumn(), '新增金額（全形５００轉成 500）');
 $sg = req($E, ['a' => 'settings']);
-ok(str_contains($sg, '統一超商') && str_contains($sg, '>設定</a>'), '設定頁列出新增的供應商、開收據者有「設定」分頁');
+ok(str_contains($sg, '統一超商') && str_contains($sg, '>⚙️ 設定</a>'), '設定頁列出新增的供應商、開收據者有「設定」分頁');
 ok(!str_contains(req('vw@test', []), '>設定</a>'), '唯讀者沒有「設定」分頁');
 ok((int)$d->query("SELECT count(*) FROM audit WHERE action='opt_add'")->fetchColumn() >= 2, '新增設定留稽核紀錄');
 
