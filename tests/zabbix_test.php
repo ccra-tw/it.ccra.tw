@@ -2,7 +2,8 @@
 // 戰情室設備監控：ping-only 主機的狀態判斷、主機→網站對照讀檔（2026-11-02）。
 // 用法：php tests/zabbix_test.php <site 目錄> <lib 目錄>（由 tests/run_svc_test.py 準備好暫存副本後呼叫）
 $SITE = $argv[1]; $LIB = $argv[2];
-if (!defined('STATE_DIR')) define('STATE_DIR', sys_get_temp_dir());
+// 每次執行用獨立的狀態目錄，平行測試不會共用同一個快取檔（大沈 11-25）
+if (!defined('STATE_DIR')) { $_sd = sys_get_temp_dir() . '/zbx-state-' . getmypid() . '-' . bin2hex(random_bytes(4)); mkdir($_sd, 0700, true); define('STATE_DIR', $_sd); }
 require $LIB . '/zabbix.php';
 $fail = 0; $n = 0;
 
@@ -56,19 +57,29 @@ ok(!isset($m['10688']), '不是清單的主機略過');
 ok($at === '11/02 22:00', '更新時間讀得到');
 @unlink($f); @rmdir($dir);
 
-echo "快取格式版本（大沈 11-25：舊快取沒有 host，設備監控會拿顯示名稱查錯主機）\n";
+echo "快取格式版本與主機列驗證（大沈 11-25：舊快取缺 host 查錯主機；格式不符的列讓分組拋 TypeError）\n";
 $zc = STATE_DIR . '/zabbix_cache.json';
-$zbak = is_file($zc) ? file_get_contents($zc) : null;
-file_put_contents($zc, json_encode(['at' => time(), 'hosts' => [['hostid' => '1', 'name' => 'Demo Host', 'avail' => 1, 'problems' => []]]]));
+$zrow = fn(array $x = []) => $x + ['hostid' => '1', 'name' => 'Demo Host', 'group' => 'Linux 主機', 'avail' => 1, 'problems' => []];
+file_put_contents($zc, json_encode(['at' => time(), 'hosts' => [$zrow()]]));
 [$zd, $zmsg] = zabbix_hosts();
-ok(($zd['v'] ?? 0) === ZBX_CACHE_VER || $zmsg !== '', '未滿 60 秒的舊版快取不當成新鮮資料（不是重抓成功，就是標明為上次資料）');
-ok(!isset($zd['hosts'][0]) || isset($zd['hosts'][0]['host']) || $zmsg !== '', '拿到沒有 host 欄的主機列時一定帶提示訊息');
-file_put_contents($zc, json_encode(['v' => ZBX_CACHE_VER, 'at' => time(), 'hosts' => [['hostid' => '1', 'host' => 'demo-host-01', 'name' => 'Demo Host', 'avail' => 1, 'problems' => []]]]));
+ok(($zd['v'] ?? 0) === ZBX_CACHE_VER || $zmsg !== '', '有效的舊版快取（缺 host、未滿 60 秒）不當新鮮資料');
+ok(zbx_cache_read($zc, false) !== null && zbx_cache_read($zc, true) === null, '有效舊版：刷新失敗時可回退，但不當新鮮資料（缺 host）');
+file_put_contents($zc, json_encode(['v' => ZBX_CACHE_VER, 'at' => time(), 'hosts' => ['只是字串']]));
+ok(zbx_cache_read($zc, false) === null && zbx_cache_read($zc, true) === null, '目前版本但主機列是字串 → 整份不採用');
 [$zd, $zmsg] = zabbix_hosts();
-ok($zmsg === '' && ($zd['hosts'][0]['host'] ?? '') === 'demo-host-01', '新版快取（含 host）未滿 60 秒直接採用');
+ok($zd === null || zbx_row_ok($zd['hosts'][0] ?? [], false), '格式不符的快取不會流到設備監控（不是重抓成功，就是回傳 null）');
+foreach ([['avail' => '1'], ['group' => null], ['problems' => 'x'], ['problems' => ['x']]] as $bad) {
+    file_put_contents($zc, json_encode(['v' => ZBX_CACHE_VER, 'at' => time(), 'hosts' => [$zrow(['host' => 'demo-host-01'] + $bad)]]));
+    ok(zbx_cache_read($zc, false) === null, '欄位型別不符拒收：' . json_encode($bad, JSON_UNESCAPED_UNICODE));
+}
+file_put_contents($zc, json_encode(['v' => ZBX_CACHE_VER, 'at' => time(), 'hosts' => [$zrow(['host' => 'demo-host-01'])]]));
+[$zd, $zmsg] = zabbix_hosts();
+ok($zmsg === '' && ($zd['hosts'][0]['host'] ?? '') === 'demo-host-01', '新版有效快取（含 host）未滿 60 秒直接採用');
 file_put_contents($zc, '{壞掉的 JSON');
 ok(zbx_cache_read($zc) === null, '快取壞掉 → 讀不到，不回傳半套資料');
-if ($zbak === null) @unlink($zc); else file_put_contents($zc, $zbak);
+@unlink($zc);
+ok(zbx_cache_read($zc) === null, '快取不存在 → 讀不到');
+@rmdir(STATE_DIR);
 
 echo "\n$n 項，失敗 $fail\n";
 exit($fail ? 1 : 0);

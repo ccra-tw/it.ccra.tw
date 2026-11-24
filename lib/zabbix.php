@@ -104,14 +104,27 @@ function zbx_sysline(array $x) {
 // 設備監控會拿顯示名稱去查操作紀錄而查錯主機）。改格式就加一，舊版快取一律不當成新鮮資料。
 const ZBX_CACHE_VER = 2;
 
-function zbx_cache_read(string $cache): ?array {
+// 主機列的必要欄位與型別都對才採用（2026-11-25 大沈：只檢查 hosts 是陣列時，格式不符的列會讓設備監控分組拋 TypeError）。
+// $needHost＝true 時另要求有技術名稱 host（新鮮快取用）；刷新失敗回退時允許舊版缺 host 的列。
+function zbx_row_ok($r, bool $needHost): bool {
+    if (!is_array($r)) return false;
+    foreach (['hostid', 'name', 'group'] as $k) if (!isset($r[$k]) || !is_string($r[$k])) return false;
+    if (!array_key_exists('avail', $r) || !is_int($r['avail']) || !isset($r['problems']) || !is_array($r['problems'])) return false;
+    foreach ($r['problems'] as $p) if (!is_array($p) || !isset($p['name'], $p['severity'])) return false;
+    if ($needHost && (!isset($r['host']) || !is_string($r['host']) || $r['host'] === '')) return false;
+    return true;
+}
+
+function zbx_cache_read(string $cache, bool $needHost = false): ?array {
     $d = is_file($cache) ? json_decode((string)file_get_contents($cache), true) : null;
-    return is_array($d) && isset($d['hosts']) && is_array($d['hosts']) ? $d : null;
+    if (!is_array($d) || !isset($d['hosts']) || !is_array($d['hosts']) || !array_is_list($d['hosts'])) return null;
+    foreach ($d['hosts'] as $r) if (!zbx_row_ok($r, $needHost)) return null;
+    return $d;
 }
 
 function zabbix_hosts() {
     $cache = STATE_DIR . '/zabbix_cache.json';
-    $c = zbx_cache_read($cache);
+    $c = zbx_cache_read($cache, true);
     if ($c && ($c['v'] ?? 0) === ZBX_CACHE_VER && time() - filemtime($cache) < 60) return [$c, ''];
     $token = trim((string)@file_get_contents(STATE_DIR . '/zabbix-ops.token'));
     try {
