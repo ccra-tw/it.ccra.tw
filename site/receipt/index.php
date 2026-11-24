@@ -123,9 +123,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $ins->execute([$id, $p[0], $p[1], (float)str_replace(',', '', $p[2]), $p[3] ?? '', isset($p[4]) && $p[4] !== '' ? (float)$p[4] : null]);
                     }
                 }
+                // 進貨單 PDF 帶入的捐贈者（收據抬頭／收件人／寄件地址）：存在伺服器端、綁批次＋登入者（大沈審 5b711e9：個資不進網址、瀏覽紀錄與代理日誌）
+                $pf = trim((string)($_POST['pf_name'] ?? ''));
+                if ($pf !== '' && !$cur) {
+                    $d->prepare('INSERT INTO pdf_prefill (batch_id, email, data) VALUES (?,?,?) ON CONFLICT (batch_id, email) DO UPDATE SET data = EXCLUDED.data, created_at = now()')
+                      ->execute([$id, $email, json_encode(['name' => $pf, 'attn' => trim((string)($_POST['pf_attn'] ?? '')), 'addr' => trim((string)($_POST['pf_addr'] ?? ''))], JSON_UNESCAPED_UNICODE)]);
+                }
                 $d->commit();
-                $pf = trim((string)($_POST['pf_name'] ?? ''));   // 進貨單 PDF 帶入的捐贈者（收據抬頭／收件人／寄件地址），儲存後帶到單筆輸入
-                if ($pf !== '' && !$cur) rc_go('./?a=batch&id=' . $id . '&ok=saved&' . http_build_query(['pf' => 1, 'pf_name' => $pf, 'pf_attn' => trim((string)($_POST['pf_attn'] ?? '')), 'pf_addr' => trim((string)($_POST['pf_addr'] ?? ''))]) . '#single');
+                if ($pf !== '' && !$cur) rc_go('./?a=batch&id=' . $id . '&ok=saved&pf=1#single');
                 header("Location: ./?a=batch&id=$id&ok=saved" . (($_POST['single'] ?? '') === '1' ? '#single' : '')); exit;
             }
             if ($do === 'add_row') {       // 單筆輸入（繁英姊 11/18 驗收第 7 項：臨時來捐、電話捐贈，一次開一張）：只加在尚未配號的批次，配號檢查與匯入的一樣
@@ -149,6 +154,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                              $zip, $city, $addr, trim($_POST['product'] ?? ''), $qty, $send ? 'true' : 'false', $addrBad ? '單筆輸入；' . RCPT_ADDR_NOTE : '單筆輸入', '', $taxId, $email]);
                 $newId = (int)$insOne->fetchColumn();   // 清單列的錨點是 donation.id，不是 row_no（大沈 d836044：新增首筆導到 #r1，列卻是 #r5135）
                 rcpt_audit($d, $email, 'add_row', $id, "row $n 單筆輸入");
+                $d->prepare('DELETE FROM pdf_prefill WHERE batch_id = ? AND email = ?')->execute([$id, $email]);   // 進貨單帶入的捐贈者用過就刪
                 $d->commit();
                 $nAll = (int)$d->query('SELECT COUNT(*) FROM donation WHERE batch_id = ' . $id)->fetchColumn(); $lastP = max(1, (int)ceil($nAll / RCPT_PAGE));
                 rc_go("./?a=batch&id=$id" . ($lastP > 1 ? "&p=$lastP" : '') . "&ok=added#r$newId");
@@ -565,15 +571,21 @@ if ($addrBadIds): ?><div class="alert warn">地址不完整或有誤 <?= count($
 </section>
 <?php if ($b['status'] === 'draft' && $canEdit): ?>
 <?php $o1 = $refillOne ?? [];
-    $pfOn = !$refillOne && !empty($_GET['pf']) && trim((string)($_GET['pf_name'] ?? '')) !== '';
+    $pfData = null;
+    if (!$refillOne && !empty($_GET['pf'])) {   // 只讀「這一批、目前登入者、1 小時內」存的；別人或別批讀不到
+        $sp = $d->prepare("SELECT data FROM pdf_prefill WHERE batch_id = ? AND email = ? AND created_at > now() - interval '1 hour'");
+        $sp->execute([$id, $email]);
+        $pfData = json_decode((string)$sp->fetchColumn(), true) ?: null;
+    }
+    $pfOn = is_array($pfData) && trim((string)($pfData['name'] ?? '')) !== '';
     if ($pfOn) {   // 進貨單 PDF 帶入的捐贈者：收據抬頭 → 捐物人；寄件地址拆成縣市區＋地址（拆不出來就整段放地址）
-        $pa = trim((string)($_GET['pf_addr'] ?? ''));
+        $pa = trim((string)($pfData['addr'] ?? ''));
         $pm = preg_match('/^(\d{3,6})?\s*(\S{2,3}[縣市]\S{1,4}?[區鄉鎮市])(.+)$/u', $pa, $pq) ? $pq : null;
-        $o1 = ['name' => trim((string)$_GET['pf_name']), 'zip' => $pm[1] ?? '', 'city' => $pm[2] ?? '', 'address' => $pm ? trim($pm[3]) : $pa, 'send' => '1'];
+        $o1 = ['name' => trim((string)$pfData['name']), 'zip' => $pm[1] ?? '', 'city' => $pm[2] ?? '', 'address' => $pm ? trim($pm[3]) : $pa, 'send' => '1'];
     }
     $ov = fn($k, $dflt = '') => h((string)($o1[$k] ?? $dflt)); ?>
 <section class="panel" id="single"><h2>單筆輸入 <small>臨時來捐、電話捐贈：一次填一位，可連續加好幾位</small></h2>
-<?php if ($pfOn): ?><div class="alert ok" role="status">已帶入進貨單的捐贈者：收據抬頭「<?= h($o1['name']) ?>」<?= trim((string)($_GET['pf_attn'] ?? '')) !== '' ? '、收件人「' . h(trim((string)$_GET['pf_attn'])) . '」' : '' ?>、寄件地址。可以修改，核對後按「加入這一筆」。<?= trim((string)($_GET['pf_attn'] ?? '')) !== '' ? '（收件人沒有獨立欄位，需要的話請寫在地址最後，例如「立德路117號 Lion Lin主任收」。）' : '' ?></div><?php endif; ?>
+<?php if ($pfOn): ?><div class="alert ok" role="status">已帶入進貨單的捐贈者：收據抬頭「<?= h($o1['name']) ?>」<?= trim((string)($pfData['attn'] ?? '')) !== '' ? '、收件人「' . h(trim((string)$pfData['attn'])) . '」' : '' ?>、寄件地址。可以修改，核對後按「加入這一筆」。<?= trim((string)($pfData['attn'] ?? '')) !== '' ? '（收件人沒有獨立欄位，需要的話請寫在地址最後，例如「立德路117號 Lion Lin主任收」。）' : '' ?></div><?php endif; ?>
 <form method="post" action="./?a=batch&amp;id=<?= $id ?>#single">
 <input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="add_row">
 <div class="grid">

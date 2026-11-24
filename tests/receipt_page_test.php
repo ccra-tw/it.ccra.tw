@@ -536,9 +536,19 @@ $sv = req($E, ['a' => 'new'], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch'
     'it_code' => ['B03004'], 'it_name' => ['測試肉醬罐頭160g(大)'], 'it_qty' => ['1200'], 'it_unit' => ['罐'], 'it_price' => ['45'],
     'pf_name' => '測試量販股份有限公司', 'pf_attn' => '測試分店 陳主任', 'pf_addr' => '新北市板橋區文化路一段100號']);
 $bpz = (int)$d->query("SELECT id FROM batch WHERE po_no = '11511050009'")->fetchColumn();
-ok($bpz > 0 && str_contains($sv, 'pf=1') && str_contains($sv, 'pf_name='), '儲存後轉到批次頁並帶捐贈者' . ($bpz ? '' : '：' . substr(strip_tags($sv), 0, 200)));
-$ps = req($E, ['a' => 'batch', 'id' => $bpz, 'pf' => '1', 'pf_name' => '測試量販股份有限公司', 'pf_attn' => '測試分店 陳主任', 'pf_addr' => '新北市板橋區文化路一段100號']);
-ok(str_contains($ps, 'id="s_name" name="name" value="測試量販股份有限公司"') && str_contains($ps, 'id="s_city" name="city" value="新北市板橋區"') && str_contains($ps, 'value="文化路一段100號"') && str_contains($ps, '收件人「測試分店 陳主任」'), '單筆輸入帶入收據抬頭、拆好的縣市區與地址，並提示收件人');
+ok($bpz > 0 && str_contains($sv, 'X-TEST-LOCATION: ./?a=batch&id=' . $bpz . '&ok=saved&pf=1#single'), '儲存後轉到批次頁，網址只帶批次與 pf=1' . ($bpz ? '' : '：' . substr(strip_tags($sv), 0, 200)));
+ok(!preg_match('#X-TEST-LOCATION:[^\n]*(pf_name|pf_addr|pf_attn|%E6%B8%AC|測試量販|文化路)#u', $sv), '轉址網址不含收據抬頭、收件人、地址（大沈審 5b711e9）');
+$ps = req($E, ['a' => 'batch', 'id' => $bpz, 'pf' => '1']);
+ok(str_contains($ps, 'id="s_name" name="name" value="測試量販股份有限公司"') && str_contains($ps, 'id="s_city" name="city" value="新北市板橋區"') && str_contains($ps, 'value="文化路一段100號"') && str_contains($ps, '收件人「測試分店 陳主任」'), '單筆輸入從伺服器暫存帶入收據抬頭、縣市區與地址，並提示收件人');
+$d->exec("INSERT INTO users VALUES ('ed2@test','edit','') ON CONFLICT DO NOTHING");
+ok(!str_contains(req('ed2@test', ['a' => 'batch', 'id' => $bpz, 'pf' => '1']), '測試量販股份有限公司'), '別的編輯帳號開同一批讀不到這份暫存');
+$bOther = (int)$d->query("SELECT id FROM batch WHERE id <> $bpz AND status = 'draft' ORDER BY id DESC LIMIT 1")->fetchColumn();
+ok($bOther && !str_contains(req($E, ['a' => 'batch', 'id' => $bOther, 'pf' => '1']), '測試量販股份有限公司'), '同一帳號開別批也讀不到');
+$d->exec("UPDATE pdf_prefill SET created_at = now() - interval '2 hours' WHERE batch_id = $bpz");
+ok(!str_contains(req($E, ['a' => 'batch', 'id' => $bpz, 'pf' => '1']), '測試量販股份有限公司'), '超過 1 小時的暫存不再帶入');
+$d->exec("UPDATE pdf_prefill SET created_at = now() WHERE batch_id = $bpz");
+req($E, ['a' => 'batch', 'id' => $bpz], 'POST', ['csrf' => $csrf($E), 'do' => 'add_row', 'name' => '測試量販股份有限公司', 'qty' => '1', 'city' => '新北市板橋區', 'address' => '文化路一段100號']);
+ok(!(int)$d->query("SELECT count(*) FROM pdf_prefill WHERE batch_id = $bpz")->fetchColumn(), '單筆輸入加入後刪除暫存');
 @unlink($wzFile);
 $bdraft = (int)$d->query("SELECT id FROM batch WHERE status = 'draft' ORDER BY id DESC LIMIT 1")->fetchColumn();
 if ($bdraft) {
