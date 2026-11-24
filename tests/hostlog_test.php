@@ -50,6 +50,14 @@ ok(hostlog_parse_time('2026-10-05 09:30')[0] === '2026-10-05T09:30:00+08:00', '�
 ok(hostlog_parse_time('2026-10-05T09:30')[0] === '2026-10-05T09:30:00+08:00', '網頁 datetime-local 的 T 分隔也認');
 ok(hostlog_parse_time('2026-02-30 09:30') === [null, '2026-02-30 09:30'], '不存在的日期不硬轉，改存說明');
 ok(hostlog_parse_time('11/02 晚上') === [null, '11/02 晚上'], '非標準寫法存進時間說明');
+ok(hostlog_parse_time('2026-10-05 09:30:59')[0] === '2026-10-05T09:30:59+08:00', '帶秒的時間秒數照存（不截成整分）');
+ok(hostlog_parse_time('2026-10-05 09:30:61') === [null, '2026-10-05 09:30:61'], '不存在的秒數不硬轉，改存說明');
+$a1 = hostlog_add(base(['host' => 'SECHOST', 'ts' => hostlog_parse_time('2026-10-05 09:30:59')[0], 'what' => '後做的']));
+$a2 = hostlog_add(base(['host' => 'SECHOST', 'ts' => hostlog_parse_time('2026-10-05 09:30:01')[0], 'what' => '先做的']));
+[$r] = hostlog_search(['host' => 'SECHOST']);
+ok(array_column($r, 'what') === ['後做的', '先做的'], '同一分鐘內依秒數排序，不是依編號');
+$d->exec("DELETE FROM entry WHERE host = 'SECHOST'");
+ok($thrown(base(['what' => 'x', 'ts_note' => '晚上，當時 password=abc123'])), '時間說明裡含密碼也拒收');
 
 echo "篩選\n";
 [$r, $t] = hostlog_search(['host' => 'TestHost2']);
@@ -116,6 +124,11 @@ ok(isset($byWhat['Get-Service']) && $byWhat['Get-Service']['ts'] === null && $by
 ok(($byWhat['Get-Service']['operator'] ?? '') === 'IT大蘇' && $byWhat['Get-Service']['operator_email'] === 'ituncle@ccra.org.tw', 'who／who_email 預設 IT大蘇');
 [$rc, $out, $err] = cli(['add'], json_encode([['host' => 'CLIHOST', 'time' => '2026-11-02 23:05', 'type' => '其他', 'what' => 'ok'], ['host' => 'CLIHOST', 'type' => '亂寫', 'what' => 'x']], JSON_UNESCAPED_UNICODE));
 ok($rc !== 0 && strpos($err, '第 2 筆') !== false && hostlog_search(['host' => 'CLIHOST'])[1] === 2, '有一筆不合格就整批不寫（重送不會一半重複）');
+[$rc, $out, $err] = cli(['add'], json_encode([['host' => 'CLIHOST', 'time' => '2026-11-02 23:06', 'type' => '其他', 'what' => 'ok'],
+    ['host' => 'CLIHOST', 'time' => '2026-11-02 23:07', 'type' => '其他', 'what' => ['不是', '文字'], 'ticket' => 123]], JSON_UNESCAPED_UNICODE));
+ok($rc !== 0 && strpos($err, '第 2 筆') !== false && strpos($err, '「做了什麼」（what）要是文字') !== false && strpos($err, '「工單」（ticket）要是文字') !== false,
+    '第二筆欄位型別錯（陣列、數字）：錯誤訊息帶筆數與欄名');
+ok(hostlog_search(['host' => 'CLIHOST'])[1] === 2, '型別錯時整批零寫入（第一筆合格的也不寫）');
 [$rc, $out, $err] = cli(['add'], '{"host":"x"}');
 ok($rc === 2, 'stdin 不是陣列：拒絕');
 [$rc, $out, $err] = cli(['export', '--month', '2026-11']);

@@ -28,13 +28,16 @@ function hostlog_db(): PDO {
     return $d;
 }
 
-// 'YYYY-MM-DD HH:MM'（或 T 分隔、可帶秒）→ [ISO 時間（台北時區）, null]；其他寫法 → [null, 原文]（時間不確定時的說明）。
+// 'YYYY-MM-DD HH:MM' 或 'YYYY-MM-DD HH:MM:SS'（或 T 分隔）→ [ISO 時間（台北時區，秒數照存）, null]；
+// 其他寫法 → [null, 原文]（時間不確定時的說明）。
+// 2026-11-24 大沈審查：原本只取到分，09:30:01 與 09:30:59 會同存 09:30:00、同分鐘的排序變成照編號。
 function hostlog_parse_time(string $s): array {
     $s = trim($s);
     if ($s === '') return [null, null];
-    if (preg_match('/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(:\d{2})?$/', $s, $m)) {
-        $dt = DateTime::createFromFormat('!Y-m-d H:i', "$m[1] $m[2]", new DateTimeZone(HOSTLOG_TZ));
-        if ($dt && $dt->format('Y-m-d H:i') === "$m[1] $m[2]") return [$dt->format('c'), null];
+    if (preg_match('/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::(\d{2}))?$/', $s, $m)) {
+        $t = "$m[1] $m[2]:" . (isset($m[3]) && $m[3] !== '' ? $m[3] : '00');
+        $dt = DateTime::createFromFormat('!Y-m-d H:i:s', $t, new DateTimeZone(HOSTLOG_TZ));
+        if ($dt && $dt->format('Y-m-d H:i:s') === $t) return [$dt->format('c'), null];
     }
     return [null, mb_substr($s, 0, 200)];
 }
@@ -59,10 +62,12 @@ function hostlog_clean(array $e): array {
         'created_by' => mb_substr(trim((string)($e['created_by'] ?? '')), 0, 200)];
     foreach (HOSTLOG_TEXT as $k) $out[$k] = mb_substr(trim(str_replace("\r\n", "\n", (string)($e[$k] ?? ''))), 0, 20000);
     if ($out['what'] === '') throw new InvalidArgumentException('「做了什麼」不可空白');
-    foreach (array_merge(HOSTLOG_TEXT, ['ticket']) as $k)
-        if (hostlog_has_secret($out[$k])) throw new InvalidArgumentException('內容看起來含有密碼或金鑰，請拿掉（只寫放在哪裡，不寫值）');
     $ts = $e['ts'] ?? null;
     $note = trim((string)($e['ts_note'] ?? ''));
+    // 可自由填寫的欄位都要掃（2026-11-24 大沈審查：原本漏了時間說明與操作人）
+    foreach (array_merge(HOSTLOG_TEXT, ['ticket', 'operator']) as $k)
+        if (hostlog_has_secret($out[$k])) throw new InvalidArgumentException('內容看起來含有密碼或金鑰，請拿掉（只寫放在哪裡，不寫值）');
+    if (hostlog_has_secret($note)) throw new InvalidArgumentException('內容看起來含有密碼或金鑰，請拿掉（只寫放在哪裡，不寫值）');
     if ($ts === null && $note === '') throw new InvalidArgumentException('要有操作時間，不確定時寫說明（例如「11/02 晚上」）');
     $out['ts'] = $ts;
     $out['ts_note'] = $note === '' ? null : mb_substr($note, 0, 200);
@@ -133,12 +138,20 @@ function hostlog_latest_by_host(array $hosts, int $n = 5): array {
     return $out;
 }
 
+const HOSTLOG_IMPORT_FIELDS = ['host' => '主機', 'time' => '時間', 'type' => '類型', 'what' => '做了什麼', 'why' => '原因',
+    'change' => '變更', 'verify' => '驗證', 'undo' => '還原方式', 'ticket' => '工單', 'who' => '操作人', 'who_email' => '操作人信箱'];
+
 // 命令列匯入：[{host, time, type, what, why, change, verify, undo, ticket, who, who_email}, …]。
 // 全部驗過才寫入（有一筆不合格就一筆都不寫，重送時不會一半重複）。回傳 [新增筆數, 錯誤訊息陣列]。
 function hostlog_import(array $rows): array {
     $clean = []; $errs = [];
     foreach (array_values($rows) as $i => $r) {
         if (!is_array($r)) { $errs[] = '第 ' . ($i + 1) . ' 筆：不是物件'; continue; }
+        // 先驗型別再轉字串（2026-11-24 大沈審查：陣列會被轉成非空字串 "Array" 而通過非空檢核）
+        $bad = [];
+        foreach (HOSTLOG_IMPORT_FIELDS as $k => $label)
+            if (array_key_exists($k, $r) && $r[$k] !== null && !is_string($r[$k])) $bad[] = "「{$label}」（{$k}）要是文字";
+        if ($bad) { $errs[] = '第 ' . ($i + 1) . ' 筆：' . implode('、', $bad); continue; }
         [$ts, $note] = hostlog_parse_time((string)($r['time'] ?? ''));
         $who = trim((string)($r['who'] ?? '')) ?: 'IT大蘇';
         $whoEmail = trim((string)($r['who_email'] ?? '')) ?: 'ituncle@ccra.org.tw';
