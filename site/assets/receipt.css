@@ -113,6 +113,7 @@ table.rows{border-collapse:separate;border-spacing:0;width:100%;font-size:15px}
 .setnav a{color:var(--green);font-weight:800;text-decoration:none;padding:4px 10px;border-radius:999px;background:color-mix(in srgb,var(--green) 10%,transparent)}
 .setnav a:hover{text-decoration:underline}
 .panel[id]{scroll-margin-top:72px}
+@media (max-width:700px){.panel[id]{scroll-margin-top:140px}}   /* 大沈 9845cc6：手機跳轉列換成兩行約 100px，72px 會遮住標題 */
 .setfilter{max-width:320px;margin:10px 0 6px}
 .setlist{max-height:440px;overflow-y:auto;border:1px solid var(--edge);border-radius:14px}
 .rows tr[hidden]{display:none!important}   /* 篩選隱藏的列（手機版 tr 是 display:block，要明寫才藏得住） */

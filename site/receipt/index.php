@@ -727,7 +727,7 @@ $shown = array_slice($shown, ($pg - 1) * RCPT_PAGE, RCPT_PAGE);
 <?php $many = count($opts) > 8; if ($many): ?><input type="search" class="setfilter" data-for="tb-<?= h($kind) ?>" placeholder="輸入文字篩選<?= h($kname) ?>…" aria-label="篩選<?= h($kname) ?>"><?php endif; ?>
 <div class="tbl<?= $many ? ' setlist' : '' ?>" id="tb-<?= h($kind) ?>"><table class="rows"><tr class="hd"><th><?= $col1 ?></th><?php if ($kind === 'supplier'): ?><th>名稱</th><?php endif; ?><?php if ($kind === 'source'): ?><th>字軌</th><?php endif; ?><th>狀態</th><th></th></tr>
 <?php foreach ($opts as $o): $isE = $eid === (int)$o['id']; $fid = 'oe' . (int)$o['id']; ?>
-<tr id="o<?= (int)$o['id'] ?>" class="<?= $o['active'] ? '' : 'bad' ?>">
+<tr id="o<?= (int)$o['id'] ?>" class="<?= $o['active'] ? '' : 'bad' ?><?= $isE ? ' editing' : '' ?>">
 <?php if ($isE): ?>
 <td data-l="<?= $col1 ?>"><input form="<?= $fid ?>" type="text" name="code" value="<?= h($o['code']) ?>" required aria-label="<?= $col1 ?>"></td>
 <?php if ($kind === 'supplier'): ?><td data-l="名稱"><input form="<?= $fid ?>" type="text" name="name" value="<?= h($o['name']) ?>" required aria-label="名稱"></td><?php endif; ?>
@@ -751,10 +751,10 @@ $shown = array_slice($shown, ($pg - 1) * RCPT_PAGE, RCPT_PAGE);
 <form method="post" action="./?a=settings#letter">
 <input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="letter_save">
 <label for="f_letter">信件內容（段落之間空一行）</label><textarea id="f_letter" name="letter" rows="10"><?= h($curLetter) ?></textarea>
-<p class="hint">儲存後，之後列印的收據（含重印）都套用這個版本。1、3、5、7、9、11 月換新信時在這裡改。</p>
+<p class="hint">儲存後，之後列印的物字軌收據（含重印）都套用這個版本；食字軌不印信。1、3、5、7、9、11 月換新信時在這裡改。</p>
 <div class="actions"><button>儲存信件</button></div></form>
 </section>
-<script>(function(){document.querySelectorAll('.setfilter').forEach(function(f){var t=document.getElementById(f.dataset.for);if(!t)return;f.addEventListener('input',function(){var q=f.value.trim().toLowerCase();t.querySelectorAll('tr').forEach(function(r){if(r.classList.contains('hd'))return;var ins=r.querySelectorAll('input,select');if(ins.length){r.hidden=false;return;}var txt=r.textContent;r.hidden=q!==''&&txt.toLowerCase().indexOf(q)<0;});});});})();</script>
+<script>(function(){document.querySelectorAll('.setfilter').forEach(function(f){var t=document.getElementById(f.dataset.for);if(!t)return;f.addEventListener('input',function(){var q=f.value.trim().toLowerCase();t.querySelectorAll('tr').forEach(function(r){if(r.classList.contains('hd'))return;if(r.classList.contains('editing')){r.hidden=false;return;}var txt=r.textContent;r.hidden=q!==''&&txt.toLowerCase().indexOf(q)<0;});});});})();</script>
 
 
 <?php elseif ($a === 'search'):

@@ -259,7 +259,11 @@ $st = req($E, ['a' => 'settings']);
 ok(str_contains($st, 'data-for="tb-supplier"') && str_contains($st, 'class="tbl setlist" id="tb-supplier"'), '供應商超過 8 筆：出現篩選框、清單限高捲動');
 ok(!str_contains($st, 'data-for="tb-set_price"'), '筆數少的區塊不出現篩選框');
 ok(str_contains($st, '印在物字軌（預印紙）收據下半部') && !str_contains($st, '物、食兩個字軌都用這一封'), '信件區說明與列印一致：只有物字軌印信（大沈 1b88304）');
-ok(str_contains($st, "var ins=r.querySelectorAll('input,select')"), '篩選不藏編輯中的列（大沈 1b88304）');
+ok(str_contains($st, "if(r.classList.contains('editing'))"), '篩選只保留標了 editing 的編輯列（大沈 9845cc6：一般列的停用表單也有 hidden input）');
+$sid = (int)$d->query("SELECT id FROM option_item WHERE kind = 'supplier' ORDER BY id LIMIT 1")->fetchColumn();
+$se = req($E, ['a' => 'settings', 'e' => $sid]);
+ok(preg_match('/<tr id="o' . $sid . '" class="[^"]*editing/', $se) === 1 && substr_count($se, ' editing"') === 1, '只有正在修改的那一列帶 editing 標記');
+@file_put_contents(sys_get_temp_dir() . '/rcpt_settings_page.html', $se);   // 給 tests/receipt_filter_test.js 用
 ok(!str_contains($st, '請在下面新增'), '空清單提示改成「上面新增」');
 $ed = req($E, ['a' => 'edit', 'id' => $b4]);
 ok(str_contains($ed, '已配號') && !str_contains($ed, '與信件內容'), '已配號提示不再說批次可補信件');
