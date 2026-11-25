@@ -525,7 +525,10 @@ if ($a === 'items') $head = ['收據品項', '一張食字軌收據可以列好�
 <?php if ($okMsg): ?><div class="alert ok" role="status"><?= h($okMsg) ?></div><?php endif; ?>
 
 <?php if ($a === 'list'):
-    $rows = $d->query("SELECT b.*, (SELECT COUNT(*) FROM donation WHERE batch_id=b.id) n, (SELECT COALESCE(SUM(qty),0) FROM donation WHERE batch_id=b.id) q FROM batch b ORDER BY in_date DESC, id DESC LIMIT 200")->fetchAll(PDO::FETCH_ASSOC); ?>
+    // 大沈審 8bdd23b：清單與批次明細同一口徑——只算未作廢的列；有品項就加總各品項，舊的單品項列用 donation.qty
+    $rows = $d->query("SELECT b.*, (SELECT COUNT(*) FROM donation WHERE batch_id=b.id AND NOT void) n,
+        (SELECT COALESCE(SUM(COALESCE((SELECT SUM(di.qty) FROM donation_item di WHERE di.donation_id = dn.id), dn.qty)), 0) FROM donation dn WHERE dn.batch_id=b.id AND NOT dn.void) q
+        FROM batch b ORDER BY in_date DESC, id DESC LIMIT 200")->fetchAll(PDO::FETCH_ASSOC); ?>
 <div class="panel flush"><div class="tbl">
 <table class="rows"><tr class="hd"><th>收貨日期</th><th>來源</th><th>進貨單號</th><th class="n">筆數</th><th class="n">數量</th><th>收據起訖</th><th>狀態</th></tr>
 <?php foreach ($rows as $r): ?>

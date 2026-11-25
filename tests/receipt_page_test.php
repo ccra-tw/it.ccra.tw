@@ -668,6 +668,15 @@ $p2 = preq($E, ['id' => $bf, 'one' => $rf[2]]);
 ok(str_contains($p2, '<td>測試米</td><td style="text-align:right">4</td><td>包</td>') && substr_count($p2, '<td style="text-align:right">') === 1, '單品項的舊式列照舊印一項');
 req($E, ['a' => 'items', 'id' => $bf, 'rid' => $rf[1]], 'POST', ['csrf' => $csrf($E), 'do' => 'items_save', 'rid' => $rf[1], 'product' => ['測試米', '測試油'], 'qty' => ['2', '1']]);
 ok($d->query("SELECT receipt_no FROM donation WHERE id = {$rf[1]}")->fetchColumn() === $no1 && str_contains((string)$d->query("SELECT detail FROM audit WHERE action = 'edit_items_after_number' ORDER BY id DESC LIMIT 1")->fetchColumn(), '測試油×3 → 測試米×2、測試油×1'), '已配號也可改品項：收據編號不變、稽核標配號後');
+// 大沈審 8bdd23b：批次清單的筆數／數量要和明細頁一致（作廢不算、有品項加總各項）
+$recon = function (int $bid) use ($E) {
+    $l = req($E, ['a' => 'list']); $b = req($E, ['a' => 'batch', 'id' => $bid]);
+    preg_match('/a=batch&id=' . $bid . '".*?data-l="筆數">(\d+)<.*?data-l="數量">(\d+)</s', $l, $x);
+    preg_match('/筆數<\/small><b>(\d+)<.*?數量合計<\/small><b>(\d+)</s', $b, $y);
+    return ($x && $y && $x[1] === $y[1] && $x[2] === $y[2]) ? [(int)$x[1], (int)$x[2]] : ['清單' => $x ? [$x[1], $x[2]] : null, '明細' => $y ? [$y[1], $y[2]] : null];
+};
+$rc0 = $recon($bf); $q3 = (int)$d->query("SELECT qty FROM donation WHERE id = {$rf[3]}")->fetchColumn();
+ok(is_int($rc0[0] ?? null) && $rc0[0] === 3, '清單與明細一致：加第二品項後筆數 3、數量同口徑' . (is_int($rc0[0] ?? null) ? '' : ' ' . json_encode($rc0, JSON_UNESCAPED_UNICODE)));
 // 作廢
 ok(str_contains(req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'row_del', 'rid' => $rf[3]]), '不能刪除') && (int)$d->query("SELECT count(*) FROM donation WHERE id = {$rf[3]}")->fetchColumn() === 1, '已配號的列不能刪除');
 ok(str_contains(req($vw, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($vw), 'do' => 'row_void', 'rid' => $rf[3]]), '只能查詢') && !$d->query("SELECT void FROM donation WHERE id = {$rf[3]}")->fetchColumn(), '唯讀者不能作廢');
@@ -678,6 +687,7 @@ ok($d->query("SELECT void FROM donation WHERE id = {$rf[3]}")->fetchColumn() && 
 $pa = preq($E, ['id' => $bf, 'scope' => 'all', 'part' => 'all']);
 ok(substr_count($pa, 'class="page food"') === 2 && !str_contains($pa, '丙作廢'), '作廢的不再列印');
 $pb = req($E, ['a' => 'batch', 'id' => $bf]);
+$rc = $recon($bf); ok(is_int($rc[0] ?? null) && $rc === [$rc0[0] - 1, $rc0[1] - $q3], '清單與明細一致：作廢一列後筆數與數量都扣掉那一列' . (is_int($rc[0] ?? null) ? '' : ' ' . json_encode($rc, JSON_UNESCAPED_UNICODE)));
 ok(str_contains($pb, 'class="void"') && str_contains($pb, '作廢</span>') && str_contains($pb, '另作廢 1') && str_contains($pb, 'value="row_unvoid"'), '批次頁：作廢列灰掉、標作廢、筆數另計、有恢復鍵');
 ok(str_contains(req($E, ['a' => 'search', 'q' => $no3]), '作廢</span>'), '查詢結果標作廢');
 ok(str_contains(req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'row', 'rid' => $rf[3], 'name' => '改名', 'qty' => '1']), '已作廢') && $d->query("SELECT name FROM donation WHERE id = {$rf[3]}")->fetchColumn() === '丙作廢', '作廢的列不能修改');
@@ -689,6 +699,8 @@ ok(str_contains(req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf(
 $d->exec("DELETE FROM donation WHERE batch_id = $bo2");
 req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'row_unvoid', 'rid' => $rf[3]]);
 ok(!$d->query("SELECT void FROM donation WHERE id = {$rf[3]}")->fetchColumn() && substr_count(preq($E, ['id' => $bf, 'scope' => 'all', 'part' => 'all']), 'class="page food"') === 3, '恢復後再列入列印');
+$rc = $recon($bf); ok($rc === $rc0, '清單與明細一致：恢復後回到作廢前' . ($rc === $rc0 ? '' : ' ' . json_encode($rc, JSON_UNESCAPED_UNICODE)));
+$rc = $recon($b4); ok(is_int($rc[0] ?? null), '清單與明細一致：舊的單品項批次' . (is_int($rc[0] ?? null) ? '' : ' ' . json_encode($rc, JSON_UNESCAPED_UNICODE)));
 @unlink($tmp);
 echo $fail ? "❌ 失敗 {$fail}／{$n}\n" : "✅ 全部通過 {$n} 項\n";
 exit($fail ? 1 : 0);
