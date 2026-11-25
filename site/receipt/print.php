@@ -51,6 +51,8 @@ $nMulti = count($rows) - $nSingle;
 $part = $one ? 'all' : ($_GET['part'] ?? 'single');
 if ($part === 'single') $rows = array_values(array_filter($rows, fn($r) => $grpN[$grpKey($r)] === 1));
 elseif ($part === 'multi') $rows = array_values(array_filter($rows, fn($r) => $grpN[$grpKey($r)] > 1));
+// 繁英姊 11/25：「不分份的列可以用收據編號排序嗎？」——不分份不必為郵資把同地址排在一起，改依收據流水號
+elseif ($part === 'all') usort($rows, fn($a, $c) => $a['seq'] <=> $c['seq']);
 // 分次列印（繁英姊 11/19：「影印機紙夾一次只能放 500 張，列印時可以分次列印嗎？1-500」）：排好序之後依「第幾張」切段，每段 500 張
 const RCPT_CHUNK = 500;
 $total = count($rows);

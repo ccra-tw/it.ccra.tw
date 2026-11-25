@@ -438,6 +438,16 @@ $pb = req($E, ['a' => 'batch', 'id' => $bt]);
 ok(str_contains($pb, 'id="rcBusy"') && str_contains($pb, 'rcBusy(this'), '批次頁有「處理中」小視窗並接在送出上');
 $pd = req($E, ['a' => 'batch', 'id' => $bs, 'ok' => 'assigned']);
 ok(str_contains($pd, 'id="rcDone"') && str_contains($pd, '配號完成') && !str_contains(req($E, ['a' => 'batch', 'id' => $bs]), 'id="rcDone"'), '完成後跳「配號完成」，平常不跳');
+echo "不分份依收據編號排序（繁英姊 11/25）\n";
+$d->exec("INSERT INTO batch (source, track, in_date, status, created_by) VALUES ('ibon', '物', '2026-10-01', 'numbered', 'ed@test')");
+$bo = (int)$d->query("SELECT max(id) FROM batch")->fetchColumn();
+$insO = $d->prepare("INSERT INTO donation (batch_id, row_no, seq, receipt_no, name, zip, city, address, qty, send) VALUES (?,?,?,?,?,?,?,?,1,true)");
+// 流水號與郵遞區號順序相反：依地址排會是 OR-3、OR-2、OR-1；依編號排是 OR-1、OR-2、OR-3
+foreach ([[1, '900'], [2, '500'], [3, '100']] as [$i, $z]) $insO->execute([$bo, $i, $i, "OR-$i", "排序$i", $z, '台北市', "排序路$i"]);
+$po = preq($E, ['id' => $bo, 'part' => 'all']);
+ok(strpos($po, 'OR-1') < strpos($po, 'OR-2') && strpos($po, 'OR-2') < strpos($po, 'OR-3'), '不分份：依收據編號由小到大');
+$ps = preq($E, ['id' => $bo, 'part' => 'single']);
+ok(strpos($ps, 'OR-3') < strpos($ps, 'OR-2') && strpos($ps, 'OR-2') < strpos($ps, 'OR-1'), '單張份仍依地址排（郵資分份不變）');
 echo "分次列印 500 張一段（繁英姊 11/19）\n";
 $d->exec("INSERT INTO batch (source, track, in_date, status, created_by) VALUES ('ibon', '物', '2026-10-01', 'numbered', 'ed@test')");
 $bc = (int)$d->query("SELECT max(id) FROM batch")->fetchColumn();
