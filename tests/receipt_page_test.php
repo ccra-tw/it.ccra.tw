@@ -231,11 +231,29 @@ $ids = implode(',', $d->query("SELECT id FROM donation WHERE batch_id=$b4")->fet
 req($E, ['a' => 'batch', 'id' => $b4], 'POST', ['csrf' => $csrf($E), 'do' => 'mailed', 'ids' => $ids, 'mailed_on' => '115/11/21']);
 ok((int)$d->query("SELECT count(*) FROM donation WHERE batch_id=$b4 AND mailed_on='2026-11-21'")->fetchColumn() === 3, '整份標記寄出日期');
 ok(str_contains(preq($E, ['id' => $b4, 'part' => 'all']), 'value="mailed"'), '列印頁有「標記已寄出」');
+echo "給捐贈者的信改由設定統一維護（繁英姊 11/25）
+";
+$d->exec("DELETE FROM settings WHERE k = 'letter'");
 $d->exec("UPDATE batch SET letter = '十一月的信' WHERE id = $b4");
 $nw = req($E, ['a' => 'new']);
-ok(str_contains($nw, '十一月的信') && str_contains($nw, '已帶入最近一批的信'), '新增批次自動帶入最近一批的信件');
-$d->exec("UPDATE batch SET letter = '食也用的信', in_date = '2026-09-30' WHERE id = $b3");
-ok(str_contains(req($E, ['a' => 'new']), '食也用的信'), '物、食用同一封信：最近一批不分字軌都會帶入');
+ok(!str_contains($nw, 'name="letter"') && str_contains($nw, '改在「⚙️ 設定」統一維護'), '新增收據頁不再有信件欄，改提示到設定維護');
+ok(str_contains(req($E, ['a' => 'settings']), '十一月的信'), '設定還沒存過信：沿用最近一批有填的信');
+$o = req($E, ['a' => 'settings'], 'POST', ['csrf' => $csrf($E), 'do' => 'letter_save', 'letter' => "親愛的朋友：
+
+設定裡的新信"]);
+ok($d->query("SELECT v FROM settings WHERE k = 'letter'")->fetchColumn() === "親愛的朋友：
+
+設定裡的新信", '設定頁儲存信件（換行統一為 \n）');
+ok(str_contains(req($E, ['a' => 'settings']), '設定裡的新信'), '設定頁顯示目前的信');
+$pp = preq($E, ['id' => $b4, 'part' => 'all']);
+ok(str_contains($pp, '設定裡的新信') && !str_contains($pp, '十一月的信'), '列印套用設定裡的信，不用批次舊存的信');
+ok(str_contains($pp, '<p>親愛的朋友：</p><p>設定裡的新信</p>'), '列印時段落依空行切開');
+ok(str_contains((string)$d->query("SELECT action FROM audit WHERE action='letter_save' ORDER BY id DESC LIMIT 1")->fetchColumn(), 'letter_save'), '儲存信件留稽核紀錄');
+req('vw@test', ['a' => 'settings'], 'POST', ['csrf' => $csrf('vw@test'), 'do' => 'letter_save', 'letter' => '唯讀者改的']);
+ok($d->query("SELECT v FROM settings WHERE k = 'letter'")->fetchColumn() === "親愛的朋友：
+
+設定裡的新信", '唯讀者不能改信件');
+$d->exec("DELETE FROM settings WHERE k = 'letter'");
 
 echo "大沈第一輪（R-itsu-1112-01）\n";
 // P1-1 同檔兩列同訂單

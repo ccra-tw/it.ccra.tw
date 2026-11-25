@@ -120,6 +120,14 @@ function rcpt_role(PDO $d, string $email): ?string {
     return $r === false ? null : $r;
 }
 
+// 給捐贈者的信：在「設定」統一維護一份，列印收據一律套用這個版本（繁英姊 11/25：「請移到設定，因為收據列印都套用這個版本」）。
+// 還沒在設定存過時，沿用最近一批有填的信（改版前各批次各存一份）。
+function rcpt_letter(PDO $d): string {
+    $v = $d->query("SELECT v FROM settings WHERE k = 'letter'")->fetchColumn();
+    if ($v !== false) return (string)$v;
+    return (string)$d->query("SELECT letter FROM batch WHERE letter <> '' ORDER BY in_date DESC, id DESC LIMIT 1")->fetchColumn();
+}
+
 function rcpt_audit(PDO $d, string $who, string $action, ?int $batch = null, string $detail = ''): void {
     // 測試接縫：命令列、測試 schema、ITCCRA_TEST_AUDIT_FAIL=1 時模擬稽核寫入失敗（驗證「稽核失敗整筆回滾」）
     if (PHP_SAPI === 'cli' && getenv('ITCCRA_TEST_DB') === '1' && getenv('ITCCRA_TEST_AUDIT_FAIL') === '1') throw new PDOException('test: audit insert failed');

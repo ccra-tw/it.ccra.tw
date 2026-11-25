@@ -92,22 +92,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $po = trim($_POST['po_no'] ?? '') ?: null;
                 $f = [$src, $track, $po, $date, $supCode, $supName,
                       $sp === '' ? null : (int)$sp, trim($_POST['handler'] ?? ''),
-                      trim($_POST['contents'] ?? ''), trim($_POST['letter'] ?? '')];
+                      trim($_POST['contents'] ?? '')];   // 信件改由「設定」統一維護（繁英姊 11/25），批次不再存
                 $d->beginTransaction();
                 if ($id) {
                     $s0 = $d->prepare('SELECT * FROM batch WHERE id = ? FOR UPDATE'); $s0->execute([$id]);   // 與配號共用列鎖，持鎖後依當下狀態決定可改哪些欄位
                     $b = $s0->fetch(PDO::FETCH_ASSOC);
                     if (!$b) throw new RuntimeException('找不到批次');
                     if ($b['status'] !== 'draft') {   // 已配號：只能補進貨單號與經手人、信件等不影響編號的欄位
-                        $d->prepare('UPDATE batch SET po_no = ?, supplier_code = ?, supplier_name = ?, handler = ?, contents = ?, letter = ?, updated_at = now() WHERE id = ?')
-                          ->execute([$po, $f[4], $f[5], $f[7], $f[8], $f[9], $id]);
+                        $d->prepare('UPDATE batch SET po_no = ?, supplier_code = ?, supplier_name = ?, handler = ?, contents = ?, updated_at = now() WHERE id = ?')
+                          ->execute([$po, $f[4], $f[5], $f[7], $f[8], $id]);
                     } else {
-                        $d->prepare('UPDATE batch SET source=?, track=?, po_no=?, in_date=?, supplier_code=?, supplier_name=?, set_price=?, handler=?, contents=?, letter=?, updated_at=now() WHERE id=?')
+                        $d->prepare('UPDATE batch SET source=?, track=?, po_no=?, in_date=?, supplier_code=?, supplier_name=?, set_price=?, handler=?, contents=?, updated_at=now() WHERE id=?')
                           ->execute(array_merge($f, [$id]));
                     }
                     rcpt_audit($d, $email, 'edit_batch', $id);
                 } else {
-                    $d->prepare('INSERT INTO batch (source, track, po_no, in_date, supplier_code, supplier_name, set_price, handler, contents, letter, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+                    $d->prepare('INSERT INTO batch (source, track, po_no, in_date, supplier_code, supplier_name, set_price, handler, contents, created_by) VALUES (?,?,?,?,?,?,?,?,?,?)')
                       ->execute(array_merge($f, [$email]));
                     $id = (int)$d->lastInsertId();
                     rcpt_audit($d, $email, 'new_batch', $id);
@@ -335,6 +335,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $r = rcpt_assign($d, $id, $email);
                 header("Location: ./?a=batch&id=$id&ok=assigned"); exit;
             }
+            if ($do === 'letter_save') {   // 設定頁：給捐贈者的信（列印一律套用；繁英姊 11/25）
+                $v = trim(str_replace("\r\n", "\n", (string)($_POST['letter'] ?? '')));
+                $d->beginTransaction();
+                $old = rcpt_letter($d);
+                $d->prepare("INSERT INTO settings (k, v) VALUES ('letter', ?) ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v")->execute([$v]);
+                rcpt_audit($d, $email, 'letter_save', null, mb_strlen($old) . ' 字 → ' . mb_strlen($v) . ' 字');
+                $d->commit();
+                header('Location: ./?a=settings&ok=letter#letter'); exit;
+            }
             if ($do === 'opt_save') {      // 設定頁：新增或修改一筆選項（改名不影響舊批次，舊批次存的是當時的值）
                 $kind = (string)($_POST['kind'] ?? '');
                 [$code, $name, $extra] = rcpt_option_clean($kind, (string)($_POST['code'] ?? ''), (string)($_POST['name'] ?? ''), (string)($_POST['extra'] ?? ''));
@@ -382,7 +391,7 @@ if ($refill === null && isset($pdfRefill) && $err === '') { $refill = $pdfRefill
 $refillOne = ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['do'] ?? '') === 'add_row' && $err !== '') ? $_POST : null;
 // 11/23 大沈審查：匯入出錯回頁時保留使用者選的匯入方式（原本跳回「取代」，換對的檔直接重送會把原清單蓋掉）；初次進頁仍預設取代
 $importMode = ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['do'] ?? '') === 'import' && $err !== '' && ($_POST['mode'] ?? '') === 'append') ? 'append' : 'replace';
-$okMsg = ['saved' => '已儲存。', 'imported' => '已匯入，請檢核下面的清單，確認無誤後再配號。', 'appended' => '已追加匯入，接在原清單後面。請檢核下面的清單，確認無誤後再配號。' . ((int)($_GET['dupprev'] ?? 0) ? '有 ' . (int)$_GET['dupprev'] . ' 筆訂單編號和先前匯入的重複，已在「檢核說明」標出，請確認是否同一個檔匯了兩次。' : ''), 'row' => '已更新這一筆。', 'added' => '已新增一筆（單筆輸入）。還要加就繼續填，全部好了再按「配號」。', 'assigned' => '已配號。', 'mailed' => '已標記寄出日期。', 'opt' => '設定已儲存。', 'optoff' => '已停用：之後不會出現在選單，舊批次不受影響。', 'opton' => '已重新啟用。'][$_GET['ok'] ?? ''] ?? '';
+$okMsg = ['saved' => '已儲存。', 'imported' => '已匯入，請檢核下面的清單，確認無誤後再配號。', 'appended' => '已追加匯入，接在原清單後面。請檢核下面的清單，確認無誤後再配號。' . ((int)($_GET['dupprev'] ?? 0) ? '有 ' . (int)$_GET['dupprev'] . ' 筆訂單編號和先前匯入的重複，已在「檢核說明」標出，請確認是否同一個檔匯了兩次。' : ''), 'row' => '已更新這一筆。', 'added' => '已新增一筆（單筆輸入）。還要加就繼續填，全部好了再按「配號」。', 'assigned' => '已配號。', 'mailed' => '已標記寄出日期。', 'opt' => '設定已儲存。', 'letter' => '給捐贈者的信已儲存，之後列印的收據都套用這個版本。', 'optoff' => '已停用：之後不會出現在選單，舊批次不受影響。', 'opton' => '已重新啟用。'][$_GET['ok'] ?? ''] ?? '';
 if (preg_match('/^bulk(\d+)$/', (string)($_GET['ok'] ?? ''), $mm)) $okMsg = "已一次儲存 {$mm[1]} 筆修改。";
 if (preg_match('/^nosend(\d+)$/', (string)($_GET['ok'] ?? ''), $mm)) $okMsg = "已把 {$mm[1]} 筆地址不完整的改為不寄；確認地址沒問題的，可在該列勾「寄發」再按存。";
 ?>
@@ -452,10 +461,9 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
     $locked = $b && $b['status'] !== 'draft';
     $fv = function (string $k, $dflt = '') use ($refill, $b) { return $refill !== null && array_key_exists($k, $refill) ? $refill[$k] : ($b[$k] ?? $dflt); };
     // 新增批次：信件與每套內含帶入最近一批同字軌（業務單位 11/12：信件每兩個月 1、3、5、7、9、11 月統一更新）
-    $prevLetter = $prevContents = '';
+    $prevContents = '';
     if (!$b) {
         // 信件：物、食兩個字軌用同一封（業務單位 11/12）→ 取最近一批（不分字軌）有填信的；每套內含只有物用，取最近一批物
-        $prevLetter = (string)$d->query("SELECT letter FROM batch WHERE letter <> '' ORDER BY in_date DESC, id DESC LIMIT 1")->fetchColumn();
         $prevContents = (string)$d->query("SELECT contents FROM batch WHERE track = '物' AND contents <> '' ORDER BY in_date DESC, id DESC LIMIT 1")->fetchColumn();
     } ?>
 <?php if ($locked): ?><div class="alert warn">已配號：只能補進貨單號、供應商、經手人、每套內含與信件內容。</div><?php endif; ?>
@@ -497,7 +505,7 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
 </div></section>
 <section class="panel"><h2>收據內容</h2>
 <label for="f_contents">每套內含（印在物收據上）</label><textarea id="f_contents" name="contents" rows="2"><?= h($fv('contents', $prevContents)) ?></textarea>
-<label for="f_letter">給捐贈者的信（印在收據下半部）</label><textarea id="f_letter" name="letter" rows="8"><?= h($fv('letter', $prevLetter)) ?></textarea><?php if (!$b && $prevLetter !== ''): ?><p class="hint">已帶入最近一批的信；1、3、5、7、9、11 月換新信時在這裡改。</p><?php endif; ?>
+<p class="hint">給捐贈者的信改在「⚙️ 設定」統一維護，列印收據時一律套用設定裡的版本。</p>
 <?php
   $itRows = [];
   if ($refill !== null) {
@@ -733,7 +741,14 @@ $shown = array_slice($shown, ($pg - 1) * RCPT_PAGE, RCPT_PAGE);
 <?php if ($kind === 'source'): ?><select name="extra" style="max-width:150px" aria-label="字軌"><option value="物">物（預印紙）</option><option value="食">食（白紙）</option></select><?php endif; ?>
 <button>＋ 新增</button></form>
 </section>
-<?php endforeach; ?>
+<?php endforeach; $curLetter = rcpt_letter($d); ?>
+<section class="panel" id="letter"><h2>給捐贈者的信 <small>印在收據下半部；物、食兩個字軌都用這一封</small></h2>
+<form method="post" action="./?a=settings#letter">
+<input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="letter_save">
+<label for="f_letter">信件內容（段落之間空一行）</label><textarea id="f_letter" name="letter" rows="10"><?= h($curLetter) ?></textarea>
+<p class="hint">儲存後，之後列印的收據（含重印）都套用這個版本。1、3、5、7、9、11 月換新信時在這裡改。</p>
+<div class="actions"><button>儲存信件</button></div></form>
+</section>
 
 
 <?php elseif ($a === 'search'):

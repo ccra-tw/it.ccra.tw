@@ -7,6 +7,7 @@ require '/var/www/it-lib/access.php';
 require '/var/www/it-lib/receipt.php';
 $email = strtolower(access_identity()['email']);
 $d = rcpt_db();
+$letter = trim(rcpt_letter($d));   // 信件統一由「設定」維護，列印一律套用（繁英姊 11/25）
 $role = rcpt_role($d, $email);
 if (!$role) { http_response_code(403); exit('物資捐贈收據系統只開放給開收據的同仁、客服與助理會計。'); }
 function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
@@ -222,7 +223,7 @@ addEventListener('pageshow', function () { var d = document.getElementById('rcBu
 <div class="f" style="<?= $pos('qty') ?>"><?= (int)$r['qty'] ?></div>
 <div class="f" style="<?= $pos('addr') ?>"><?= h($r['zip'] . $r['city'] . '　' . $r['address']) ?></div>
 <div class="f" style="<?= $pos('to') ?>"><?= h($r['name']) ?>　收</div>
-<?php if (trim($b['letter']) !== ''): ?><div class="f letter" style="<?= $pos('letter') ?>"><?php foreach (preg_split('/\R{2,}/u', trim($b['letter'])) as $para) echo '<p>' . h($para) . '</p>'; ?></div><?php endif; ?>
+<?php if ($letter !== ''): ?><div class="f letter" style="<?= $pos('letter') ?>"><?php foreach (preg_split('/\R{2,}/u', $letter) as $para) echo '<p>' . h($para) . '</p>'; ?></div><?php endif; ?>
 </div>
 <?php endif; endforeach; ?>
 </div>
