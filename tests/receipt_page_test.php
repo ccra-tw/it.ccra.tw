@@ -604,6 +604,85 @@ if ($bdraft) {
     req($E, ['a' => 'batch', 'id' => $bdraft], 'POST', ['csrf' => $csrf($E), 'do' => 'add_row', 'name' => '公司捐贈', 'qty' => '1', 'tax_id' => '24536806']);
     ok($d->query("SELECT tax_id FROM donation WHERE batch_id = $bdraft AND name = '公司捐贈'")->fetchColumn() === '24536806', '單筆輸入存統編');
 }
+echo "多品項、改數量、刪除／作廢（繁英姊 11/25）\n";
+$d->exec("INSERT INTO batch (source, track, in_date, status, created_by) VALUES ('家庭雲端', '食', '2026-10-22', 'draft', 'ed@test')");
+$bf = (int)$d->query("SELECT max(id) FROM batch")->fetchColumn();
+$d->exec("INSERT INTO batch_item (batch_id, code, name, qty, unit) VALUES ($bf, 'A1', '測試米', 10, '包'), ($bf, 'A2', '測試油', 10, '瓶'), ($bf, 'A3', '沒單位品', 1, '')");
+$insF = $d->prepare("INSERT INTO donation (batch_id, row_no, order_no, name, zip, city, address, product, qty, send) VALUES (?,?,?,?,'100','臺北市中正區',?,?,?,true) RETURNING id");
+$rf = [];
+foreach ([[1, 'FM-1', '甲多品', '甲路1號', '測試米', 2], [2, 'FM-2', '乙單品', '乙路1號', '測試米', 1], [3, 'FM-3', '丙作廢', '丙路1號', '測試油', 1], [4, 'FM-4', '丁刪除', '丁路1號', '測試米', 1]] as $x) {
+    $insF->execute([$bf, $x[0], $x[1], $x[2], $x[3], $x[4], $x[5]]); $rf[$x[0]] = (int)$insF->fetchColumn();
+}
+// 品項
+$o = req($E, ['a' => 'items', 'id' => $bf, 'rid' => $rf[1]], 'POST', ['csrf' => $csrf($E), 'do' => 'items_save', 'rid' => $rf[1], 'product' => ['測試米', '測試油', ''], 'qty' => ['2', '３', '']]);
+ok(str_contains($o, 'X-TEST-LOCATION') && (int)$d->query("SELECT count(*) FROM donation_item WHERE donation_id = {$rf[1]}")->fetchColumn() === 2
+   && $d->query("SELECT product || qty FROM donation WHERE id = {$rf[1]}")->fetchColumn() === '測試米2', '品項存兩項（全形數量轉半形），donation 同步為第一項');
+ok(str_contains((string)$d->query("SELECT detail FROM audit WHERE action = 'edit_items' ORDER BY id DESC LIMIT 1")->fetchColumn(), '測試米×2 → 測試米×2、測試油×3'), '品項修改留稽核（改前 → 改後）');
+$pi = req($E, ['a' => 'items', 'id' => $bf, 'rid' => $rf[1]]);
+ok(str_contains($pi, 'value="測試油"') && str_contains($pi, 'name="product[]"') && str_contains($pi, '<option value="測試油">'), '品項頁列出目前品項與進貨明細選單');
+$pb = req($E, ['a' => 'batch', 'id' => $bf]);
+ok(str_contains($pb, '測試米×2、測試油×3') && str_contains($pb, '品項（2）') && str_contains($pb, '見品項'), '批次頁：多品項列顯示品項、數量改到品項頁');
+ok(str_contains($pb, 'name="qty" value="1"') && str_contains($pb, '＋品項'), '批次頁：單品項列可直接改數量、可加品項');
+$o = req($E, ['a' => 'items', 'id' => $bf, 'rid' => $rf[2]], 'POST', ['csrf' => $csrf($E), 'do' => 'items_save', 'rid' => $rf[2], 'product' => ['測試米', '沒單位品'], 'qty' => ['1', '1']]);
+ok(str_contains($o, '「沒單位品」不在這一批的進貨明細') && !(int)$d->query("SELECT count(*) FROM donation_item WHERE donation_id = {$rf[2]}")->fetchColumn()
+   && str_contains($o, 'value="沒單位品"'), '品項對不到單位：擋下、不存，畫面保留剛輸入的');
+ok(str_contains(req($E, ['a' => 'items', 'id' => $bf, 'rid' => $rf[2]], 'POST', ['csrf' => $csrf($E), 'do' => 'items_save', 'rid' => $rf[2], 'product' => ['測試米'], 'qty' => ['1.5']]), '數量請填正整數'), '品項數量 1.5 擋下');
+$d->exec("INSERT INTO donation_item (donation_id, product, qty, sort) VALUES ({$rf[2]}, '測試米', 1, 0), ({$rf[2]}, '沒單位品', 1, 1)");
+$o = req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'assign']);
+ok(str_contains($o, '第 2 列品名「沒單位品」不在進貨明細') && $d->query("SELECT status FROM batch WHERE id = $bf")->fetchColumn() === 'draft', '品項裡有對不到單位的：配號擋下並指出那一列');
+$d->exec("DELETE FROM donation_item WHERE donation_id = {$rf[2]}");
+// 改數量
+req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'row', 'rid' => $rf[3], 'name' => '丙作廢', 'zip' => '100', 'city' => '臺北市中正區', 'address' => '丙路1號', 'send' => '1', 'qty' => '５']);
+ok((int)$d->query("SELECT qty FROM donation WHERE id = {$rf[3]}")->fetchColumn() === 5 && str_contains((string)$d->query("SELECT detail FROM audit WHERE action = 'edit_row' ORDER BY id DESC LIMIT 1")->fetchColumn(), 'qty: 1 → 5'), '單列改數量（全形）並留稽核');
+ok(str_contains(req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'row', 'rid' => $rf[3], 'name' => '丙作廢', 'zip' => '100', 'city' => '臺北市中正區', 'address' => '丙路1號', 'send' => '1', 'qty' => '0']), '數量請填正整數')
+   && (int)$d->query("SELECT qty FROM donation WHERE id = {$rf[3]}")->fetchColumn() === 5, '數量 0 擋下、不改');
+req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'rows_bulk', 'rows' => json_encode([['rid' => $rf[2], 'name' => '乙單品', 'zip' => '100', 'city' => '臺北市中正區', 'address' => '乙路1號', 'send' => true, 'qty' => '4'],
+    ['rid' => $rf[1], 'name' => '甲多品', 'zip' => '100', 'city' => '臺北市中正區', 'address' => '甲路1號', 'send' => true, 'qty' => '99', 'product' => '測試油']])]);
+ok((int)$d->query("SELECT qty FROM donation WHERE id = {$rf[2]}")->fetchColumn() === 4, '全部儲存可改數量');
+ok($d->query("SELECT product || qty FROM donation WHERE id = {$rf[1]}")->fetchColumn() === '測試米2' && (int)$d->query("SELECT count(*) FROM donation_item WHERE donation_id = {$rf[1]}")->fetchColumn() === 2, '多品項的列：全部儲存不動品名與數量（改要到品項頁）');
+// 唯讀者
+$vw = 'vw@test';
+ok(str_contains(req($vw, ['a' => 'items', 'id' => $bf, 'rid' => $rf[1]], 'POST', ['csrf' => $csrf($vw), 'do' => 'items_save', 'rid' => $rf[1], 'product' => ['測試米'], 'qty' => ['1']]), '只能查詢')
+   && str_contains(req($vw, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($vw), 'do' => 'row_del', 'rid' => $rf[4]]), '只能查詢')
+   && (int)$d->query("SELECT count(*) FROM donation_item WHERE donation_id = {$rf[1]}")->fetchColumn() === 2 && (int)$d->query("SELECT count(*) FROM donation WHERE id = {$rf[4]}")->fetchColumn() === 1, '唯讀者不能改品項、不能刪除');
+$pv = req($vw, ['a' => 'items', 'id' => $bf, 'rid' => $rf[1]]);
+ok(!str_contains($pv, 'name="product[]"') && str_contains($pv, '測試油'), '唯讀者看品項頁只能看');
+ok(!str_contains(req($vw, ['a' => 'batch', 'id' => $bf]), 'value="row_del"'), '唯讀者批次頁沒有刪除鍵');
+// 刪除（草稿）
+ok(str_contains(req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'row_void', 'rid' => $rf[4]]), '直接刪除即可'), '草稿的列不能作廢（要刪除）');
+req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'row_del', 'rid' => $rf[4]]);
+ok(!(int)$d->query("SELECT count(*) FROM donation WHERE id = {$rf[4]}")->fetchColumn() && str_contains((string)$d->query("SELECT detail FROM audit WHERE action = 'del_row' ORDER BY id DESC LIMIT 1")->fetchColumn(), "row {$rf[4]}"), '草稿的列可刪除並留稽核');
+// 配號、列印多品項
+req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'assign']);
+ok($d->query("SELECT status FROM batch WHERE id = $bf")->fetchColumn() === 'numbered', '配號成功（3 筆）');
+$no1 = $d->query("SELECT receipt_no FROM donation WHERE id = {$rf[1]}")->fetchColumn();
+$p1 = preq($E, ['id' => $bf, 'one' => $rf[1]]);
+ok(str_contains($p1, '<td>測試米</td><td style="text-align:right">2</td><td>包</td>') && str_contains($p1, '<td>測試油</td><td style="text-align:right">3</td><td>瓶</td>'), '食字軌收據列出兩個品項（各自數量、單位）');
+$p2 = preq($E, ['id' => $bf, 'one' => $rf[2]]);
+ok(str_contains($p2, '<td>測試米</td><td style="text-align:right">4</td><td>包</td>') && substr_count($p2, '<td style="text-align:right">') === 1, '單品項的舊式列照舊印一項');
+req($E, ['a' => 'items', 'id' => $bf, 'rid' => $rf[1]], 'POST', ['csrf' => $csrf($E), 'do' => 'items_save', 'rid' => $rf[1], 'product' => ['測試米', '測試油'], 'qty' => ['2', '1']]);
+ok($d->query("SELECT receipt_no FROM donation WHERE id = {$rf[1]}")->fetchColumn() === $no1 && str_contains((string)$d->query("SELECT detail FROM audit WHERE action = 'edit_items_after_number' ORDER BY id DESC LIMIT 1")->fetchColumn(), '測試油×3 → 測試米×2、測試油×1'), '已配號也可改品項：收據編號不變、稽核標配號後');
+// 作廢
+ok(str_contains(req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'row_del', 'rid' => $rf[3]]), '不能刪除') && (int)$d->query("SELECT count(*) FROM donation WHERE id = {$rf[3]}")->fetchColumn() === 1, '已配號的列不能刪除');
+ok(str_contains(req($vw, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($vw), 'do' => 'row_void', 'rid' => $rf[3]]), '只能查詢') && !$d->query("SELECT void FROM donation WHERE id = {$rf[3]}")->fetchColumn(), '唯讀者不能作廢');
+$no3 = $d->query("SELECT receipt_no FROM donation WHERE id = {$rf[3]}")->fetchColumn();
+req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'row_void', 'rid' => $rf[3]]);
+ok($d->query("SELECT void FROM donation WHERE id = {$rf[3]}")->fetchColumn() && $d->query("SELECT receipt_no FROM donation WHERE id = {$rf[3]}")->fetchColumn() === $no3
+   && str_contains((string)$d->query("SELECT detail FROM audit WHERE action = 'void' ORDER BY id DESC LIMIT 1")->fetchColumn(), "$no3 作廢"), '作廢：編號保留、留稽核');
+$pa = preq($E, ['id' => $bf, 'scope' => 'all', 'part' => 'all']);
+ok(substr_count($pa, 'class="page food"') === 2 && !str_contains($pa, '丙作廢'), '作廢的不再列印');
+$pb = req($E, ['a' => 'batch', 'id' => $bf]);
+ok(str_contains($pb, 'class="void"') && str_contains($pb, '作廢</span>') && str_contains($pb, '另作廢 1') && str_contains($pb, 'value="row_unvoid"'), '批次頁：作廢列灰掉、標作廢、筆數另計、有恢復鍵');
+ok(str_contains(req($E, ['a' => 'search', 'q' => $no3]), '作廢</span>'), '查詢結果標作廢');
+ok(str_contains(req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'row', 'rid' => $rf[3], 'name' => '改名', 'qty' => '1']), '已作廢') && $d->query("SELECT name FROM donation WHERE id = {$rf[3]}")->fetchColumn() === '丙作廢', '作廢的列不能修改');
+// 恢復：訂單編號已另開收據就不行
+$d->exec("INSERT INTO batch (source, track, in_date, status, created_by) VALUES ('家庭雲端', '食', '2026-10-23', 'numbered', 'ed@test')");
+$bo2 = (int)$d->query("SELECT max(id) FROM batch")->fetchColumn();
+$d->exec("INSERT INTO donation (batch_id, row_no, seq, receipt_no, order_no, name, product, qty) VALUES ($bo2, 1, 1, 'RE-ISSUE-1', 'FM-3', '丙重開', '測試油', 1)");
+ok(str_contains(req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'row_unvoid', 'rid' => $rf[3]]), '不能恢復') && $d->query("SELECT void FROM donation WHERE id = {$rf[3]}")->fetchColumn(), '訂單編號已另開收據：不能恢復');
+$d->exec("DELETE FROM donation WHERE batch_id = $bo2");
+req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'row_unvoid', 'rid' => $rf[3]]);
+ok(!$d->query("SELECT void FROM donation WHERE id = {$rf[3]}")->fetchColumn() && substr_count(preq($E, ['id' => $bf, 'scope' => 'all', 'part' => 'all']), 'class="page food"') === 3, '恢復後再列入列印');
 @unlink($tmp);
 echo $fail ? "❌ 失敗 {$fail}／{$n}\n" : "✅ 全部通過 {$n} 項\n";
 exit($fail ? 1 : 0);

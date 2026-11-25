@@ -146,3 +146,5 @@ table.rows{border-collapse:separate;border-spacing:0;width:100%;font-size:15px}
 @keyframes rcspin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.spin{animation:none;border-right-color:var(--rc-btn)}}
 .chunks{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0 0}
+.rows tr.void td{opacity:.55;text-decoration:line-through}   /* 繁英姊 11/25：作廢的收據灰掉 */
+.rows tr.void td.act,.rows tr.void td:nth-child(2){opacity:1;text-decoration:none}
