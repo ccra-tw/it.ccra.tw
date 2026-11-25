@@ -589,7 +589,12 @@ $bOther = (int)$d->query("SELECT id FROM batch WHERE id <> $bpz AND status = 'dr
 ok($bOther && !str_contains(req($E, ['a' => 'batch', 'id' => $bOther, 'pf' => '1']), '測試量販股份有限公司'), '同一帳號開別批也讀不到');
 $d->exec("UPDATE pdf_prefill SET created_at = now() - interval '2 hours' WHERE batch_id = $bpz");
 ok(!str_contains(req($E, ['a' => 'batch', 'id' => $bpz, 'pf' => '1']), '測試量販股份有限公司'), '超過 1 小時的暫存不再帶入');
-$d->exec("UPDATE pdf_prefill SET created_at = now() WHERE batch_id = $bpz");
+ok(!(int)$d->query("SELECT count(*) FROM pdf_prefill WHERE batch_id = $bpz")->fetchColumn(), '超過 1 小時的暫存在下一次開頁時實際刪除（大沈審 1504565）');
+$d->prepare("INSERT INTO pdf_prefill (batch_id, email, data) VALUES (?, ?, '{}')")->execute([$bpz, $E]);
+$d->exec("INSERT INTO pdf_prefill (batch_id, email, data, created_at) VALUES ($bpz, 'ed2@test', '{}', now() - interval '30 minutes')");
+req('vw@test', ['a' => 'list']);
+ok((int)$d->query("SELECT count(*) FROM pdf_prefill WHERE batch_id = $bpz")->fetchColumn() === 2, '1 小時內的暫存不被清除（含別的帳號）');
+$d->exec("DELETE FROM pdf_prefill WHERE email = 'ed2@test'");
 req($E, ['a' => 'batch', 'id' => $bpz], 'POST', ['csrf' => $csrf($E), 'do' => 'add_row', 'name' => '測試量販股份有限公司', 'qty' => '1', 'city' => '新北市板橋區', 'address' => '文化路一段100號']);
 ok(!(int)$d->query("SELECT count(*) FROM pdf_prefill WHERE batch_id = $bpz")->fetchColumn(), '單筆輸入加入後刪除暫存');
 @unlink($wzFile);
