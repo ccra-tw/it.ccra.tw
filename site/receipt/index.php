@@ -466,7 +466,7 @@ if ($a === 'edit') $head = ['編輯批次', '已配號的批次只能補不影�
         // 信件：物、食兩個字軌用同一封（業務單位 11/12）→ 取最近一批（不分字軌）有填信的；每套內含只有物用，取最近一批物
         $prevContents = (string)$d->query("SELECT contents FROM batch WHERE track = '物' AND contents <> '' ORDER BY in_date DESC, id DESC LIMIT 1")->fetchColumn();
     } ?>
-<?php if ($locked): ?><div class="alert warn">已配號：只能補進貨單號、供應商、經手人、每套內含與信件內容。</div><?php endif; ?>
+<?php if ($locked): ?><div class="alert warn">已配號：只能補進貨單號、供應商、經手人與每套內含（給捐贈者的信在「⚙️ 設定」統一維護）。</div><?php endif; ?>
 <?php if (!$b): ?>
 <section class="panel"><h2>匯入文中進貨單 <small>選文中列印的進貨單 PDF，自動帶入下面的收貨資料；不匯入就直接手動填。</small></h2>
 <form method="post" action="./?a=new" enctype="multipart/form-data" onsubmit="return rcBusy(this, '讀取進貨單中…')">
@@ -742,19 +742,19 @@ $shown = array_slice($shown, ($pg - 1) * RCPT_PAGE, RCPT_PAGE);
 <td class="act"><a href="./?a=settings&e=<?= (int)$o['id'] ?>#o<?= (int)$o['id'] ?>">修改</a>
 <form method="post" action="./?a=settings" style="display:inline"<?= $o['active'] ? ' onsubmit="return confirm(&quot;停用後不會出現在選單（舊批次不受影響）。確定停用？&quot;)"' : '' ?>><input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="opt_toggle"><input type="hidden" name="oid" value="<?= (int)$o['id'] ?>"><button class="sm btn ghost"><?= $o['active'] ? '停用' : '重新啟用' ?></button></form></td>
 <?php endif; ?></tr>
-<?php endforeach; if (!$opts): ?><tr><td colspan="5" class="empty">還沒有<?= h($kname) ?>，請在下面新增。</td></tr><?php endif; ?>
+<?php endforeach; if (!$opts): ?><tr><td colspan="5" class="empty">還沒有<?= h($kname) ?>，請在上面新增。</td></tr><?php endif; ?>
 </table></div>
 
 </section>
 <?php endforeach; $curLetter = rcpt_letter($d); ?>
-<section class="panel" id="letter"><h2>給捐贈者的信 <small>印在收據下半部；物、食兩個字軌都用這一封</small></h2>
+<section class="panel" id="letter"><h2>給捐贈者的信 <small>印在物字軌（預印紙）收據下半部；食字軌收據目前沒有信件欄位</small></h2>
 <form method="post" action="./?a=settings#letter">
 <input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="letter_save">
 <label for="f_letter">信件內容（段落之間空一行）</label><textarea id="f_letter" name="letter" rows="10"><?= h($curLetter) ?></textarea>
 <p class="hint">儲存後，之後列印的收據（含重印）都套用這個版本。1、3、5、7、9、11 月換新信時在這裡改。</p>
 <div class="actions"><button>儲存信件</button></div></form>
 </section>
-<script>(function(){document.querySelectorAll('.setfilter').forEach(function(f){var t=document.getElementById(f.dataset.for);if(!t)return;f.addEventListener('input',function(){var q=f.value.trim().toLowerCase();t.querySelectorAll('tr').forEach(function(r){if(r.classList.contains('hd'))return;r.hidden=q!==''&&r.textContent.toLowerCase().indexOf(q)<0;});});});})();</script>
+<script>(function(){document.querySelectorAll('.setfilter').forEach(function(f){var t=document.getElementById(f.dataset.for);if(!t)return;f.addEventListener('input',function(){var q=f.value.trim().toLowerCase();t.querySelectorAll('tr').forEach(function(r){if(r.classList.contains('hd'))return;var ins=r.querySelectorAll('input,select');if(ins.length){r.hidden=false;return;}var txt=r.textContent;r.hidden=q!==''&&txt.toLowerCase().indexOf(q)<0;});});});})();</script>
 
 
 <?php elseif ($a === 'search'):

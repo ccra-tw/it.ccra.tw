@@ -258,6 +258,11 @@ for ($x = $nsup; $x <= 9; $x++) $d->prepare("INSERT INTO option_item (kind, code
 $st = req($E, ['a' => 'settings']);
 ok(str_contains($st, 'data-for="tb-supplier"') && str_contains($st, 'class="tbl setlist" id="tb-supplier"'), '供應商超過 8 筆：出現篩選框、清單限高捲動');
 ok(!str_contains($st, 'data-for="tb-set_price"'), '筆數少的區塊不出現篩選框');
+ok(str_contains($st, '印在物字軌（預印紙）收據下半部') && !str_contains($st, '物、食兩個字軌都用這一封'), '信件區說明與列印一致：只有物字軌印信（大沈 1b88304）');
+ok(str_contains($st, "var ins=r.querySelectorAll('input,select')"), '篩選不藏編輯中的列（大沈 1b88304）');
+ok(!str_contains($st, '請在下面新增'), '空清單提示改成「上面新增」');
+$ed = req($E, ['a' => 'edit', 'id' => $b4]);
+ok(str_contains($ed, '已配號') && !str_contains($ed, '與信件內容'), '已配號提示不再說批次可補信件');
 $d->exec("DELETE FROM option_item WHERE updated_by = 'test' AND code LIKE 'T0%'");
 
 
