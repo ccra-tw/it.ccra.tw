@@ -7,6 +7,7 @@ require '/var/www/it-lib/access.php';
 require '/var/www/it-lib/receipt.php';
 $email = strtolower(access_identity()['email']);
 $d = rcpt_db();
+$letter = trim(rcpt_letter($d));   // 信件統一由「設定」維護，列印一律套用（繁英姊 11/25）
 $role = rcpt_role($d, $email);
 if (!$role) { http_response_code(403); exit('物資捐贈收據系統只開放給開收據的同仁、客服與助理會計。'); }
 function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
@@ -50,6 +51,8 @@ $nMulti = count($rows) - $nSingle;
 $part = $one ? 'all' : ($_GET['part'] ?? 'single');
 if ($part === 'single') $rows = array_values(array_filter($rows, fn($r) => $grpN[$grpKey($r)] === 1));
 elseif ($part === 'multi') $rows = array_values(array_filter($rows, fn($r) => $grpN[$grpKey($r)] > 1));
+// 繁英姊 11/25：「不分份的列可以用收據編號排序嗎？」——不分份不必為郵資把同地址排在一起，改依收據流水號
+elseif ($part === 'all') usort($rows, fn($a, $c) => $a['seq'] <=> $c['seq']);
 // 分次列印（繁英姊 11/19：「影印機紙夾一次只能放 500 張，列印時可以分次列印嗎？1-500」）：排好序之後依「第幾張」切段，每段 500 張
 const RCPT_CHUNK = 500;
 $total = count($rows);
@@ -74,6 +77,7 @@ if ($go && $rows && $role === 'edit') {
 $date = rcpt_date_to_roc($b['in_date']);
 $units = [];
 foreach ($d->query('SELECT name, unit FROM batch_item WHERE batch_id = ' . $id)->fetchAll(PDO::FETCH_ASSOC) as $it) $units[$it['name']] = $it['unit'];
+$rowItems = $b['track'] === '食' ? rcpt_items($d, array_column($rows, 'id')) : [];   // 繁英姊 11/25：一張收據列多個品項
 [$ry, $rm, $rd] = explode('/', $date);
 $handlerStamp = is_file(STATE_DIR . '/receipt-stamps/handler-' . $b['handler'] . '.png') ? 'handler-' . $b['handler'] : '';
 $contents = trim($b['contents']);
@@ -205,7 +209,7 @@ addEventListener('pageshow', function () { var d = document.getElementById('rcBu
 <div>茲收到 <b><?= h($r['name']) ?></b><?php if ($r['tax_id'] !== ''): ?>　統編 <?= h($r['tax_id']) ?><?php endif; ?></div>
 <div style="text-align:right">捐贈物資，明細如下：</div>
 <table><tr><th>品名</th><th style="width:22mm">數量</th><th style="width:18mm">單位</th></tr>
-<tr><td><?= h($r['product']) ?></td><td style="text-align:right"><?= (int)$r['qty'] ?></td><td><?= h($units[$r['product']] ?? '') ?></td></tr></table>
+<?php foreach (rcpt_row_items($r, $rowItems) as $it): ?><tr><td><?= h($it['product']) ?></td><td style="text-align:right"><?= (int)$it['qty'] ?></td><td><?= h($units[$it['product']] ?? '') ?></td></tr><?php endforeach; ?></table>
 <div class="mail"><?= h($r['zip'] . $r['city'] . '　' . $r['address']) ?><br><?= h($r['name']) ?>　收</div>
 <div>勸 募 字 號：衛部救字第1141364671號<br>法人登記證書字號：登記簿第29冊第24頁第855號<br>國稅局統一編號：83867936<br>地址：234新北市永和區保生路1號20樓<br>電話：(02)8660-9995</div>
 <div style="margin-top:4mm">民國 <?= (int)$ry ?> 年 <?= (int)$rm ?> 月 <?= (int)$rd ?> 日</div>
@@ -222,7 +226,7 @@ addEventListener('pageshow', function () { var d = document.getElementById('rcBu
 <div class="f" style="<?= $pos('qty') ?>"><?= (int)$r['qty'] ?></div>
 <div class="f" style="<?= $pos('addr') ?>"><?= h($r['zip'] . $r['city'] . '　' . $r['address']) ?></div>
 <div class="f" style="<?= $pos('to') ?>"><?= h($r['name']) ?>　收</div>
-<?php if (trim($b['letter']) !== ''): ?><div class="f letter" style="<?= $pos('letter') ?>"><?php foreach (preg_split('/\R{2,}/u', trim($b['letter'])) as $para) echo '<p>' . h($para) . '</p>'; ?></div><?php endif; ?>
+<?php if ($letter !== ''): ?><div class="f letter" style="<?= $pos('letter') ?>"><?php foreach (preg_split('/\R{2,}/u', $letter) as $para) echo '<p>' . h($para) . '</p>'; ?></div><?php endif; ?>
 </div>
 <?php endif; endforeach; ?>
 </div>

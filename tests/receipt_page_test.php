@@ -43,7 +43,7 @@ ok(str_contains(req($E, ['a' => 'settings'], 'POST', ['csrf' => $csrf($E), 'do' 
 req($E, ['a' => 'settings'], 'POST', ['csrf' => $csrf($E), 'do' => 'opt_save', 'kind' => 'set_price', 'code' => '５００']);
 ok((bool)$d->query("SELECT 1 FROM option_item WHERE kind='set_price' AND code='500'")->fetchColumn(), '新增金額（全形５００轉成 500）');
 $sg = req($E, ['a' => 'settings']);
-ok(str_contains($sg, '統一超商') && str_contains($sg, '>設定</a>'), '設定頁列出新增的供應商、開收據者有「設定」分頁');
+ok(str_contains($sg, '統一超商') && str_contains($sg, '>⚙️ 設定</a>'), '設定頁列出新增的供應商、開收據者有「設定」分頁');
 ok(!str_contains(req('vw@test', []), '>設定</a>'), '唯讀者沒有「設定」分頁');
 ok((int)$d->query("SELECT count(*) FROM audit WHERE action='opt_add'")->fetchColumn() >= 2, '新增設定留稽核紀錄');
 
@@ -82,7 +82,7 @@ ok((int)$d->query("SELECT count(*) FROM batch WHERE in_date IN ('2026-11-18','20
 $d->exec("DELETE FROM batch WHERE in_date IN ('2026-11-18','2026-11-19')");
 $nw = req($E, ['a' => 'new']);
 ok(str_contains($nw, 'type="date"') && str_contains($nw, 'value="' . date('Y-m-d') . '"'), '新增批次的收貨日期是日曆欄位、預設今天');
-ok(str_contains(req($E, []), '新增批次（匯入名單）'), '入口名稱寫明「新增批次（匯入名單）」');
+ok(str_contains(req($E, []), '➕ 匯入名單') && str_contains(req($E, []), '📋 收據清單') && str_contains(req($E, []), '🔍 查詢捐贈人'), '功能表名稱（繁英姊 11/24：收據清單／匯入名單／新增收據／查詢捐贈人／設定）');
 
 echo "匯入（已整理過的檔，不跑地址整理）\n";
 $tmp = sys_get_temp_dir() . '/rcpt-page-' . getmypid() . '.xlsx';
@@ -104,6 +104,40 @@ $r3 = $d->query("SELECT order_no, zip, city, send FROM donation WHERE batch_id=$
 ok(count($r3) === 2 && $r3[0]['zip'] === '234' && str_contains($r3[0]['city'], '永和'), '原始檔經地址整理：補上郵遞區號與縣市區' . (count($r3) ? '' : '：' . substr(strip_tags($o), 0, 300)));
 ok(count($r3) === 2 && $r3[1]['send'] === false, '「無名」照整理規則判為不寄');
 ok($d->query("SELECT track FROM batch WHERE id=$b3")->fetchColumn() === '食', '家庭雲端自動帶食字軌');
+
+echo "追加匯入（11/23 繁英：一張進貨單兩個月份的檔）\n";
+req($E, ['a' => 'new'], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch', 'source' => 'ibon', 'in_date' => '115/10/01', 'items' => '']);
+$ba = (int)$d->query('SELECT max(id) FROM batch')->fetchColumn();
+$pa = req($E, ['a' => 'batch', 'id' => $ba]);
+ok(!str_contains($pa, 'name="mode"'), '空批次不顯示取代／追加選項');
+xlsx($tmp, [['訂單編號', '收件人', '送貨地點', '訂單數量', 'zip', 'city', 'address', '收據'],
+            ['A-1', '甲', 'x', 1, '100', '臺北市中正區', '測試路1號', 'Y'], ['A-2', '乙', 'x', 2, '100', '臺北市中正區', '測試路2號', 'Y']]);
+req($E, ['a' => 'batch', 'id' => $ba], 'POST', ['csrf' => $csrf($E), 'do' => 'import'], ['file' => ['name' => 'oct.xlsx', 'tmp_name' => $tmp, 'error' => 0]]);
+$pa = req($E, ['a' => 'batch', 'id' => $ba]);
+ok(str_contains($pa, 'name="mode" value="append"') && str_contains($pa, 'value="replace" checked'), '已有資料時顯示選項，預設「取代」');
+xlsx($tmp, [['訂單編號', '收件人', '送貨地點', '訂單數量', 'zip', 'city', 'address', '收據'],
+            ['A-2', '乙', 'x', 2, '100', '臺北市中正區', '測試路2號', 'Y'], ['B-1', '丙', 'x', 3, '100', '臺北市中正區', '測試路3號', 'Y']]);
+$o = req($E, ['a' => 'batch', 'id' => $ba], 'POST', ['csrf' => $csrf($E), 'do' => 'import', 'mode' => 'append'], ['file' => ['name' => 'nov.xlsx', 'tmp_name' => $tmp, 'error' => 0]]);
+$ra = $d->query("SELECT row_no, order_no, check_note FROM donation WHERE batch_id=$ba ORDER BY row_no")->fetchAll(PDO::FETCH_ASSOC);
+ok(count($ra) === 4 && array_column($ra, 'row_no') === [1, 2, 3, 4], '追加後 4 筆、序號接續 1～4' . (count($ra) === 4 ? '' : '：' . substr(strip_tags($o), 0, 300)));
+ok(count($ra) === 4 && str_contains($ra[2]['check_note'], RCPT_DUP_PREV_NOTE) && !str_contains($ra[3]['check_note'], RCPT_DUP_PREV_NOTE), '和前次重複的訂單編號（A-2）在檢核說明標出，新的（B-1）不標');
+ok((int)$d->query("SELECT count(*) FROM audit WHERE batch_id=$ba AND action='import_append'")->fetchColumn() === 1, '稽核記 import_append');
+$pa = req($E, ['a' => 'batch', 'id' => $ba, 'ok' => 'appended', 'dupprev' => 1]);
+ok(str_contains($pa, '追加匯入完成') && str_contains($pa, '有 1 筆訂單編號和先前匯入的重複'), '完成視窗與提示顯示追加與重複筆數');
+// 大沈 11/23 審查：追加失敗回頁後模式要留在「追加」，換正確檔直接重送不能蓋掉原清單
+xlsx($tmp, [['亂欄', '沒有表頭'], ['x', 'y']]);
+$o = req($E, ['a' => 'batch', 'id' => $ba], 'POST', ['csrf' => $csrf($E), 'do' => 'import', 'mode' => 'append'], ['file' => ['name' => 'bad.xlsx', 'tmp_name' => $tmp, 'error' => 0]]);
+ok(str_contains($o, 'alert err') && str_contains($o, 'value="append" checked') && !str_contains($o, 'value="replace" checked'), '追加失敗：報錯且回頁仍勾「追加」');
+ok((int)$d->query("SELECT count(*) FROM donation WHERE batch_id=$ba")->fetchColumn() === 4, '追加失敗：原 4 筆不變');
+xlsx($tmp, [['訂單編號', '收件人', '送貨地點', '訂單數量', 'zip', 'city', 'address', '收據'], ['D-1', '戊', 'x', 1, '100', '臺北市中正區', '測試路5號', 'Y']]);
+req($E, ['a' => 'batch', 'id' => $ba], 'POST', ['csrf' => $csrf($E), 'do' => 'import', 'mode' => 'append'], ['file' => ['name' => 'fix.xlsx', 'tmp_name' => $tmp, 'error' => 0]]);
+ok((int)$d->query("SELECT count(*) FROM donation WHERE batch_id=$ba")->fetchColumn() === 5, '換正確檔照回頁的「追加」重送：變 5 筆、原清單保留');
+$pa = req($E, ['a' => 'batch', 'id' => $ba]);
+ok(str_contains($pa, 'value="replace" checked'), '一般進頁仍預設「取代」');
+xlsx($tmp, [['訂單編號', '收件人', '送貨地點', '訂單數量', 'zip', 'city', 'address', '收據'], ['C-1', '丁', 'x', 1, '100', '臺北市中正區', '測試路4號', 'Y']]);
+req($E, ['a' => 'batch', 'id' => $ba], 'POST', ['csrf' => $csrf($E), 'do' => 'import', 'mode' => 'replace'], ['file' => ['name' => 'r.xlsx', 'tmp_name' => $tmp, 'error' => 0]]);
+ok((int)$d->query("SELECT count(*) FROM donation WHERE batch_id=$ba")->fetchColumn() === 1, '選「取代」照舊整批換掉（剩 1 筆）');
+$d->exec("DELETE FROM donation WHERE batch_id=$ba"); $d->exec("DELETE FROM audit WHERE batch_id=$ba"); $d->exec("DELETE FROM batch WHERE id=$ba");
 
 echo "配號\n";
 req($E, ['a' => 'batch', 'id' => $bid], 'POST', ['csrf' => $csrf($E), 'do' => 'assign']);
@@ -130,7 +164,7 @@ function preq($email, $get) {
 $p = preq($E, ['id' => $bid]);
 ok(substr_count($p, 'class="page"') === 1 && str_contains($p, '物(115)09140001') && str_contains($p, '115/09/14'), '預設只印要寄的（2 筆裡 1 筆）、印收據編號與收貨日期');
 ok(substr_count(preq($E, ['id' => $bid, 'scope' => 'all']), 'class="page"') === 2, '選「全部」印 2 張');
-ok(str_contains(preq($E, ['id' => $bid, 'dx' => '2', 'dy' => '-1']), 'left:166.4mm;top:23.2mm'), '位置微調套到座標');
+ok(str_contains(preq($E, ['id' => $bid, 'dx' => '2', 'dy' => '-1']), 'left:166.4mm;top:26.2mm'), '位置微調套到座標（11/20 收據編號下調 3mm 後基準 164.4,27.2）');
 preq($E, ['id' => $bid, 'go' => '1']);
 ok((int)$d->query("SELECT count(*) FROM print_log WHERE batch_id=$bid AND kind='print'")->fetchColumn() === 1, '按列印才記錄 print_log');
 preq('vw@test', ['id' => $bid, 'go' => '1']);
@@ -197,11 +231,44 @@ $ids = implode(',', $d->query("SELECT id FROM donation WHERE batch_id=$b4")->fet
 req($E, ['a' => 'batch', 'id' => $b4], 'POST', ['csrf' => $csrf($E), 'do' => 'mailed', 'ids' => $ids, 'mailed_on' => '115/11/21']);
 ok((int)$d->query("SELECT count(*) FROM donation WHERE batch_id=$b4 AND mailed_on='2026-11-21'")->fetchColumn() === 3, '整份標記寄出日期');
 ok(str_contains(preq($E, ['id' => $b4, 'part' => 'all']), 'value="mailed"'), '列印頁有「標記已寄出」');
+echo "給捐贈者的信改由設定統一維護（繁英姊 11/25）
+";
+$d->exec("DELETE FROM settings WHERE k = 'letter'");
 $d->exec("UPDATE batch SET letter = '十一月的信' WHERE id = $b4");
 $nw = req($E, ['a' => 'new']);
-ok(str_contains($nw, '十一月的信') && str_contains($nw, '已帶入最近一批的信'), '新增批次自動帶入最近一批的信件');
-$d->exec("UPDATE batch SET letter = '食也用的信', in_date = '2026-09-30' WHERE id = $b3");
-ok(str_contains(req($E, ['a' => 'new']), '食也用的信'), '物、食用同一封信：最近一批不分字軌都會帶入');
+ok(!str_contains($nw, 'name="letter"') && str_contains($nw, '改在「⚙️ 設定」統一維護'), '新增收據頁不再有信件欄，改提示到設定維護');
+ok(str_contains(req($E, ['a' => 'settings']), '十一月的信'), '設定還沒存過信：沿用最近一批有填的信');
+$o = req($E, ['a' => 'settings'], 'POST', ['csrf' => $csrf($E), 'do' => 'letter_save', 'letter' => "親愛的朋友：\r\n\r\n設定裡的新信"]);
+ok($d->query("SELECT v FROM settings WHERE k = 'letter'")->fetchColumn() === "親愛的朋友：\n\n設定裡的新信", '設定頁儲存信件（換行統一為 \n）');
+ok(str_contains(req($E, ['a' => 'settings']), '設定裡的新信'), '設定頁顯示目前的信');
+$pp = preq($E, ['id' => $b4, 'part' => 'all']);
+ok(str_contains($pp, '設定裡的新信') && !str_contains($pp, '十一月的信'), '列印套用設定裡的信，不用批次舊存的信');
+ok(str_contains($pp, '<p>親愛的朋友：</p><p>設定裡的新信</p>'), '列印時段落依空行切開');
+ok(str_contains((string)$d->query("SELECT action FROM audit WHERE action='letter_save' ORDER BY id DESC LIMIT 1")->fetchColumn(), 'letter_save'), '儲存信件留稽核紀錄');
+req('vw@test', ['a' => 'settings'], 'POST', ['csrf' => $csrf('vw@test'), 'do' => 'letter_save', 'letter' => '唯讀者改的']);
+ok($d->query("SELECT v FROM settings WHERE k = 'letter'")->fetchColumn() === "親愛的朋友：\n\n設定裡的新信", '唯讀者不能改信件');
+$d->exec("DELETE FROM settings WHERE k = 'letter'");
+echo "設定頁好找（繁英姊 11/25）
+";
+$st = req($E, ['a' => 'settings']);
+ok(str_contains($st, 'class="setnav"') && str_contains($st, 'href="#supplier"') && str_contains($st, 'href="#letter"'), '設定頁上方有跳轉列（含供應商與信件）');
+ok(strpos($st, 'value="opt_save"><input type="hidden" name="kind" value="supplier"') < strpos($st, 'id="tb-supplier"'), '新增欄位在清單上方');
+$nsup = (int)$d->query("SELECT count(*) FROM option_item WHERE kind = 'supplier'")->fetchColumn();
+for ($x = $nsup; $x <= 9; $x++) $d->prepare("INSERT INTO option_item (kind, code, name, extra, sort, updated_by) VALUES ('supplier', ?, ?, '', 900 + ?, 'test')")->execute([sprintf('T%06d', $x), '測試供應商' . $x, $x]);
+$st = req($E, ['a' => 'settings']);
+ok(str_contains($st, 'data-for="tb-supplier"') && str_contains($st, 'class="tbl setlist" id="tb-supplier"'), '供應商超過 8 筆：出現篩選框、清單限高捲動');
+ok(!str_contains($st, 'data-for="tb-set_price"'), '筆數少的區塊不出現篩選框');
+ok(str_contains($st, '印在物字軌（預印紙）收據下半部') && !str_contains($st, '物、食兩個字軌都用這一封'), '信件區說明與列印一致：只有物字軌印信（大沈 1b88304）');
+ok(str_contains($st, "if(r.classList.contains('editing'))"), '篩選只保留標了 editing 的編輯列（大沈 9845cc6：一般列的停用表單也有 hidden input）');
+$sid = (int)$d->query("SELECT id FROM option_item WHERE kind = 'supplier' ORDER BY id LIMIT 1")->fetchColumn();
+$se = req($E, ['a' => 'settings', 'e' => $sid]);
+ok(preg_match('/<tr id="o' . $sid . '" class="[^"]*editing/', $se) === 1 && substr_count($se, ' editing"') === 1, '只有正在修改的那一列帶 editing 標記');
+@file_put_contents(sys_get_temp_dir() . '/rcpt_settings_page.html', $se);   // 給 tests/receipt_filter_test.js 用
+ok(!str_contains($st, '請在下面新增'), '空清單提示改成「上面新增」');
+$ed = req($E, ['a' => 'edit', 'id' => $b4]);
+ok(str_contains($ed, '已配號') && !str_contains($ed, '與信件內容'), '已配號提示不再說批次可補信件');
+$d->exec("DELETE FROM option_item WHERE updated_by = 'test' AND code LIKE 'T0%'");
+
 
 echo "大沈第一輪（R-itsu-1112-01）\n";
 // P1-1 同檔兩列同訂單
@@ -329,7 +396,7 @@ $po = req($E, ['a' => 'batch', 'id' => $mo[1], 'only' => $mo[2]]);
 ok(substr_count($po, '<tr id="r') === 1 && str_contains($po, '只顯示查詢的這一筆') && str_contains($po, '顯示整批'), '按「修改」後只出現這個人的那一列，並可回到整批');
 ok(str_contains($po, 'only=' . $mo[2] . '">') || str_contains($po, '&amp;only=' . $mo[2]), '這一列的存檔表單帶著 only，存完仍只顯示這一筆');
 echo "單筆輸入（繁英姊 11/18 第 7 項）\n";
-ok(str_contains(req($E, []), '＋ 單筆輸入'), '分頁有「＋ 單筆輸入」入口');
+ok(str_contains(req($E, []), '➕ 新增收據'), '分頁有「➕ 新增收據」（單筆輸入）入口');
 ok(!str_contains(req('vw@test', []), '單筆輸入'), '唯讀者看不到單筆輸入');
 req($E, ['a' => 'new', 'single' => '1'], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch', 'single' => '1', 'source' => 'ibon', 'in_date' => '115/09/21', 'items' => '']);
 $bs = (int)$d->query("SELECT max(id) FROM batch")->fetchColumn();
@@ -371,6 +438,16 @@ $pb = req($E, ['a' => 'batch', 'id' => $bt]);
 ok(str_contains($pb, 'id="rcBusy"') && str_contains($pb, 'rcBusy(this'), '批次頁有「處理中」小視窗並接在送出上');
 $pd = req($E, ['a' => 'batch', 'id' => $bs, 'ok' => 'assigned']);
 ok(str_contains($pd, 'id="rcDone"') && str_contains($pd, '配號完成') && !str_contains(req($E, ['a' => 'batch', 'id' => $bs]), 'id="rcDone"'), '完成後跳「配號完成」，平常不跳');
+echo "不分份依收據編號排序（繁英姊 11/25）\n";
+$d->exec("INSERT INTO batch (source, track, in_date, status, created_by) VALUES ('ibon', '物', '2026-10-01', 'numbered', 'ed@test')");
+$bo = (int)$d->query("SELECT max(id) FROM batch")->fetchColumn();
+$insO = $d->prepare("INSERT INTO donation (batch_id, row_no, seq, receipt_no, name, zip, city, address, qty, send) VALUES (?,?,?,?,?,?,?,?,1,true)");
+// 流水號與郵遞區號順序相反：依地址排會是 OR-3、OR-2、OR-1；依編號排是 OR-1、OR-2、OR-3
+foreach ([[1, '900'], [2, '500'], [3, '100']] as [$i, $z]) $insO->execute([$bo, $i, $i, "OR-$i", "排序$i", $z, '台北市', "排序路$i"]);
+$po = preq($E, ['id' => $bo, 'part' => 'all']);
+ok(strpos($po, 'OR-1') < strpos($po, 'OR-2') && strpos($po, 'OR-2') < strpos($po, 'OR-3'), '不分份：依收據編號由小到大');
+$ps = preq($E, ['id' => $bo, 'part' => 'single']);
+ok(strpos($ps, 'OR-3') < strpos($ps, 'OR-2') && strpos($ps, 'OR-2') < strpos($ps, 'OR-1'), '單張份仍依地址排（郵資分份不變）');
 echo "分次列印 500 張一段（繁英姊 11/19）\n";
 $d->exec("INSERT INTO batch (source, track, in_date, status, created_by) VALUES ('ibon', '物', '2026-10-01', 'numbered', 'ed@test')");
 $bc = (int)$d->query("SELECT max(id) FROM batch")->fetchColumn();
@@ -402,6 +479,228 @@ $o01 = req($E, ['a' => 'batch', 'id' => $bt], 'POST', ['csrf' => $csrf($E), 'do'
 ok(str_contains($o01, '不能以 0 開頭') && str_contains($o01, 'value="01"') && (int)$d->query("SELECT count(*) FROM donation WHERE batch_id=$bt AND name='前導零測試'")->fetchColumn() === 0, '數量 01 擋下並說明不能以 0 開頭');
 $fq = req($E, ['a' => 'batch', 'id' => $bt]);
 ok(str_contains($fq, 'pattern="[1-9１-９][0-9０-９]{0,4}"'), '前端 pattern 與伺服器規則一致（首字 1～9、至多 5 位）');
+echo "批次明細分頁（繁英姊 11/24：5,089 筆一次畫出太慢）
+";
+$d->exec("UPDATE batch SET first_no='CH-00001', last_no='CH-01101' WHERE id=$bc");   // 已配號批次要有收據起訖，批次頁才畫得出來
+$g1 = req($E, ['a' => 'batch', 'id' => $bc]);
+ok(substr_count($g1, '<tr id="r') === RCPT_PAGE && str_contains($g1, '共 1101 筆') && str_contains($g1, '下一頁') && str_contains($g1, '<b>1101</b>'), '第 1 頁只畫 ' . RCPT_PAGE . ' 列，上方筆數仍是整批 1101');
+$g6 = req($E, ['a' => 'batch', 'id' => $bc, 'p' => '6']);
+ok(substr_count($g6, '<tr id="r') === 101 && str_contains($g6, '第 1001–1101 筆') && !str_contains($g6, '下一頁'), '最後一頁 101 列、沒有下一頁');
+$g99 = req($E, ['a' => 'batch', 'id' => $bc, 'p' => '99']);
+ok(substr_count($g99, '<tr id="r') === 101, '頁碼超過時停在最後一頁');
+ok(str_contains($g1, 'window.rcPageGo=function(){var n=changed().length') && substr_count($g1, 'onclick="return !window.rcPageGo || rcPageGo()"') === 2 * 6, '換頁前檢查本頁未存修改：上下頁碼與下一頁都接 rcPageGo（大沈 11/24 審查）');
+ok(str_contains($g6, 'onclick="return !window.rcPageGo || rcPageGo()">上一頁</a>'), '上一頁也有未存檢查');
+// 11/24 大沈審查 bb2b1e3：腳本語法錯誤時整段不執行、onclick 照樣放行，字串比對驗不到 → 把頁面腳本交給 node --check（主機沒有 node 時另存檔，在有 node 的機器補驗）
+preg_match_all('#<script>(.*?)</script>#s', $g1, $jsm);
+// 11/24 大沈審查 c6a0e1a：暫存檔名每次不同（平行重跑不互蓋），寫檔失敗就算失敗、不去 node --check 一個空檔
+$jsf = sys_get_temp_dir() . '/rc_batch_scripts_' . getmypid() . '_' . bin2hex(random_bytes(4)) . '.js';
+$jsw = file_put_contents($jsf, implode("\n;\n", $jsm[1]));
+ok($jsw !== false && $jsw > 0 && count($jsm[1]) > 0, '批次頁腳本已抽出並寫入暫存檔');
+if ($jsw === false) echo "  （略過 node --check：暫存檔寫入失敗）\n";
+elseif (trim((string)shell_exec('command -v node 2>/dev/null')) !== '') { exec('node --check ' . escapeshellarg($jsf) . ' 2>&1', $jo, $jrc); ok($jrc === 0, '批次頁腳本 node --check 通過' . ($jrc ? '：' . implode(' ', array_slice($jo, 0, 3)) : '')); @unlink($jsf); }
+else echo "  （略過：本機沒有 node，腳本已存 {$jsf}，請在有 node 的機器執行 node --check）\n";
+$rid3 = (int)$d->query("SELECT id FROM donation WHERE batch_id=$bc AND row_no=450")->fetchColumn();
+$g3 = req($E, ['a' => 'batch', 'id' => $bc, 'p' => '3']);
+ok(str_contains($g3, 'id="r' . $rid3 . '"') && str_contains($g3, 'p=3"><input type="hidden" name="csrf"'), '第 3 頁有第 450 列，單列存檔表單帶 p=3');
+$gs = req($E, ['a' => 'batch', 'id' => $bc, 'p' => '3'], 'POST', ['csrf' => $csrf($E), 'do' => 'row', 'rid' => $rid3, 'name' => '分頁存檔', 'zip' => '100', 'city' => '台北市', 'address' => '分頁路1號', 'send' => '1']);
+ok(str_contains($gs, 'X-TEST-LOCATION: ./?a=batch&id=' . $bc . '&p=3&ok=row#r' . $rid3), '在第 3 頁存檔後回到第 3 頁');
+$gb = req($E, ['a' => 'batch', 'id' => $bc, 'p' => '3'], 'POST', ['csrf' => $csrf($E), 'do' => 'rows_bulk', 'rows' => json_encode([['rid' => $rid3, 'name' => '分頁批次', 'zip' => '100', 'city' => '台北市', 'address' => '分頁路2號', 'send' => true, 'mailed_on' => '']])]);
+ok(str_contains($gb, 'X-TEST-LOCATION: ./?a=batch&id=' . $bc . '&p=3&ok=bulk'), '全部儲存後也回到第 3 頁');
+echo "統一編號、訂單編號與品名補登（繁英姊 11/24）\n";
+$r2 = $d->query("SELECT id, name FROM donation WHERE batch_id = $bs AND row_no = 2")->fetch(PDO::FETCH_ASSOC);
+$gb2 = req($E, ['a' => 'batch', 'id' => $bs]);
+ok(str_contains($gb2, 'name="tax_id"') && str_contains($gb2, 'name="order_no"') && str_contains($gb2, '<th>統編</th>'), '已配號批次的清單有統編欄、訂單編號可編輯');
+$rowPost = fn($extra) => req($E, ['a' => 'batch', 'id' => $bs], 'POST', array_merge(['csrf' => $csrf($E), 'do' => 'row', 'rid' => $r2['id'], 'name' => $r2['name'], 'zip' => '', 'city' => '', 'address' => ''], $extra));
+ok(str_contains($rowPost(['order_no' => 'SINGLE-1119-1']), '已經開過收據'), '補登的訂單編號已有有效收據時擋下（看得懂的訊息）');
+ok(str_contains($rowPost(['order_no' => '', 'tax_id' => '1234']), '統一編號要是 8 位數字'), '統編不是 8 位數字擋下');
+$rowPost(['order_no' => 'LATE-0001', 'product' => '補登品項', 'tax_id' => '１２３４ ５６７８']);
+$v2 = $d->query("SELECT order_no, product, tax_id, receipt_no FROM donation WHERE id = {$r2['id']}")->fetch(PDO::FETCH_ASSOC);
+ok($v2['order_no'] === 'LATE-0001' && $v2['product'] === '補登品項' && $v2['tax_id'] === '12345678' && $v2['receipt_no'] !== null, '配號後補登訂單編號、品名、統編（全形與空白整理掉），收據編號不變');
+ok(str_contains((string)$d->query("SELECT detail FROM audit WHERE action='edit_after_number' AND batch_id=$bs ORDER BY id DESC LIMIT 1")->fetchColumn(), 'order_no:  → LATE-0001'), '補登留改前改後稽核');
+req($E, ['a' => 'batch', 'id' => $bs], 'POST', ['csrf' => $csrf($E), 'do' => 'rows_bulk', 'rows' => json_encode([['rid' => $r2['id'], 'name' => $r2['name'], 'zip' => '', 'city' => '', 'address' => '', 'send' => false, 'mailed_on' => '', 'order_no' => 'LATE-0001', 'product' => '補登品項', 'tax_id' => '87654321']])]);
+ok($d->query("SELECT tax_id FROM donation WHERE id = {$r2['id']}")->fetchColumn() === '87654321', '全部儲存也存統編');
+// 大沈審 4c2dfc0：統編欄不可在整理前就被截斷；食字軌已配號後品名改成未列品項要被擋，補印不受影響；被擋時畫面保留輸入
+ok(!preg_match('#name="tax_id"[^>]*maxlength#', $gb2), '統編欄沒有字數上限（先整理分隔符號再判斷 8 位）');
+$rowPost(['order_no' => 'LATE-0001', 'product' => '補登品項', 'tax_id' => '１２-３４-５６-７８']);
+ok($d->query("SELECT tax_id FROM donation WHERE id = {$r2['id']}")->fetchColumn() === '12345678', '貼上「１２-３４-５６-７８」整理成 12345678');
+$rjt = $rowPost(['order_no' => 'LATE-0001', 'product' => '補登品項', 'tax_id' => '12-34']);
+ok(str_contains($rjt, '統一編號要是 8 位數字') && str_contains($rjt, '"tax_id":"12-34"') && str_contains($rjt, 'name="tax_id" value="12345678"') && str_contains($rjt, '畫面保留了您輸入的內容'), '統編被擋時保留剛輸入的值（由頁尾腳本填入；欄位初始值仍是資料庫值，換頁會算成未存修改——大沈複審 4744424）');
+$d->exec("INSERT INTO batch (source, track, in_date, status, first_no, last_no, created_by) VALUES ('食測', '食', '2026-11-24', 'numbered', '食(115)11240001', '食(115)11240001', 'test')");
+$bf = (int)$d->query("SELECT max(id) FROM batch")->fetchColumn();
+$d->exec("INSERT INTO batch_item (batch_id, code, name, qty, unit) VALUES ($bf, 'B03004', '新東陽原味肉醬罐頭160g', 10, '罐')");
+$d->exec("INSERT INTO donation (batch_id, row_no, seq, receipt_no, name, zip, city, address, product, qty, send) VALUES ($bf, 1, 1, '食(115)11240001', '好市多股份有限公司', '112', '台北市北投區', '立德路117號', '新東陽原味肉醬罐頭160g', 10, true)");
+$rf = $d->query("SELECT id, name FROM donation WHERE batch_id = $bf")->fetch(PDO::FETCH_ASSOC);
+$fPost = fn($extra) => req($E, ['a' => 'batch', 'id' => $bf], 'POST', array_merge(['csrf' => $csrf($E), 'do' => 'row', 'rid' => $rf['id'], 'name' => $rf['name'], 'zip' => '112', 'city' => '台北市北投區', 'address' => '立德路117號', 'send' => '1'], $extra));
+$fr = $fPost(['product' => 'SHEN-UAT-未列品項']);
+ok(str_contains($fr, '不在這一批的進貨明細') && str_contains($fr, '第 1 列'), '食字軌已配號後填未列品名 → 單列儲存被拒並指出列號');
+ok($d->query("SELECT product FROM donation WHERE id = {$rf['id']}")->fetchColumn() === '新東陽原味肉醬罐頭160g', '被拒後舊品名不變');
+ok(str_contains($fr, '"product":"SHEN-UAT-未列品項"') && str_contains($fr, 'name="product" value="新東陽原味肉醬罐頭160g"'), '被拒時保留剛輸入的品名（腳本填入），初始值仍是舊品名');
+preg_match_all('#<script>(.*?)</script>#s', $fr, $frm); $frf = sys_get_temp_dir() . '/rc_refill_' . getmypid() . '.js'; file_put_contents($frf, implode("
+;
+", $frm[1]));
+echo "  （回填頁腳本已存 {$frf}，有 node 的機器可 node --check）
+";
+$fb = req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'rows_bulk', 'rows' => json_encode([['rid' => $rf['id'], 'name' => $rf['name'], 'zip' => '112', 'city' => '台北市北投區', 'address' => '立德路117號', 'send' => true, 'mailed_on' => '', 'product' => 'SHEN-UAT-未列品項']])]);
+ok(str_contains($fb, '不在這一批的進貨明細') && $d->query("SELECT product FROM donation WHERE id = {$rf['id']}")->fetchColumn() === '新東陽原味肉醬罐頭160g', '全部儲存同樣擋下、舊品名不變');
+$fp = preq($E, ['id' => $bf, 'one' => $rf['id']]);
+ok(str_contains($fp, 'class="page food"') && str_contains($fp, '新東陽原味肉醬罐頭160g') && !str_contains($fp, '收據不能列印'), '被拒後補印不受影響（食字軌收據照常印出舊品名）');
+$fPost(['product' => '新東陽原味肉醬罐頭160g', 'tax_id' => '96979933']);
+ok($d->query("SELECT tax_id FROM donation WHERE id = {$rf['id']}")->fetchColumn() === '96979933' && str_contains(preq($E, ['id' => $bf, 'one' => $rf['id']]), '統編 96979933'), '品名未改時照常存；收據印出統編');
+echo "文中進貨單 PDF 帶入（繁英姊 11/24）\n";
+// 仿文中列印的 PDF：Big5 字串、ASCII85 串流、沒有 ToUnicode；假資料
+function wz_pdf(array $tokens): string {
+    $a85 = function (string $b): string { $o = ''; $n = strlen($b);
+        for ($i = 0; $i < $n; $i += 4) { $c = substr($b, $i, 4); $k = strlen($c); $c = str_pad($c, 4, "\0"); $v = unpack('N', $c)[1];
+            if ($v === 0 && $k === 4) { $o .= 'z'; continue; } $g = ''; for ($j = 0; $j < 5; $j++) { $g = chr($v % 85 + 33) . $g; $v = intdiv($v, 85); } $o .= substr($g, 0, $k + 1); }
+        return $o . '~>'; };
+    $cs = "BT\n/F0 9 Tf\n";
+    foreach ($tokens as $t) { $b = mb_convert_encoding($t, 'CP950', 'UTF-8'); $cs .= '(' . strtr($b, ['\\' => '\\\\', '(' => '\\(', ')' => '\\)']) . ") Tj\n"; }
+    $cs .= "ET\n"; $st = $a85($cs);
+    return "%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n5 0 obj\n<< /Length " . strlen($st) . " /Filter /ASCII85Decode >>\nstream\n$st\nendstream\nendobj\n%%EOF\n";
+}
+$wzTok = ['社團法人中華基督教救助協會', '客戶代號:', '客戶名稱:', '聯 絡 人:', '聯絡電話:', '聯絡地址:', '單據日期:', '單據號碼:', '收貨日期:', '收據抬頭:', '收 件 人:', '寄件地址:', '捐贈用途:', '頁　　次:',
+    '進貨單', '990001', '測試量販股份有限公司', '王小明', '', '台北市中正區測試路1號', '115/11/05', '11511050009', '115/11/06', '測試量販股份有限公司', '測試分店 陳主任', '新北市板橋區文化路一段100號', '食物銀行', '1 / 1',
+    '批號', '有效期限', '收據編號:', '食(115)11060009',
+    '0001', '測試肉醬罐頭160g(大)', '罐', '八里倉庫', '1,200.0', '45.000', '54,000.00', 'B03004', '備註:', '12罐/盒', '115', '20290726', '4710057500120',
+    '0002', '許功蓋測試麵', '包', '八里倉庫', '30.0', '', '0.00', 'B04035', '115', '20271113', '4710043025569', '以下空白'];
+$wzFile = tempnam(sys_get_temp_dir(), 'wz') . '.pdf'; file_put_contents($wzFile, wz_pdf($wzTok));
+$pz = rcpt_parse_wenzhong_pdf((string)file_get_contents($wzFile));
+ok($pz['po_no'] === '11511050009' && $pz['in_date'] === '115/11/06' && $pz['supplier_code'] === '990001' && $pz['track'] === '食', '解析：單據號碼、收貨日期（不是單據日期）、客戶代號、字軌');
+ok($pz['title'] === '測試量販股份有限公司' && $pz['attn'] === '測試分店 陳主任' && $pz['addr'] === '新北市板橋區文化路一段100號', '解析：收據抬頭、收件人、寄件地址');
+ok(count($pz['items']) === 2 && $pz['items'][0] === ['B03004', '測試肉醬罐頭160g(大)', 1200, '罐', 45] && $pz['items'][1][1] === '許功蓋測試麵' && $pz['items'][1][4] === null, '解析：明細（括號跳脫、Big5 第二位元組 0x5C 的字、空白單價）');
+$bad = false; try { rcpt_parse_wenzhong_pdf("%PDF-1.4\n%%EOF"); } catch (RuntimeException $e) { $bad = str_contains($e->getMessage(), '進貨單'); }
+ok($bad, '不是進貨單的 PDF 給看得懂的錯誤');
+$pu = req($E, ['a' => 'new'], 'POST', ['csrf' => $csrf($E), 'do' => 'pdf_prefill'], ['file' => ['name' => '文中進貨單.pdf', 'tmp_name' => $wzFile, 'error' => 0, 'size' => filesize($wzFile)]]);
+ok(str_contains($pu, 'value="11511050009"') && str_contains($pu, 'value="2026-11-06"') && str_contains($pu, 'value="測試肉醬罐頭160g(大)"') && str_contains($pu, '已從「文中進貨單.pdf」帶入'), '上傳後新增批次表單已帶入單號、收貨日期、明細');
+ok(str_contains($pu, '「食」字軌') && str_contains($pu, '供應商「990001 測試量販股份有限公司」不在清單') && str_contains($pu, 'name="pf_name" value="測試量販股份有限公司"'), '提示字軌與不在清單的供應商；捐贈者以隱藏欄位帶到儲存');
+ok(!(int)$d->query("SELECT count(*) FROM batch WHERE po_no = '11511050009'")->fetchColumn(), '只帶入表單，還沒建批次');
+$srcF = (string)$d->query("SELECT code FROM option_item WHERE kind = 'source' AND extra = '食' AND active ORDER BY sort, id LIMIT 1")->fetchColumn();
+$sv = req($E, ['a' => 'new'], 'POST', ['csrf' => $csrf($E), 'do' => 'save_batch', 'source' => $srcF, 'po_no' => '11511050009', 'in_date' => '115/11/06',
+    'it_code' => ['B03004'], 'it_name' => ['測試肉醬罐頭160g(大)'], 'it_qty' => ['1200'], 'it_unit' => ['罐'], 'it_price' => ['45'],
+    'pf_name' => '測試量販股份有限公司', 'pf_attn' => '測試分店 陳主任', 'pf_addr' => '新北市板橋區文化路一段100號']);
+$bpz = (int)$d->query("SELECT id FROM batch WHERE po_no = '11511050009'")->fetchColumn();
+ok($bpz > 0 && str_contains($sv, 'X-TEST-LOCATION: ./?a=batch&id=' . $bpz . '&ok=saved&pf=1#single'), '儲存後轉到批次頁，網址只帶批次與 pf=1' . ($bpz ? '' : '：' . substr(strip_tags($sv), 0, 200)));
+ok(!preg_match('#X-TEST-LOCATION:[^\n]*(pf_name|pf_addr|pf_attn|%E6%B8%AC|測試量販|文化路)#u', $sv), '轉址網址不含收據抬頭、收件人、地址（大沈審 5b711e9）');
+$ps = req($E, ['a' => 'batch', 'id' => $bpz, 'pf' => '1']);
+ok(str_contains($ps, 'id="s_name" name="name" value="測試量販股份有限公司"') && str_contains($ps, 'id="s_city" name="city" value="新北市板橋區"') && str_contains($ps, 'value="文化路一段100號"') && str_contains($ps, '收件人「測試分店 陳主任」'), '單筆輸入從伺服器暫存帶入收據抬頭、縣市區與地址，並提示收件人');
+$d->exec("INSERT INTO users VALUES ('ed2@test','edit','') ON CONFLICT DO NOTHING");
+ok(!str_contains(req('ed2@test', ['a' => 'batch', 'id' => $bpz, 'pf' => '1']), '測試量販股份有限公司'), '別的編輯帳號開同一批讀不到這份暫存');
+$bOther = (int)$d->query("SELECT id FROM batch WHERE id <> $bpz AND status = 'draft' ORDER BY id DESC LIMIT 1")->fetchColumn();
+ok($bOther && !str_contains(req($E, ['a' => 'batch', 'id' => $bOther, 'pf' => '1']), '測試量販股份有限公司'), '同一帳號開別批也讀不到');
+$d->exec("UPDATE pdf_prefill SET created_at = now() - interval '2 hours' WHERE batch_id = $bpz");
+ok(!str_contains(req($E, ['a' => 'batch', 'id' => $bpz, 'pf' => '1']), '測試量販股份有限公司'), '超過 1 小時的暫存不再帶入');
+ok(!(int)$d->query("SELECT count(*) FROM pdf_prefill WHERE batch_id = $bpz")->fetchColumn(), '超過 1 小時的暫存在下一次開頁時實際刪除（大沈審 1504565）');
+$d->prepare("INSERT INTO pdf_prefill (batch_id, email, data) VALUES (?, ?, '{}')")->execute([$bpz, $E]);
+$d->exec("INSERT INTO pdf_prefill (batch_id, email, data, created_at) VALUES ($bpz, 'ed2@test', '{}', now() - interval '30 minutes')");
+req('vw@test', ['a' => 'list']);
+ok((int)$d->query("SELECT count(*) FROM pdf_prefill WHERE batch_id = $bpz")->fetchColumn() === 2, '1 小時內的暫存不被清除（含別的帳號）');
+$d->exec("INSERT INTO pdf_prefill (batch_id, email, data, created_at) VALUES ($bpz, 'vw@test', '{}', now() - interval '2 hours')");
+req('nobody@test', ['a' => 'list']);
+ok((int)$d->query("SELECT count(*) FROM pdf_prefill WHERE batch_id = $bpz AND email = 'vw@test'")->fetchColumn() === 1, '沒有收據權限的請求被拒，不會刪暫存（大沈審 0488773）');
+req('vw@test', ['a' => 'list']);
+ok(!(int)$d->query("SELECT count(*) FROM pdf_prefill WHERE batch_id = $bpz AND email = 'vw@test'")->fetchColumn()
+   && (int)$d->query("SELECT count(*) FROM pdf_prefill WHERE batch_id = $bpz")->fetchColumn() === 2, '有權限的請求只刪過期列、未過期的留著');
+$d->exec("DELETE FROM pdf_prefill WHERE email = 'ed2@test'");
+req($E, ['a' => 'batch', 'id' => $bpz], 'POST', ['csrf' => $csrf($E), 'do' => 'add_row', 'name' => '測試量販股份有限公司', 'qty' => '1', 'city' => '新北市板橋區', 'address' => '文化路一段100號']);
+ok(!(int)$d->query("SELECT count(*) FROM pdf_prefill WHERE batch_id = $bpz")->fetchColumn(), '單筆輸入加入後刪除暫存');
+@unlink($wzFile);
+$bdraft = (int)$d->query("SELECT id FROM batch WHERE status = 'draft' ORDER BY id DESC LIMIT 1")->fetchColumn();
+if ($bdraft) {
+    ok(str_contains(req($E, ['a' => 'batch', 'id' => $bdraft]), 'name="tax_id"'), '單筆輸入表單有統一編號欄');
+    req($E, ['a' => 'batch', 'id' => $bdraft], 'POST', ['csrf' => $csrf($E), 'do' => 'add_row', 'name' => '公司捐贈', 'qty' => '1', 'tax_id' => '24536806']);
+    ok($d->query("SELECT tax_id FROM donation WHERE batch_id = $bdraft AND name = '公司捐贈'")->fetchColumn() === '24536806', '單筆輸入存統編');
+}
+echo "多品項、改數量、刪除／作廢（繁英姊 11/25）\n";
+$d->exec("INSERT INTO batch (source, track, in_date, status, created_by) VALUES ('家庭雲端', '食', '2026-10-22', 'draft', 'ed@test')");
+$bf = (int)$d->query("SELECT max(id) FROM batch")->fetchColumn();
+$d->exec("INSERT INTO batch_item (batch_id, code, name, qty, unit) VALUES ($bf, 'A1', '測試米', 10, '包'), ($bf, 'A2', '測試油', 10, '瓶'), ($bf, 'A3', '沒單位品', 1, '')");
+$insF = $d->prepare("INSERT INTO donation (batch_id, row_no, order_no, name, zip, city, address, product, qty, send) VALUES (?,?,?,?,'100','臺北市中正區',?,?,?,true) RETURNING id");
+$rf = [];
+foreach ([[1, 'FM-1', '甲多品', '甲路1號', '測試米', 2], [2, 'FM-2', '乙單品', '乙路1號', '測試米', 1], [3, 'FM-3', '丙作廢', '丙路1號', '測試油', 1], [4, 'FM-4', '丁刪除', '丁路1號', '測試米', 1]] as $x) {
+    $insF->execute([$bf, $x[0], $x[1], $x[2], $x[3], $x[4], $x[5]]); $rf[$x[0]] = (int)$insF->fetchColumn();
+}
+// 品項
+$o = req($E, ['a' => 'items', 'id' => $bf, 'rid' => $rf[1]], 'POST', ['csrf' => $csrf($E), 'do' => 'items_save', 'rid' => $rf[1], 'product' => ['測試米', '測試油', ''], 'qty' => ['2', '３', '']]);
+ok(str_contains($o, 'X-TEST-LOCATION') && (int)$d->query("SELECT count(*) FROM donation_item WHERE donation_id = {$rf[1]}")->fetchColumn() === 2
+   && $d->query("SELECT product || qty FROM donation WHERE id = {$rf[1]}")->fetchColumn() === '測試米2', '品項存兩項（全形數量轉半形），donation 同步為第一項');
+ok(str_contains((string)$d->query("SELECT detail FROM audit WHERE action = 'edit_items' ORDER BY id DESC LIMIT 1")->fetchColumn(), '測試米×2 → 測試米×2、測試油×3'), '品項修改留稽核（改前 → 改後）');
+$pi = req($E, ['a' => 'items', 'id' => $bf, 'rid' => $rf[1]]);
+ok(str_contains($pi, 'value="測試油"') && str_contains($pi, 'name="product[]"') && str_contains($pi, '<option value="測試油">'), '品項頁列出目前品項與進貨明細選單');
+$pb = req($E, ['a' => 'batch', 'id' => $bf]);
+ok(str_contains($pb, '測試米×2、測試油×3') && str_contains($pb, '品項（2）') && str_contains($pb, '見品項'), '批次頁：多品項列顯示品項、數量改到品項頁');
+ok(str_contains($pb, 'name="qty" value="1"') && str_contains($pb, '＋品項'), '批次頁：單品項列可直接改數量、可加品項');
+$o = req($E, ['a' => 'items', 'id' => $bf, 'rid' => $rf[2]], 'POST', ['csrf' => $csrf($E), 'do' => 'items_save', 'rid' => $rf[2], 'product' => ['測試米', '沒單位品'], 'qty' => ['1', '1']]);
+ok(str_contains($o, '「沒單位品」不在這一批的進貨明細') && !(int)$d->query("SELECT count(*) FROM donation_item WHERE donation_id = {$rf[2]}")->fetchColumn()
+   && str_contains($o, 'value="沒單位品"'), '品項對不到單位：擋下、不存，畫面保留剛輸入的');
+ok(str_contains(req($E, ['a' => 'items', 'id' => $bf, 'rid' => $rf[2]], 'POST', ['csrf' => $csrf($E), 'do' => 'items_save', 'rid' => $rf[2], 'product' => ['測試米'], 'qty' => ['1.5']]), '數量請填正整數'), '品項數量 1.5 擋下');
+$d->exec("INSERT INTO donation_item (donation_id, product, qty, sort) VALUES ({$rf[2]}, '測試米', 1, 0), ({$rf[2]}, '沒單位品', 1, 1)");
+$o = req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'assign']);
+ok(str_contains($o, '第 2 列品名「沒單位品」不在進貨明細') && $d->query("SELECT status FROM batch WHERE id = $bf")->fetchColumn() === 'draft', '品項裡有對不到單位的：配號擋下並指出那一列');
+$d->exec("DELETE FROM donation_item WHERE donation_id = {$rf[2]}");
+// 改數量
+req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'row', 'rid' => $rf[3], 'name' => '丙作廢', 'zip' => '100', 'city' => '臺北市中正區', 'address' => '丙路1號', 'send' => '1', 'qty' => '５']);
+ok((int)$d->query("SELECT qty FROM donation WHERE id = {$rf[3]}")->fetchColumn() === 5 && str_contains((string)$d->query("SELECT detail FROM audit WHERE action = 'edit_row' ORDER BY id DESC LIMIT 1")->fetchColumn(), 'qty: 1 → 5'), '單列改數量（全形）並留稽核');
+ok(str_contains(req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'row', 'rid' => $rf[3], 'name' => '丙作廢', 'zip' => '100', 'city' => '臺北市中正區', 'address' => '丙路1號', 'send' => '1', 'qty' => '0']), '數量請填正整數')
+   && (int)$d->query("SELECT qty FROM donation WHERE id = {$rf[3]}")->fetchColumn() === 5, '數量 0 擋下、不改');
+req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'rows_bulk', 'rows' => json_encode([['rid' => $rf[2], 'name' => '乙單品', 'zip' => '100', 'city' => '臺北市中正區', 'address' => '乙路1號', 'send' => true, 'qty' => '4'],
+    ['rid' => $rf[1], 'name' => '甲多品', 'zip' => '100', 'city' => '臺北市中正區', 'address' => '甲路1號', 'send' => true, 'qty' => '99', 'product' => '測試油']])]);
+ok((int)$d->query("SELECT qty FROM donation WHERE id = {$rf[2]}")->fetchColumn() === 4, '全部儲存可改數量');
+ok($d->query("SELECT product || qty FROM donation WHERE id = {$rf[1]}")->fetchColumn() === '測試米2' && (int)$d->query("SELECT count(*) FROM donation_item WHERE donation_id = {$rf[1]}")->fetchColumn() === 2, '多品項的列：全部儲存不動品名與數量（改要到品項頁）');
+// 唯讀者
+$vw = 'vw@test';
+ok(str_contains(req($vw, ['a' => 'items', 'id' => $bf, 'rid' => $rf[1]], 'POST', ['csrf' => $csrf($vw), 'do' => 'items_save', 'rid' => $rf[1], 'product' => ['測試米'], 'qty' => ['1']]), '只能查詢')
+   && str_contains(req($vw, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($vw), 'do' => 'row_del', 'rid' => $rf[4]]), '只能查詢')
+   && (int)$d->query("SELECT count(*) FROM donation_item WHERE donation_id = {$rf[1]}")->fetchColumn() === 2 && (int)$d->query("SELECT count(*) FROM donation WHERE id = {$rf[4]}")->fetchColumn() === 1, '唯讀者不能改品項、不能刪除');
+$pv = req($vw, ['a' => 'items', 'id' => $bf, 'rid' => $rf[1]]);
+ok(!str_contains($pv, 'name="product[]"') && str_contains($pv, '測試油'), '唯讀者看品項頁只能看');
+ok(!str_contains(req($vw, ['a' => 'batch', 'id' => $bf]), 'value="row_del"'), '唯讀者批次頁沒有刪除鍵');
+// 刪除（草稿）
+ok(str_contains(req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'row_void', 'rid' => $rf[4]]), '直接刪除即可'), '草稿的列不能作廢（要刪除）');
+req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'row_del', 'rid' => $rf[4]]);
+ok(!(int)$d->query("SELECT count(*) FROM donation WHERE id = {$rf[4]}")->fetchColumn() && str_contains((string)$d->query("SELECT detail FROM audit WHERE action = 'del_row' ORDER BY id DESC LIMIT 1")->fetchColumn(), "row {$rf[4]}"), '草稿的列可刪除並留稽核');
+// 配號、列印多品項
+req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'assign']);
+ok($d->query("SELECT status FROM batch WHERE id = $bf")->fetchColumn() === 'numbered', '配號成功（3 筆）');
+$no1 = $d->query("SELECT receipt_no FROM donation WHERE id = {$rf[1]}")->fetchColumn();
+$p1 = preq($E, ['id' => $bf, 'one' => $rf[1]]);
+ok(str_contains($p1, '<td>測試米</td><td style="text-align:right">2</td><td>包</td>') && str_contains($p1, '<td>測試油</td><td style="text-align:right">3</td><td>瓶</td>'), '食字軌收據列出兩個品項（各自數量、單位）');
+$p2 = preq($E, ['id' => $bf, 'one' => $rf[2]]);
+ok(str_contains($p2, '<td>測試米</td><td style="text-align:right">4</td><td>包</td>') && substr_count($p2, '<td style="text-align:right">') === 1, '單品項的舊式列照舊印一項');
+req($E, ['a' => 'items', 'id' => $bf, 'rid' => $rf[1]], 'POST', ['csrf' => $csrf($E), 'do' => 'items_save', 'rid' => $rf[1], 'product' => ['測試米', '測試油'], 'qty' => ['2', '1']]);
+ok($d->query("SELECT receipt_no FROM donation WHERE id = {$rf[1]}")->fetchColumn() === $no1 && str_contains((string)$d->query("SELECT detail FROM audit WHERE action = 'edit_items_after_number' ORDER BY id DESC LIMIT 1")->fetchColumn(), '測試油×3 → 測試米×2、測試油×1'), '已配號也可改品項：收據編號不變、稽核標配號後');
+// 大沈審 8bdd23b：批次清單的筆數／數量要和明細頁一致（作廢不算、有品項加總各項）
+$recon = function (int $bid) use ($E) {
+    $l = req($E, ['a' => 'list']); $b = req($E, ['a' => 'batch', 'id' => $bid]);
+    preg_match('/a=batch&id=' . $bid . '".*?data-l="筆數">(\d+)<.*?data-l="數量">(\d+)</s', $l, $x);
+    preg_match('/筆數<\/small><b>(\d+)<.*?數量合計<\/small><b>(\d+)</s', $b, $y);
+    return ($x && $y && $x[1] === $y[1] && $x[2] === $y[2]) ? [(int)$x[1], (int)$x[2]] : ['清單' => $x ? [$x[1], $x[2]] : null, '明細' => $y ? [$y[1], $y[2]] : null];
+};
+$rc0 = $recon($bf); $q3 = (int)$d->query("SELECT qty FROM donation WHERE id = {$rf[3]}")->fetchColumn();
+ok(is_int($rc0[0] ?? null) && $rc0[0] === 3, '清單與明細一致：加第二品項後筆數 3、數量同口徑' . (is_int($rc0[0] ?? null) ? '' : ' ' . json_encode($rc0, JSON_UNESCAPED_UNICODE)));
+// 作廢
+ok(str_contains(req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'row_del', 'rid' => $rf[3]]), '不能刪除') && (int)$d->query("SELECT count(*) FROM donation WHERE id = {$rf[3]}")->fetchColumn() === 1, '已配號的列不能刪除');
+ok(str_contains(req($vw, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($vw), 'do' => 'row_void', 'rid' => $rf[3]]), '只能查詢') && !$d->query("SELECT void FROM donation WHERE id = {$rf[3]}")->fetchColumn(), '唯讀者不能作廢');
+$no3 = $d->query("SELECT receipt_no FROM donation WHERE id = {$rf[3]}")->fetchColumn();
+req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'row_void', 'rid' => $rf[3]]);
+ok($d->query("SELECT void FROM donation WHERE id = {$rf[3]}")->fetchColumn() && $d->query("SELECT receipt_no FROM donation WHERE id = {$rf[3]}")->fetchColumn() === $no3
+   && str_contains((string)$d->query("SELECT detail FROM audit WHERE action = 'void' ORDER BY id DESC LIMIT 1")->fetchColumn(), "$no3 作廢"), '作廢：編號保留、留稽核');
+$pa = preq($E, ['id' => $bf, 'scope' => 'all', 'part' => 'all']);
+ok(substr_count($pa, 'class="page food"') === 2 && !str_contains($pa, '丙作廢'), '作廢的不再列印');
+$pb = req($E, ['a' => 'batch', 'id' => $bf]);
+$rc = $recon($bf); ok(is_int($rc[0] ?? null) && $rc === [$rc0[0] - 1, $rc0[1] - $q3], '清單與明細一致：作廢一列後筆數與數量都扣掉那一列' . (is_int($rc[0] ?? null) ? '' : ' ' . json_encode($rc, JSON_UNESCAPED_UNICODE)));
+ok(str_contains($pb, 'class="void"') && str_contains($pb, '作廢</span>') && str_contains($pb, '另作廢 1') && str_contains($pb, 'value="row_unvoid"'), '批次頁：作廢列灰掉、標作廢、筆數另計、有恢復鍵');
+ok(str_contains(req($E, ['a' => 'search', 'q' => $no3]), '作廢</span>'), '查詢結果標作廢');
+ok(str_contains(req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'row', 'rid' => $rf[3], 'name' => '改名', 'qty' => '1']), '已作廢') && $d->query("SELECT name FROM donation WHERE id = {$rf[3]}")->fetchColumn() === '丙作廢', '作廢的列不能修改');
+// 恢復：訂單編號已另開收據就不行
+$d->exec("INSERT INTO batch (source, track, in_date, status, created_by) VALUES ('家庭雲端', '食', '2026-10-23', 'numbered', 'ed@test')");
+$bo2 = (int)$d->query("SELECT max(id) FROM batch")->fetchColumn();
+$d->exec("INSERT INTO donation (batch_id, row_no, seq, receipt_no, order_no, name, product, qty) VALUES ($bo2, 1, 1, 'RE-ISSUE-1', 'FM-3', '丙重開', '測試油', 1)");
+ok(str_contains(req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'row_unvoid', 'rid' => $rf[3]]), '不能恢復') && $d->query("SELECT void FROM donation WHERE id = {$rf[3]}")->fetchColumn(), '訂單編號已另開收據：不能恢復');
+$d->exec("DELETE FROM donation WHERE batch_id = $bo2");
+req($E, ['a' => 'batch', 'id' => $bf], 'POST', ['csrf' => $csrf($E), 'do' => 'row_unvoid', 'rid' => $rf[3]]);
+ok(!$d->query("SELECT void FROM donation WHERE id = {$rf[3]}")->fetchColumn() && substr_count(preq($E, ['id' => $bf, 'scope' => 'all', 'part' => 'all']), 'class="page food"') === 3, '恢復後再列入列印');
+$rc = $recon($bf); ok($rc === $rc0, '清單與明細一致：恢復後回到作廢前' . ($rc === $rc0 ? '' : ' ' . json_encode($rc, JSON_UNESCAPED_UNICODE)));
+$rc = $recon($b4); ok(is_int($rc[0] ?? null), '清單與明細一致：舊的單品項批次' . (is_int($rc[0] ?? null) ? '' : ' ' . json_encode($rc, JSON_UNESCAPED_UNICODE)));
 @unlink($tmp);
 echo $fail ? "❌ 失敗 {$fail}／{$n}\n" : "✅ 全部通過 {$n} 項\n";
 exit($fail ? 1 : 0);
