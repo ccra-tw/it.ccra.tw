@@ -710,12 +710,22 @@ $shown = array_slice($shown, ($pg - 1) * RCPT_PAGE, RCPT_PAGE);
 
 <?php elseif ($a === 'settings'):
     need_edit($canEdit);
-    $eid = (int)($_GET['e'] ?? 0);
+    $eid = (int)($_GET['e'] ?? 0); ?>
+<nav class="setnav" aria-label="設定項目"><span>跳到：</span><?php foreach (RCPT_OPT_KINDS as $k => $kn): ?><a href="#<?= h($k) ?>"><?= h($kn) ?></a><?php endforeach; ?><a href="#letter">給捐贈者的信</a></nav>
+<?php
+    // 11/25 繁英姊：「供應商或來源多筆的時候，要找後面的功能就不好找」→ 上方跳轉列、新增欄位移到清單上方、清單超過 8 筆可篩選並限高捲動
     foreach (RCPT_OPT_KINDS as $kind => $kname):
         $opts = rcpt_options($d, $kind, false);
         $col1 = $kind === 'supplier' ? '編號' : ($kind === 'source' ? '名稱' : '金額'); ?>
 <section class="panel" id="<?= h($kind) ?>"><h2><?= h($kname) ?> <small><?= count(array_filter($opts, fn($o) => $o['active'])) ?> 項啟用中</small></h2>
-<div class="tbl"><table class="rows"><tr class="hd"><th><?= $col1 ?></th><?php if ($kind === 'supplier'): ?><th>名稱</th><?php endif; ?><?php if ($kind === 'source'): ?><th>字軌</th><?php endif; ?><th>狀態</th><th></th></tr>
+<form method="post" action="./?a=settings" class="actions">
+<input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="opt_save"><input type="hidden" name="kind" value="<?= h($kind) ?>">
+<input type="text" name="code" placeholder="<?= $kind === 'supplier' ? '新供應商編號（例：0000036）' : ($kind === 'source' ? '新來源名稱' : '新金額（例：360）') ?>" required style="max-width:240px" aria-label="新增<?= h($kname) ?>">
+<?php if ($kind === 'supplier'): ?><input type="text" name="name" placeholder="供應商名稱（例：統一超商）" required style="max-width:260px" aria-label="供應商名稱"><?php endif; ?>
+<?php if ($kind === 'source'): ?><select name="extra" style="max-width:150px" aria-label="字軌"><option value="物">物（預印紙）</option><option value="食">食（白紙）</option></select><?php endif; ?>
+<button>＋ 新增</button></form>
+<?php $many = count($opts) > 8; if ($many): ?><input type="search" class="setfilter" data-for="tb-<?= h($kind) ?>" placeholder="輸入文字篩選<?= h($kname) ?>…" aria-label="篩選<?= h($kname) ?>"><?php endif; ?>
+<div class="tbl<?= $many ? ' setlist' : '' ?>" id="tb-<?= h($kind) ?>"><table class="rows"><tr class="hd"><th><?= $col1 ?></th><?php if ($kind === 'supplier'): ?><th>名稱</th><?php endif; ?><?php if ($kind === 'source'): ?><th>字軌</th><?php endif; ?><th>狀態</th><th></th></tr>
 <?php foreach ($opts as $o): $isE = $eid === (int)$o['id']; $fid = 'oe' . (int)$o['id']; ?>
 <tr id="o<?= (int)$o['id'] ?>" class="<?= $o['active'] ? '' : 'bad' ?>">
 <?php if ($isE): ?>
@@ -734,12 +744,7 @@ $shown = array_slice($shown, ($pg - 1) * RCPT_PAGE, RCPT_PAGE);
 <?php endif; ?></tr>
 <?php endforeach; if (!$opts): ?><tr><td colspan="5" class="empty">還沒有<?= h($kname) ?>，請在下面新增。</td></tr><?php endif; ?>
 </table></div>
-<form method="post" action="./?a=settings" class="actions">
-<input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="opt_save"><input type="hidden" name="kind" value="<?= h($kind) ?>">
-<input type="text" name="code" placeholder="<?= $kind === 'supplier' ? '新供應商編號（例：0000036）' : ($kind === 'source' ? '新來源名稱' : '新金額（例：360）') ?>" required style="max-width:240px" aria-label="新增<?= h($kname) ?>">
-<?php if ($kind === 'supplier'): ?><input type="text" name="name" placeholder="供應商名稱（例：統一超商）" required style="max-width:260px" aria-label="供應商名稱"><?php endif; ?>
-<?php if ($kind === 'source'): ?><select name="extra" style="max-width:150px" aria-label="字軌"><option value="物">物（預印紙）</option><option value="食">食（白紙）</option></select><?php endif; ?>
-<button>＋ 新增</button></form>
+
 </section>
 <?php endforeach; $curLetter = rcpt_letter($d); ?>
 <section class="panel" id="letter"><h2>給捐贈者的信 <small>印在收據下半部；物、食兩個字軌都用這一封</small></h2>
@@ -749,6 +754,7 @@ $shown = array_slice($shown, ($pg - 1) * RCPT_PAGE, RCPT_PAGE);
 <p class="hint">儲存後，之後列印的收據（含重印）都套用這個版本。1、3、5、7、9、11 月換新信時在這裡改。</p>
 <div class="actions"><button>儲存信件</button></div></form>
 </section>
+<script>(function(){document.querySelectorAll('.setfilter').forEach(function(f){var t=document.getElementById(f.dataset.for);if(!t)return;f.addEventListener('input',function(){var q=f.value.trim().toLowerCase();t.querySelectorAll('tr').forEach(function(r){if(r.classList.contains('hd'))return;r.hidden=q!==''&&r.textContent.toLowerCase().indexOf(q)<0;});});});})();</script>
 
 
 <?php elseif ($a === 'search'):

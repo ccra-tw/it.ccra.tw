@@ -248,6 +248,18 @@ ok(str_contains((string)$d->query("SELECT action FROM audit WHERE action='letter
 req('vw@test', ['a' => 'settings'], 'POST', ['csrf' => $csrf('vw@test'), 'do' => 'letter_save', 'letter' => '唯讀者改的']);
 ok($d->query("SELECT v FROM settings WHERE k = 'letter'")->fetchColumn() === "親愛的朋友：\n\n設定裡的新信", '唯讀者不能改信件');
 $d->exec("DELETE FROM settings WHERE k = 'letter'");
+echo "設定頁好找（繁英姊 11/25）
+";
+$st = req($E, ['a' => 'settings']);
+ok(str_contains($st, 'class="setnav"') && str_contains($st, 'href="#supplier"') && str_contains($st, 'href="#letter"'), '設定頁上方有跳轉列（含供應商與信件）');
+ok(strpos($st, 'value="opt_save"><input type="hidden" name="kind" value="supplier"') < strpos($st, 'id="tb-supplier"'), '新增欄位在清單上方');
+$nsup = (int)$d->query("SELECT count(*) FROM option_item WHERE kind = 'supplier'")->fetchColumn();
+for ($x = $nsup; $x <= 9; $x++) $d->prepare("INSERT INTO option_item (kind, code, name, extra, sort, updated_by) VALUES ('supplier', ?, ?, '', 900 + ?, 'test')")->execute([sprintf('T%06d', $x), '測試供應商' . $x, $x]);
+$st = req($E, ['a' => 'settings']);
+ok(str_contains($st, 'data-for="tb-supplier"') && str_contains($st, 'class="tbl setlist" id="tb-supplier"'), '供應商超過 8 筆：出現篩選框、清單限高捲動');
+ok(!str_contains($st, 'data-for="tb-set_price"'), '筆數少的區塊不出現篩選框');
+$d->exec("DELETE FROM option_item WHERE updated_by = 'test' AND code LIKE 'T0%'");
+
 
 echo "大沈第一輪（R-itsu-1112-01）\n";
 // P1-1 同檔兩列同訂單
