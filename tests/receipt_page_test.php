@@ -238,21 +238,15 @@ $d->exec("UPDATE batch SET letter = '十一月的信' WHERE id = $b4");
 $nw = req($E, ['a' => 'new']);
 ok(!str_contains($nw, 'name="letter"') && str_contains($nw, '改在「⚙️ 設定」統一維護'), '新增收據頁不再有信件欄，改提示到設定維護');
 ok(str_contains(req($E, ['a' => 'settings']), '十一月的信'), '設定還沒存過信：沿用最近一批有填的信');
-$o = req($E, ['a' => 'settings'], 'POST', ['csrf' => $csrf($E), 'do' => 'letter_save', 'letter' => "親愛的朋友：
-
-設定裡的新信"]);
-ok($d->query("SELECT v FROM settings WHERE k = 'letter'")->fetchColumn() === "親愛的朋友：
-
-設定裡的新信", '設定頁儲存信件（換行統一為 \n）');
+$o = req($E, ['a' => 'settings'], 'POST', ['csrf' => $csrf($E), 'do' => 'letter_save', 'letter' => "親愛的朋友：\r\n\r\n設定裡的新信"]);
+ok($d->query("SELECT v FROM settings WHERE k = 'letter'")->fetchColumn() === "親愛的朋友：\n\n設定裡的新信", '設定頁儲存信件（換行統一為 \n）');
 ok(str_contains(req($E, ['a' => 'settings']), '設定裡的新信'), '設定頁顯示目前的信');
 $pp = preq($E, ['id' => $b4, 'part' => 'all']);
 ok(str_contains($pp, '設定裡的新信') && !str_contains($pp, '十一月的信'), '列印套用設定裡的信，不用批次舊存的信');
 ok(str_contains($pp, '<p>親愛的朋友：</p><p>設定裡的新信</p>'), '列印時段落依空行切開');
 ok(str_contains((string)$d->query("SELECT action FROM audit WHERE action='letter_save' ORDER BY id DESC LIMIT 1")->fetchColumn(), 'letter_save'), '儲存信件留稽核紀錄');
 req('vw@test', ['a' => 'settings'], 'POST', ['csrf' => $csrf('vw@test'), 'do' => 'letter_save', 'letter' => '唯讀者改的']);
-ok($d->query("SELECT v FROM settings WHERE k = 'letter'")->fetchColumn() === "親愛的朋友：
-
-設定裡的新信", '唯讀者不能改信件');
+ok($d->query("SELECT v FROM settings WHERE k = 'letter'")->fetchColumn() === "親愛的朋友：\n\n設定裡的新信", '唯讀者不能改信件');
 $d->exec("DELETE FROM settings WHERE k = 'letter'");
 
 echo "大沈第一輪（R-itsu-1112-01）\n";
