@@ -7,10 +7,11 @@ require '/var/www/it-lib/receipt.php';
 require '/var/www/it-lib/addr.php';
 $email = strtolower(access_identity()['email']);
 $d = rcpt_db();
-// 大沈審 1504565：過期（超過 1 小時）的進貨單預填暫存要真的刪掉，不只是不讀——擱置的草稿裡有抬頭、收件人與地址
-$d->exec("DELETE FROM pdf_prefill WHERE created_at < now() - interval '1 hour'");
 $role = rcpt_role($d, $email);
 if (!$role) { http_response_code(403); exit('物資捐贈收據系統只開放給開收據的同仁、客服與助理會計。需要使用請找資訊部（分機 181）。'); }
+// 大沈審 1504565：過期（超過 1 小時）的進貨單預填暫存要真的刪掉，不只是不讀——擱置的草稿裡有抬頭、收件人與地址
+// 大沈審 0488773：放在角色檢查之後，沒有收據權限的請求不會動到資料
+$d->exec("DELETE FROM pdf_prefill WHERE created_at < now() - interval '1 hour'");
 $canEdit = $role === 'edit';
 function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 $secret = trim((string)@file_get_contents(STATE_DIR . '/form_secret'));

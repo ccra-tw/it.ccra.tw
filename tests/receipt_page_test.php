@@ -594,6 +594,12 @@ $d->prepare("INSERT INTO pdf_prefill (batch_id, email, data) VALUES (?, ?, '{}')
 $d->exec("INSERT INTO pdf_prefill (batch_id, email, data, created_at) VALUES ($bpz, 'ed2@test', '{}', now() - interval '30 minutes')");
 req('vw@test', ['a' => 'list']);
 ok((int)$d->query("SELECT count(*) FROM pdf_prefill WHERE batch_id = $bpz")->fetchColumn() === 2, '1 小時內的暫存不被清除（含別的帳號）');
+$d->exec("INSERT INTO pdf_prefill (batch_id, email, data, created_at) VALUES ($bpz, 'vw@test', '{}', now() - interval '2 hours')");
+req('nobody@test', ['a' => 'list']);
+ok((int)$d->query("SELECT count(*) FROM pdf_prefill WHERE batch_id = $bpz AND email = 'vw@test'")->fetchColumn() === 1, '沒有收據權限的請求被拒，不會刪暫存（大沈審 0488773）');
+req('vw@test', ['a' => 'list']);
+ok(!(int)$d->query("SELECT count(*) FROM pdf_prefill WHERE batch_id = $bpz AND email = 'vw@test'")->fetchColumn()
+   && (int)$d->query("SELECT count(*) FROM pdf_prefill WHERE batch_id = $bpz")->fetchColumn() === 2, '有權限的請求只刪過期列、未過期的留著');
 $d->exec("DELETE FROM pdf_prefill WHERE email = 'ed2@test'");
 req($E, ['a' => 'batch', 'id' => $bpz], 'POST', ['csrf' => $csrf($E), 'do' => 'add_row', 'name' => '測試量販股份有限公司', 'qty' => '1', 'city' => '新北市板橋區', 'address' => '文化路一段100號']);
 ok(!(int)$d->query("SELECT count(*) FROM pdf_prefill WHERE batch_id = $bpz")->fetchColumn(), '單筆輸入加入後刪除暫存');
