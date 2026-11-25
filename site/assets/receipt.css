@@ -51,6 +51,7 @@
 .stat small{display:block;color:var(--muted);font-size:13px;font-weight:700}
 .stat b{font-size:26px;font-weight:900;line-height:1.3}
 .stat em{font-style:normal;font-size:13px;margin-left:6px}
+.stat em .chip{white-space:normal}   /* 大沈審 1504565：手機 390px「進貨單 1200，不符」撐寬頁面，讓提示換行 */
 
 /* 按鈕 */
 .btn,.rc button{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:0;border-radius:999px;padding:10px 20px;
@@ -106,6 +107,18 @@ table.rows{border-collapse:separate;border-spacing:0;width:100%;font-size:15px}
 .rows td.act a:first-child{margin-left:0}
 .rows tr:target td{background:color-mix(in srgb,var(--yellow) 22%,transparent)}
 
+/* 設定頁（繁英姊 11/25：選項多時後面的區塊不好找）：跳轉列固定在上方、長清單限高捲動、可篩選 */
+.setnav{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:10px 14px;margin:0 0 14px;
+  border:1px solid var(--edge);border-radius:14px;background:var(--panel)}
+.setnav span{color:var(--muted);font-size:13.5px;font-weight:800}
+.setnav a{color:var(--green);font-weight:800;text-decoration:none;padding:4px 10px;border-radius:999px;background:color-mix(in srgb,var(--green) 10%,transparent)}
+.setnav a:hover{text-decoration:underline}
+.panel[id]{scroll-margin-top:72px}
+@media (max-width:700px){.panel[id]{scroll-margin-top:140px}}   /* 大沈 9845cc6：手機跳轉列換成兩行約 100px，72px 會遮住標題 */
+.setfilter{max-width:320px;margin:10px 0 6px}
+.setlist{max-height:440px;overflow-y:auto;border:1px solid var(--edge);border-radius:14px}
+.rows tr[hidden]{display:none!important}   /* 篩選隱藏的列（手機版 tr 是 display:block，要明寫才藏得住） */
+
 /* 手機（大沈 R-itsu-1112-01：390px 寬時表格 813px、「存」在畫面外）：窄螢幕每筆一張卡片，欄名由 data-l 帶出 */
 @media (max-width:700px){
   .tbl{overflow:visible}
@@ -133,3 +146,5 @@ table.rows{border-collapse:separate;border-spacing:0;width:100%;font-size:15px}
 @keyframes rcspin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.spin{animation:none;border-right-color:var(--rc-btn)}}
 .chunks{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0 0}
+.rows tr.void td{opacity:.55;text-decoration:line-through}   /* 繁英姊 11/25：作廢的收據灰掉 */
+.rows tr.void td.act,.rows tr.void td:nth-child(2){opacity:1;text-decoration:none}
