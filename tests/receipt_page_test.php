@@ -289,6 +289,11 @@ $d->prepare("INSERT INTO option_item (kind, code, name, extra, sort, updated_by)
 $lsave($E, [$srcB4 => '2', '123' => '2']);
 ok((rcpt_letter_map($d)['123'] ?? null) === 2, '純數字來源的對應讀得回來');
 ok(rcpt_letter($d, '123') === '乙信內容' && rcpt_letter($d, $srcB4) === '乙信內容', '純數字來源「123」與一般來源一樣取到第 2 封（設定儲存→回讀→列印）');
+// 大沈審 e87944f：列印端也要走到這筆對照——把已配號的 $b4 暫時改成來源 123，實際呼叫列印頁
+$d->prepare("UPDATE batch SET source = '123' WHERE id = ?")->execute([$b4]);
+$lp123 = preq($E, ['id' => $b4, 'part' => 'all']);
+ok(str_contains($lp123, '<p>乙信內容</p>') && !str_contains($lp123, '甲信第一段'), '來源 123 的已配號批次：列印頁實際印出第 2 封');
+$d->prepare("UPDATE batch SET source = ? WHERE id = ?")->execute([$srcB4, $b4]);
 $d->prepare("UPDATE settings SET v = ? WHERE k = 'letter_map'")->execute(['{"0":2}']);
 ok(rcpt_letter($d, '0') === '乙信內容', '來源「0」的對應也讀得回來');
 $lsave($E, ['123' => '1']);
