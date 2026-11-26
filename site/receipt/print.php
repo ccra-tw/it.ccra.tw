@@ -226,7 +226,7 @@ addEventListener('pageshow', function () { var d = document.getElementById('rcBu
 <div class="f" style="<?= $pos('qty') ?>"><?= (int)$r['qty'] ?></div>
 <div class="f" style="<?= $pos('addr') ?>"><?= h($r['zip'] . $r['city'] . '　' . $r['address']) ?></div>
 <div class="f" style="<?= $pos('to') ?>"><?= h($r['name']) ?>　收</div>
-<?php if ($letter !== ''): ?><div class="f letter" style="<?= $pos('letter') ?>"><?php foreach (preg_split('/\R{2,}/u', $letter) as $para) echo '<p>' . h($para) . '</p>'; ?></div><?php endif; ?>
+<?php if ($letter !== ''): ?><div class="f letter" style="<?= $pos('letter') ?>"><?php foreach (preg_split('/\R+/u', $letter) as $para) if (trim($para) !== '') echo '<p>' . h($para) . '</p>';   // 繁英姊 11/26：照輸入的換行分段，不必每段之間空一行（空行略過） ?></div><?php endif; ?>
 </div>
 <?php endif; endforeach; ?>
 </div>

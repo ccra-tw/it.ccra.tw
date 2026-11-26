@@ -244,6 +244,17 @@ ok(str_contains(req($E, ['a' => 'settings']), '設定裡的新信'), '設定頁�
 $pp = preq($E, ['id' => $b4, 'part' => 'all']);
 ok(str_contains($pp, '設定裡的新信') && !str_contains($pp, '十一月的信'), '列印套用設定裡的信，不用批次舊存的信');
 ok(str_contains($pp, '<p>親愛的朋友：</p><p>設定裡的新信</p>'), '列印時段落依空行切開');
+req($E, ['a' => 'settings'], 'POST', ['csrf' => $csrf($E), 'do' => 'letter_save', 'letter' => "親愛的朋友：
+第一段
+第二段
+
+第三段"]);
+$pl = preq($E, ['id' => $b4, 'part' => 'all']);
+ok(str_contains($pl, '<p>親愛的朋友：</p><p>第一段</p><p>第二段</p><p>第三段</p>'), '列印照輸入的換行分段，不必空行；空行略過（繁英姊 11/26）');
+ok(str_contains(req($E, ['a' => 'settings']), '按 Enter 換行就是新的一段'), '設定頁說明改為換行即分段');
+$d->prepare("UPDATE settings SET v = ? WHERE k = 'letter'")->execute(["親愛的朋友：
+
+設定裡的新信"]);
 ok(str_contains((string)$d->query("SELECT action FROM audit WHERE action='letter_save' ORDER BY id DESC LIMIT 1")->fetchColumn(), 'letter_save'), '儲存信件留稽核紀錄');
 req('vw@test', ['a' => 'settings'], 'POST', ['csrf' => $csrf('vw@test'), 'do' => 'letter_save', 'letter' => '唯讀者改的']);
 ok($d->query("SELECT v FROM settings WHERE k = 'letter'")->fetchColumn() === "親愛的朋友：\n\n設定裡的新信", '唯讀者不能改信件');
