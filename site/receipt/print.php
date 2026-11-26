@@ -116,7 +116,7 @@ body{margin:0;font-family:"Microsoft JhengHei","微軟正黑體","Noto Sans TC",
 .f{position:absolute;font-weight:700;font-size:12pt;white-space:nowrap}
 .contents{font-size:10pt;line-height:18pt;width:186mm;white-space:normal}
 .letter{font-family:"標楷體","DFKai-SB","BiauKai",serif;font-weight:400;font-size:10pt;line-height:5.1mm;width:171mm;white-space:pre-wrap;text-align:justify}
-.letter p{margin:0;text-indent:2em}.letter p:first-child{text-indent:0}   /* 繁英姊 11/20：每段開頭空兩字、段落間不空行（稱謂那行不縮排） */
+.letter p{margin:0;text-indent:2em}.letter p:first-child{text-indent:0}.letter p.blank{text-indent:0}   /* 繁英姊 11/20：每段開頭空兩字、段落間不空行（稱謂那行不縮排） */
 .warn{color:#9b1c1c;font-weight:700}
 .food{padding:14mm 16mm;font-size:11pt;line-height:1.6;font-family:"Microsoft JhengHei","微軟正黑體","Noto Sans TC",sans-serif}
 .food .hd{position:relative;border-bottom:1px solid #000;padding-bottom:3mm;padding-left:22mm;min-height:19mm}
@@ -226,7 +226,7 @@ addEventListener('pageshow', function () { var d = document.getElementById('rcBu
 <div class="f" style="<?= $pos('qty') ?>"><?= (int)$r['qty'] ?></div>
 <div class="f" style="<?= $pos('addr') ?>"><?= h($r['zip'] . $r['city'] . '　' . $r['address']) ?></div>
 <div class="f" style="<?= $pos('to') ?>"><?= h($r['name']) ?>　收</div>
-<?php if ($letter !== ''): ?><div class="f letter" style="<?= $pos('letter') ?>"><?php foreach (preg_split('/\R+/u', $letter) as $para) if (trim($para) !== '') echo '<p>' . h($para) . '</p>';   // 繁英姊 11/26：照輸入的換行分段，不必每段之間空一行（空行略過） ?></div><?php endif; ?>
+<?php if ($letter !== ''): ?><div class="f letter" style="<?= $pos('letter') ?>"><?php foreach (preg_split('/\R/u', $letter) as $para) echo trim($para) === '' ? '<p class="blank">&nbsp;</p>' : '<p>' . h($para) . '</p>';   // 繁英姊 11/26：照輸入的樣子——按一次 Enter 換一段、空一行就印一行空白 ?></div><?php endif; ?>
 </div>
 <?php endif; endforeach; ?>
 </div>

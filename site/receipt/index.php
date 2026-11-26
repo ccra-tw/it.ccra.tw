@@ -874,7 +874,7 @@ $shown = array_slice($shown, ($pg - 1) * RCPT_PAGE, RCPT_PAGE);
 <section class="panel" id="letter"><h2>給捐贈者的信 <small>印在物字軌（預印紙）收據下半部；食字軌收據目前沒有信件欄位</small></h2>
 <form method="post" action="./?a=settings#letter">
 <input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="letter_save">
-<label for="f_letter">信件內容（按 Enter 換行就是新的一段，不用空行）</label><textarea id="f_letter" name="letter" rows="10"><?= h($curLetter) ?></textarea>
+<label for="f_letter">信件內容（列印照這裡的樣子：按 Enter 換一段，空一行就印一行空白）</label><textarea id="f_letter" name="letter" rows="10"><?= h($curLetter) ?></textarea>
 <p class="hint">儲存後，之後列印的物字軌收據（含重印）都套用這個版本；食字軌不印信。1、3、5、7、9、11 月換新信時在這裡改。</p>
 <div class="actions"><button>儲存信件</button></div></form>
 </section>
