@@ -226,7 +226,7 @@ addEventListener('pageshow', function () { var d = document.getElementById('rcBu
 <div class="f" style="<?= $pos('qty') ?>"><?= (int)$r['qty'] ?></div>
 <div class="f" style="<?= $pos('addr') ?>"><?= h($r['zip'] . $r['city'] . '　' . $r['address']) ?></div>
 <div class="f" style="<?= $pos('to') ?>"><?= h($r['name']) ?>　收</div>
-<?php if ($letter !== ''): ?><div class="f letter" style="<?= $pos('letter') ?>"><?php foreach (preg_split('/\R/u', $letter) as $para) echo trim($para) === '' ? '<p class="blank">&nbsp;</p>' : '<p>' . h($para) . '</p>';   // 繁英姊 11/26：照輸入的樣子——按一次 Enter 換一段、空一行就印一行空白 ?></div><?php endif; ?>
+<?php if ($letter !== ''): ?><div class="f letter" style="<?= $pos('letter') ?>"><?php foreach (preg_split('/\R/u', $letter) as $para) echo preg_match('/^[\s\x{3000}]*$/u', $para) ? '<p class="blank">&nbsp;</p>' : '<p>' . h($para) . '</p>';   // 繁英姊 11/26：照輸入的樣子——按一次 Enter 換一段、空一行就印一行空白 ?></div><?php endif; ?>
 </div>
 <?php endif; endforeach; ?>
 </div>

@@ -252,6 +252,9 @@ req($E, ['a' => 'settings'], 'POST', ['csrf' => $csrf($E), 'do' => 'letter_save'
 $pl = preq($E, ['id' => $b4, 'part' => 'all']);
 ok(str_contains($pl, '<p>親愛的朋友：</p><p>第一段</p><p>第二段</p><p class="blank">&nbsp;</p><p>第三段</p>'), '列印照輸入的樣子：單換行分段、空行印一行空白（繁英姊 11/26）');
 ok(str_contains(req($E, ['a' => 'settings']), '空一行就印一行空白'), '設定頁說明列印照輸入的樣子');
+req($E, ['a' => 'settings'], 'POST', ['csrf' => $csrf($E), 'do' => 'letter_save', 'letter' => "甲段\r\n乙段\r\n　\r\n丙段"]);
+$pw = preq($E, ['id' => $b4, 'part' => 'all']);
+ok(str_contains($pw, '<p>甲段</p><p>乙段</p><p class="blank">&nbsp;</p><p>丙段</p>'), '明確 CRLF 單換行分段；只有全形空白的行當空行（大沈審 c9b1847）');
 $d->prepare("UPDATE settings SET v = ? WHERE k = 'letter'")->execute(["親愛的朋友：
 
 設定裡的新信"]);
