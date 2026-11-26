@@ -415,12 +415,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $r = rcpt_assign($d, $id, $email);
                 header("Location: ./?a=batch&id=$id&ok=assigned"); exit;
             }
-            if ($do === 'letter_save') {   // 設定頁：給捐贈者的信（列印一律套用；繁英姊 11/25）
-                $v = trim(str_replace("\r\n", "\n", (string)($_POST['letter'] ?? '')));
+            if ($do === 'letter_save') {   // 設定頁：給捐贈者的信（繁英姊 11/25 統一維護；11/26 依來源最多三封）
+                $norm = fn($x) => trim(str_replace("\r\n", "\n", (string)$x));
+                $put = $d->prepare("INSERT INTO settings (k, v) VALUES (?, ?) ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v");
                 $d->beginTransaction();
-                $old = rcpt_letter($d);
-                $d->prepare("INSERT INTO settings (k, v) VALUES ('letter', ?) ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v")->execute([$v]);
-                rcpt_audit($d, $email, 'letter_save', null, mb_strlen($old) . ' 字 → ' . mb_strlen($v) . ' 字');
+                $chg = [];
+                foreach (RCPT_LETTER_KEYS as $n => $k) {
+                    $field = $n === 1 && !isset($_POST['letter1']) ? 'letter' : 'letter' . $n;   // 舊表單只送 letter（＝信件一）
+                    if (!isset($_POST[$field])) continue;
+                    $old = rcpt_letter_text($d, $n); $v = $norm($_POST[$field]);
+                    $put->execute([$k, $v]);
+                    if ($old !== $v) $chg[] = "信件{$n} " . mb_strlen($old) . ' 字 → ' . mb_strlen($v) . ' 字';
+                    if (isset($_POST['name' . $n])) {
+                        $oldNm = rcpt_letter_name($d, $n);
+                        $put->execute(['letter_name' . $n, mb_substr(trim((string)$_POST['name' . $n]), 0, 20)]);
+                        if (rcpt_letter_name($d, $n) !== $oldNm) $chg[] = "信件{$n} 名稱 {$oldNm} → " . rcpt_letter_name($d, $n);
+                    }
+                }
+                if (isset($_POST['map']) && is_array($_POST['map'])) {
+                    $oldMap = rcpt_letter_map($d); $map = [];
+                    foreach (rcpt_options($d, 'source', false) as $o) {
+                        $n = (int)($_POST['map'][$o['code']] ?? ($oldMap[$o['code']] ?? 1));
+                        if (!in_array($n, [1, 2, 3], true)) throw new RuntimeException('信件請選 信件一／二／三');
+                        if ($n !== 1) $map[$o['code']] = $n;
+                        if (($oldMap[$o['code']] ?? 1) !== $n) $chg[] = "{$o['code']}：信件" . ($oldMap[$o['code']] ?? 1) . " → 信件{$n}";
+                    }
+                    $put->execute(['letter_map', json_encode($map, JSON_UNESCAPED_UNICODE | JSON_FORCE_OBJECT)]);   // 來源「0」時不可變成 JSON 陣列
+                }
+                rcpt_audit($d, $email, 'letter_save', null, $chg ? implode('；', $chg) : '未變更');
                 $d->commit();
                 header('Location: ./?a=settings&ok=letter#letter'); exit;
             }
@@ -870,12 +892,22 @@ $shown = array_slice($shown, ($pg - 1) * RCPT_PAGE, RCPT_PAGE);
 </table></div>
 
 </section>
-<?php endforeach; $curLetter = rcpt_letter($d); ?>
+<?php endforeach; $lmap = rcpt_letter_map($d); $lnames = []; foreach (RCPT_LETTER_KEYS as $n => $k) $lnames[$n] = rcpt_letter_name($d, $n); ?>
 <section class="panel" id="letter"><h2>給捐贈者的信 <small>印在物字軌（預印紙）收據下半部；食字軌收據目前沒有信件欄位</small></h2>
 <form method="post" action="./?a=settings#letter">
 <input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="letter_save">
-<label for="f_letter">信件內容（段落之間空一行）</label><textarea id="f_letter" name="letter" rows="10"><?= h($curLetter) ?></textarea>
-<p class="hint">儲存後，之後列印的物字軌收據（含重印）都套用這個版本；食字軌不印信。1、3、5、7、9、11 月換新信時在這裡改。</p>
+<p class="hint">列印照這裡的樣子：按 Enter 換一段，空一行就印一行空白。依收據的來源套用對應的信；食字軌不印信。某一封留空時，用到它的來源改印第 1 封。</p>
+<?php foreach (RCPT_LETTER_KEYS as $n => $k): ?>
+<div class="letterbox" style="margin-top:12px"><label for="f_name<?= $n ?>">第 <?= $n ?> 封名稱</label><input type="text" id="f_name<?= $n ?>" name="name<?= $n ?>" value="<?= h($lnames[$n]) ?>" maxlength="20" style="max-width:240px">
+<label for="f_letter<?= $n ?>"><?= h($lnames[$n]) ?> 內容</label><textarea id="f_letter<?= $n ?>" name="letter<?= $n ?>" rows="<?= $n === 1 ? 10 : 6 ?>"><?= h(rcpt_letter_text($d, $n)) ?></textarea></div>
+<?php endforeach; ?>
+<h3 style="margin-top:16px">各來源用哪一封</h3>
+<div class="tbl"><table class="rows"><tr class="hd"><th>來源</th><th>字軌</th><th>套用的信</th></tr>
+<?php foreach (rcpt_options($d, 'source') as $o): $cur = $lmap[$o['code']] ?? 1; ?>
+<tr><td data-l="來源"><?= h($o['code']) ?></td><td data-l="字軌"><span class="chip"><?= h($o['extra']) ?></span></td>
+<td data-l="套用的信"><select name="map[<?= h($o['code']) ?>]" aria-label="<?= h($o['code']) ?> 套用的信"><?php foreach ($lnames as $n => $nm): ?><option value="<?= $n ?>"<?= $cur === $n ? ' selected' : '' ?>><?= h($nm) ?></option><?php endforeach; ?></select></td></tr>
+<?php endforeach; ?></table></div>
+<p class="hint">儲存後，之後列印的物字軌收據（含重印）都套用這裡的版本。1、3、5、7、9、11 月換新信時在這裡改。</p>
 <div class="actions"><button>儲存信件</button></div></form>
 </section>
 <script>(function(){document.querySelectorAll('.setfilter').forEach(function(f){var t=document.getElementById(f.dataset.for);if(!t)return;f.addEventListener('input',function(){var q=f.value.trim().toLowerCase();t.querySelectorAll('tr').forEach(function(r){if(r.classList.contains('hd'))return;if(r.classList.contains('editing')){r.hidden=false;return;}var txt=r.textContent;r.hidden=q!==''&&txt.toLowerCase().indexOf(q)<0;});});});})();</script>

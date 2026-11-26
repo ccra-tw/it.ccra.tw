@@ -243,10 +243,73 @@ ok($d->query("SELECT v FROM settings WHERE k = 'letter'")->fetchColumn() === "�
 ok(str_contains(req($E, ['a' => 'settings']), '設定裡的新信'), '設定頁顯示目前的信');
 $pp = preq($E, ['id' => $b4, 'part' => 'all']);
 ok(str_contains($pp, '設定裡的新信') && !str_contains($pp, '十一月的信'), '列印套用設定裡的信，不用批次舊存的信');
-ok(str_contains($pp, '<p>親愛的朋友：</p><p>設定裡的新信</p>'), '列印時段落依空行切開');
+ok(str_contains($pp, '<p>親愛的朋友：</p><p class="blank">&nbsp;</p><p>設定裡的新信</p>'), '列印時空行保留為一行空白');
+req($E, ['a' => 'settings'], 'POST', ['csrf' => $csrf($E), 'do' => 'letter_save', 'letter' => "親愛的朋友：
+第一段
+第二段
+
+第三段"]);
+$pl = preq($E, ['id' => $b4, 'part' => 'all']);
+ok(str_contains($pl, '<p>親愛的朋友：</p><p>第一段</p><p>第二段</p><p class="blank">&nbsp;</p><p>第三段</p>'), '列印照輸入的樣子：單換行分段、空行印一行空白（繁英姊 11/26）');
+ok(str_contains(req($E, ['a' => 'settings']), '空一行就印一行空白'), '設定頁說明列印照輸入的樣子');
+req($E, ['a' => 'settings'], 'POST', ['csrf' => $csrf($E), 'do' => 'letter_save', 'letter' => "甲段\r\n乙段\r\n　\r\n丙段"]);
+$pw = preq($E, ['id' => $b4, 'part' => 'all']);
+ok(str_contains($pw, '<p>甲段</p><p>乙段</p><p class="blank">&nbsp;</p><p>丙段</p>'), '明確 CRLF 單換行分段；只有全形空白的行當空行（大沈審 c9b1847）');
+$d->prepare("UPDATE settings SET v = ? WHERE k = 'letter'")->execute(["親愛的朋友：
+
+設定裡的新信"]);
 ok(str_contains((string)$d->query("SELECT action FROM audit WHERE action='letter_save' ORDER BY id DESC LIMIT 1")->fetchColumn(), 'letter_save'), '儲存信件留稽核紀錄');
 req('vw@test', ['a' => 'settings'], 'POST', ['csrf' => $csrf('vw@test'), 'do' => 'letter_save', 'letter' => '唯讀者改的']);
 ok($d->query("SELECT v FROM settings WHERE k = 'letter'")->fetchColumn() === "親愛的朋友：\n\n設定裡的新信", '唯讀者不能改信件');
+echo "依來源三封信（繁英姊 11/26）\n";
+$srcB4 = (string)$d->query("SELECT source FROM batch WHERE id = $b4")->fetchColumn();
+$lsave = function (string $who, array $map) use ($csrf) {
+    return req($who, ['a' => 'settings'], 'POST', ['csrf' => $csrf($who), 'do' => 'letter_save',
+        'letter1' => "甲信第一段\r\n甲信第二段", 'letter2' => '乙信內容', 'letter3' => '',
+        'name1' => 'ibon 信', 'name2' => '家庭雲端信', 'name3' => '', 'map' => $map]);
+};
+$lsave($E, [$srcB4 => '2']);
+$lp = preq($E, ['id' => $b4, 'part' => 'all']);
+ok(str_contains($lp, '乙信內容') && !str_contains($lp, '甲信第一段'), '來源對到第 2 封：列印用第 2 封');
+ok(json_decode((string)$d->query("SELECT v FROM settings WHERE k = 'letter_map'")->fetchColumn(), true) === [$srcB4 => 2], '對應存成 JSON（只存不是第 1 封的來源）');
+ok(str_contains((string)$d->query("SELECT detail FROM audit WHERE action = 'letter_save' ORDER BY id DESC LIMIT 1")->fetchColumn(), "{$srcB4}：信件1 → 信件2"), '稽核記下來源對應的改動');
+$st2 = req($E, ['a' => 'settings']);
+ok(str_contains($st2, 'name="letter2"') && str_contains($st2, 'name="map[' . $srcB4 . ']"') && str_contains($st2, '依收據的來源套用對應的信'), '設定頁有三封信與來源對應選單');
+ok(str_contains($st2, '家庭雲端信') && str_contains($st2, '信件三'), '名稱可改；留空時顯示預設「信件三」');
+$lsave($E, [$srcB4 => '3']);
+$lp3 = preq($E, ['id' => $b4, 'part' => 'all']);
+ok(str_contains($lp3, '甲信第一段') && !str_contains($lp3, '乙信內容'), '對到空白的第 3 封：退回印第 1 封');
+$lsave($E, [$srcB4 => '1']);
+ok(str_contains(preq($E, ['id' => $b4, 'part' => 'all']), '<p>甲信第一段</p><p>甲信第二段</p>'), '沒對應（第 1 封）的來源印第 1 封，照換行分段');
+$lsave('vw@test', [$srcB4 => '2']);
+ok(json_decode((string)$d->query("SELECT v FROM settings WHERE k = 'letter_map'")->fetchColumn(), true) === [], '唯讀者不能改來源對應');
+ok(str_contains(req($E, ['a' => 'settings'], 'POST', ['csrf' => $csrf($E), 'do' => 'letter_save', 'letter1' => 'x', 'map' => [$srcB4 => '9']]), '信件請選'), '對應到不存在的信件編號被擋');
+echo "純數字來源與全形空白信（大沈審 6590e0b）\n";
+$d->prepare("INSERT INTO option_item (kind, code, name, extra, sort, updated_by) VALUES ('source', '123', '', '物', 990, 'test')")->execute();
+$lsave($E, [$srcB4 => '2', '123' => '2']);
+ok((rcpt_letter_map($d)['123'] ?? null) === 2, '純數字來源的對應讀得回來');
+ok(rcpt_letter($d, '123') === '乙信內容' && rcpt_letter($d, $srcB4) === '乙信內容', '純數字來源「123」與一般來源一樣取到第 2 封（設定儲存→回讀→列印）');
+// 大沈審 e87944f：列印端也要走到這筆對照——把已配號的 $b4 暫時改成來源 123，實際呼叫列印頁
+$d->prepare("UPDATE batch SET source = '123' WHERE id = ?")->execute([$b4]);
+$lp123 = preq($E, ['id' => $b4, 'part' => 'all']);
+ok(str_contains($lp123, '<p>乙信內容</p>') && !str_contains($lp123, '甲信第一段'), '來源 123 的已配號批次：列印頁實際印出第 2 封');
+$d->prepare("UPDATE batch SET source = ? WHERE id = ?")->execute([$srcB4, $b4]);
+$d->prepare("UPDATE settings SET v = ? WHERE k = 'letter_map'")->execute(['{"0":2}']);
+ok(rcpt_letter($d, '0') === '乙信內容', '來源「0」的對應也讀得回來');
+$lsave($E, ['123' => '1']);
+ok(str_starts_with((string)$d->query("SELECT v FROM settings WHERE k = 'letter_map'")->fetchColumn(), '{'), '對應一律存成 JSON 物件');
+req($E, ['a' => 'settings'], 'POST', ['csrf' => $csrf($E), 'do' => 'letter_save',
+    'letter1' => "甲信第一段\r\n甲信第二段", 'letter2' => "　", 'letter3' => "\r\n　\r\n", 'map' => [$srcB4 => '2', '123' => '3']]);
+ok(str_contains(rcpt_letter($d, $srcB4), '甲信第一段'), '第 2 封只有全形空白：整封退回第 1 封');
+ok(str_contains(rcpt_letter($d, '123'), '甲信第一段'), '第 3 封只有換行與全形空白：整封退回第 1 封');
+$lpw = preq($E, ['id' => $b4, 'part' => 'all']);
+ok(str_contains($lpw, '<p>甲信第一段</p><p>甲信第二段</p>') && !str_contains($lpw, '<p class="blank">&nbsp;</p><p>甲信第一段</p>'), '列印印第 1 封，不印出只有空白的一段');
+req($E, ['a' => 'settings'], 'POST', ['csrf' => $csrf($E), 'do' => 'letter_save',
+    'letter1' => "甲信第一段", 'letter2' => "乙一\r\n\r\n乙二", 'letter3' => '', 'map' => [$srcB4 => '2', '123' => '1']]);
+ok(str_contains(preq($E, ['id' => $b4, 'part' => 'all']), '<p>乙一</p><p class="blank">&nbsp;</p><p>乙二</p>'), '有正文的第 2 封保留內部空行');
+$d->exec("DELETE FROM option_item WHERE kind = 'source' AND code = '123'");
+$d->exec("DELETE FROM settings WHERE k IN ('letter2','letter3','letter_map','letter_name1','letter_name2','letter_name3')");
+
 $d->exec("DELETE FROM settings WHERE k = 'letter'");
 echo "設定頁好找（繁英姊 11/25）
 ";

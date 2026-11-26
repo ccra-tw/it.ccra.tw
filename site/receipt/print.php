@@ -7,7 +7,6 @@ require '/var/www/it-lib/access.php';
 require '/var/www/it-lib/receipt.php';
 $email = strtolower(access_identity()['email']);
 $d = rcpt_db();
-$letter = trim(rcpt_letter($d));   // 信件統一由「設定」維護，列印一律套用（繁英姊 11/25）
 $role = rcpt_role($d, $email);
 if (!$role) { http_response_code(403); exit('物資捐贈收據系統只開放給開收據的同仁、客服與助理會計。'); }
 function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
@@ -15,6 +14,7 @@ $id = (int)($_GET['id'] ?? 0);
 $s = $d->prepare('SELECT * FROM batch WHERE id = ?'); $s->execute([$id]);
 $b = $s->fetch(PDO::FETCH_ASSOC);
 if (!$b || $b['status'] !== 'numbered') { http_response_code(404); exit('找不到已配號的批次。'); }
+$letter = trim(rcpt_letter($d, (string)$b['source'])); if (rcpt_is_blank($letter)) $letter = '';   // 信件在「設定」維護、依來源套用對應的信（繁英姊 11/25、11/26）
 // 食字軌：品名或單位缺的收據不印（配號時已擋；這裡再擋一次，避免配號前就存在的舊批次或日後資料被改）
 if ($b['track'] === '食' && ($miss = rcpt_food_missing($d, $id))) { http_response_code(409);    // 已配號的批次不能重匯，所以只講可行的處置（大沈 b8e2623 複驗建議）
     $parts = array_map(fn($m) => "第 {$m[0]} 列{$m[1]}", array_slice($miss, 0, 5));
@@ -116,7 +116,7 @@ body{margin:0;font-family:"Microsoft JhengHei","微軟正黑體","Noto Sans TC",
 .f{position:absolute;font-weight:700;font-size:12pt;white-space:nowrap}
 .contents{font-size:10pt;line-height:18pt;width:186mm;white-space:normal}
 .letter{font-family:"標楷體","DFKai-SB","BiauKai",serif;font-weight:400;font-size:10pt;line-height:5.1mm;width:171mm;white-space:pre-wrap;text-align:justify}
-.letter p{margin:0;text-indent:2em}.letter p:first-child{text-indent:0}   /* 繁英姊 11/20：每段開頭空兩字、段落間不空行（稱謂那行不縮排） */
+.letter p{margin:0;text-indent:2em}.letter p:first-child{text-indent:0}.letter p.blank{text-indent:0}   /* 繁英姊 11/20：每段開頭空兩字、段落間不空行（稱謂那行不縮排） */
 .warn{color:#9b1c1c;font-weight:700}
 .food{padding:14mm 16mm;font-size:11pt;line-height:1.6;font-family:"Microsoft JhengHei","微軟正黑體","Noto Sans TC",sans-serif}
 .food .hd{position:relative;border-bottom:1px solid #000;padding-bottom:3mm;padding-left:22mm;min-height:19mm}
@@ -226,7 +226,7 @@ addEventListener('pageshow', function () { var d = document.getElementById('rcBu
 <div class="f" style="<?= $pos('qty') ?>"><?= (int)$r['qty'] ?></div>
 <div class="f" style="<?= $pos('addr') ?>"><?= h($r['zip'] . $r['city'] . '　' . $r['address']) ?></div>
 <div class="f" style="<?= $pos('to') ?>"><?= h($r['name']) ?>　收</div>
-<?php if ($letter !== ''): ?><div class="f letter" style="<?= $pos('letter') ?>"><?php foreach (preg_split('/\R{2,}/u', $letter) as $para) echo '<p>' . h($para) . '</p>'; ?></div><?php endif; ?>
+<?php if ($letter !== ''): ?><div class="f letter" style="<?= $pos('letter') ?>"><?php foreach (preg_split('/\R/u', $letter) as $para) echo rcpt_is_blank($para) ? '<p class="blank">&nbsp;</p>' : '<p>' . h($para) . '</p>';   // 繁英姊 11/26：照輸入的樣子——按一次 Enter 換一段、空一行就印一行空白 ?></div><?php endif; ?>
 </div>
 <?php endif; endforeach; ?>
 </div>
