@@ -128,10 +128,42 @@ function rcpt_role(PDO $d, string $email): ?string {
 
 // 給捐贈者的信：在「設定」統一維護一份，列印收據一律套用這個版本（繁英姊 11/25：「請移到設定，因為收據列印都套用這個版本」）。
 // 還沒在設定存過時，沿用最近一批有填的信（改版前各批次各存一份）。
-function rcpt_letter(PDO $d): string {
-    $v = $d->query("SELECT v FROM settings WHERE k = 'letter'")->fetchColumn();
-    if ($v !== false) return (string)$v;
+// 繁英姊 11/26：信依「來源」不同（物資金額不同）。最多三封：信件一＝原本的 'letter'（舊資料照用），信件二 'letter2'、信件三 'letter3'；
+// 名稱 'letter_name1..3'；來源對到第幾封存在 'letter_map'（JSON：{"來源名稱": 2}），沒對到的來源用信件一。
+const RCPT_LETTER_KEYS = [1 => 'letter', 2 => 'letter2', 3 => 'letter3'];
+
+function rcpt_setting(PDO $d, string $k): ?string {
+    $s = $d->prepare('SELECT v FROM settings WHERE k = ?'); $s->execute([$k]);
+    $v = $s->fetchColumn();
+    return $v === false ? null : (string)$v;
+}
+
+/** 來源 → 信件編號（1～3）；設定壞掉或沒設定一律回空陣列（等於全用信件一） */
+function rcpt_letter_map(PDO $d): array {
+    $m = json_decode((string)rcpt_setting($d, 'letter_map'), true);
+    $out = [];
+    if (is_array($m)) foreach ($m as $src => $n) if (is_string($src) && in_array((int)$n, [1, 2, 3], true)) $out[$src] = (int)$n;
+    return $out;
+}
+
+function rcpt_letter_name(PDO $d, int $n): string {
+    $v = trim((string)rcpt_setting($d, 'letter_name' . $n));
+    return $v !== '' ? $v : '信件' . ['', '一', '二', '三'][$n];
+}
+
+/** 第 $n 封信的原文（不做來源對應、不回退），設定頁編輯用 */
+function rcpt_letter_text(PDO $d, int $n): string {
+    $v = rcpt_setting($d, RCPT_LETTER_KEYS[$n]);
+    if ($v !== null || $n !== 1) return (string)$v;
+    // 還沒在設定存過信件一時，沿用最近一批有填的信（改版前各批次各存一份）
     return (string)$d->query("SELECT letter FROM batch WHERE letter <> '' ORDER BY in_date DESC, id DESC LIMIT 1")->fetchColumn();
+}
+
+/** 列印用：依來源取對應的信；那封是空的就回退到信件一 */
+function rcpt_letter(PDO $d, string $source = ''): string {
+    $n = rcpt_letter_map($d)[$source] ?? 1;
+    $v = $n !== 1 ? trim(rcpt_letter_text($d, $n)) : '';
+    return $v !== '' ? $v : rcpt_letter_text($d, 1);
 }
 
 function rcpt_audit(PDO $d, string $who, string $action, ?int $batch = null, string $detail = ''): void {

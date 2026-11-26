@@ -7,7 +7,6 @@ require '/var/www/it-lib/access.php';
 require '/var/www/it-lib/receipt.php';
 $email = strtolower(access_identity()['email']);
 $d = rcpt_db();
-$letter = trim(rcpt_letter($d));   // 信件統一由「設定」維護，列印一律套用（繁英姊 11/25）
 $role = rcpt_role($d, $email);
 if (!$role) { http_response_code(403); exit('物資捐贈收據系統只開放給開收據的同仁、客服與助理會計。'); }
 function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
@@ -15,6 +14,7 @@ $id = (int)($_GET['id'] ?? 0);
 $s = $d->prepare('SELECT * FROM batch WHERE id = ?'); $s->execute([$id]);
 $b = $s->fetch(PDO::FETCH_ASSOC);
 if (!$b || $b['status'] !== 'numbered') { http_response_code(404); exit('找不到已配號的批次。'); }
+$letter = trim(rcpt_letter($d, (string)$b['source']));   // 信件在「設定」維護、依來源套用對應的信（繁英姊 11/25、11/26）
 // 食字軌：品名或單位缺的收據不印（配號時已擋；這裡再擋一次，避免配號前就存在的舊批次或日後資料被改）
 if ($b['track'] === '食' && ($miss = rcpt_food_missing($d, $id))) { http_response_code(409);    // 已配號的批次不能重匯，所以只講可行的處置（大沈 b8e2623 複驗建議）
     $parts = array_map(fn($m) => "第 {$m[0]} 列{$m[1]}", array_slice($miss, 0, 5));

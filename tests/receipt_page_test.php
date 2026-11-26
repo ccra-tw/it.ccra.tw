@@ -258,6 +258,31 @@ $d->prepare("UPDATE settings SET v = ? WHERE k = 'letter'")->execute(["親愛的
 ok(str_contains((string)$d->query("SELECT action FROM audit WHERE action='letter_save' ORDER BY id DESC LIMIT 1")->fetchColumn(), 'letter_save'), '儲存信件留稽核紀錄');
 req('vw@test', ['a' => 'settings'], 'POST', ['csrf' => $csrf('vw@test'), 'do' => 'letter_save', 'letter' => '唯讀者改的']);
 ok($d->query("SELECT v FROM settings WHERE k = 'letter'")->fetchColumn() === "親愛的朋友：\n\n設定裡的新信", '唯讀者不能改信件');
+echo "依來源三封信（繁英姊 11/26）\n";
+$srcB4 = (string)$d->query("SELECT source FROM batch WHERE id = $b4")->fetchColumn();
+$lsave = function (string $who, array $map) use ($csrf) {
+    return req($who, ['a' => 'settings'], 'POST', ['csrf' => $csrf($who), 'do' => 'letter_save',
+        'letter1' => "甲信第一段\r\n甲信第二段", 'letter2' => '乙信內容', 'letter3' => '',
+        'name1' => 'ibon 信', 'name2' => '家庭雲端信', 'name3' => '', 'map' => $map]);
+};
+$lsave($E, [$srcB4 => '2']);
+$lp = preq($E, ['id' => $b4, 'part' => 'all']);
+ok(str_contains($lp, '乙信內容') && !str_contains($lp, '甲信第一段'), '來源對到第 2 封：列印用第 2 封');
+ok(json_decode((string)$d->query("SELECT v FROM settings WHERE k = 'letter_map'")->fetchColumn(), true) === [$srcB4 => 2], '對應存成 JSON（只存不是第 1 封的來源）');
+ok(str_contains((string)$d->query("SELECT detail FROM audit WHERE action = 'letter_save' ORDER BY id DESC LIMIT 1")->fetchColumn(), "{$srcB4}：信件1 → 信件2"), '稽核記下來源對應的改動');
+$st2 = req($E, ['a' => 'settings']);
+ok(str_contains($st2, 'name="letter2"') && str_contains($st2, 'name="map[' . $srcB4 . ']"') && str_contains($st2, '依收據的來源套用對應的信'), '設定頁有三封信與來源對應選單');
+ok(str_contains($st2, '家庭雲端信') && str_contains($st2, '信件三'), '名稱可改；留空時顯示預設「信件三」');
+$lsave($E, [$srcB4 => '3']);
+$lp3 = preq($E, ['id' => $b4, 'part' => 'all']);
+ok(str_contains($lp3, '甲信第一段') && !str_contains($lp3, '乙信內容'), '對到空白的第 3 封：退回印第 1 封');
+$lsave($E, [$srcB4 => '1']);
+ok(str_contains(preq($E, ['id' => $b4, 'part' => 'all']), '<p>甲信第一段</p><p>甲信第二段</p>'), '沒對應（第 1 封）的來源印第 1 封，照換行分段');
+$lsave('vw@test', [$srcB4 => '2']);
+ok(json_decode((string)$d->query("SELECT v FROM settings WHERE k = 'letter_map'")->fetchColumn(), true) === [], '唯讀者不能改來源對應');
+ok(str_contains(req($E, ['a' => 'settings'], 'POST', ['csrf' => $csrf($E), 'do' => 'letter_save', 'letter1' => 'x', 'map' => [$srcB4 => '9']]), '信件請選'), '對應到不存在的信件編號被擋');
+$d->exec("DELETE FROM settings WHERE k IN ('letter2','letter3','letter_map','letter_name1','letter_name2','letter_name3')");
+
 $d->exec("DELETE FROM settings WHERE k = 'letter'");
 echo "設定頁好找（繁英姊 11/25）
 ";
