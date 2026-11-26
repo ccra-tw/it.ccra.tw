@@ -284,6 +284,25 @@ ok(str_contains(preq($E, ['id' => $b4, 'part' => 'all']), '<p>甲信第一段</p
 $lsave('vw@test', [$srcB4 => '2']);
 ok(json_decode((string)$d->query("SELECT v FROM settings WHERE k = 'letter_map'")->fetchColumn(), true) === [], '唯讀者不能改來源對應');
 ok(str_contains(req($E, ['a' => 'settings'], 'POST', ['csrf' => $csrf($E), 'do' => 'letter_save', 'letter1' => 'x', 'map' => [$srcB4 => '9']]), '信件請選'), '對應到不存在的信件編號被擋');
+echo "純數字來源與全形空白信（大沈審 6590e0b）\n";
+$d->prepare("INSERT INTO option_item (kind, code, name, extra, sort, updated_by) VALUES ('source', '123', '', '物', 990, 'test')")->execute();
+$lsave($E, [$srcB4 => '2', '123' => '2']);
+ok((rcpt_letter_map($d)['123'] ?? null) === 2, '純數字來源的對應讀得回來');
+ok(rcpt_letter($d, '123') === '乙信內容' && rcpt_letter($d, $srcB4) === '乙信內容', '純數字來源「123」與一般來源一樣取到第 2 封（設定儲存→回讀→列印）');
+$d->prepare("UPDATE settings SET v = ? WHERE k = 'letter_map'")->execute(['{"0":2}']);
+ok(rcpt_letter($d, '0') === '乙信內容', '來源「0」的對應也讀得回來');
+$lsave($E, ['123' => '1']);
+ok(str_starts_with((string)$d->query("SELECT v FROM settings WHERE k = 'letter_map'")->fetchColumn(), '{'), '對應一律存成 JSON 物件');
+req($E, ['a' => 'settings'], 'POST', ['csrf' => $csrf($E), 'do' => 'letter_save',
+    'letter1' => "甲信第一段\r\n甲信第二段", 'letter2' => "　", 'letter3' => "\r\n　\r\n", 'map' => [$srcB4 => '2', '123' => '3']]);
+ok(str_contains(rcpt_letter($d, $srcB4), '甲信第一段'), '第 2 封只有全形空白：整封退回第 1 封');
+ok(str_contains(rcpt_letter($d, '123'), '甲信第一段'), '第 3 封只有換行與全形空白：整封退回第 1 封');
+$lpw = preq($E, ['id' => $b4, 'part' => 'all']);
+ok(str_contains($lpw, '<p>甲信第一段</p><p>甲信第二段</p>') && !str_contains($lpw, '<p class="blank">&nbsp;</p><p>甲信第一段</p>'), '列印印第 1 封，不印出只有空白的一段');
+req($E, ['a' => 'settings'], 'POST', ['csrf' => $csrf($E), 'do' => 'letter_save',
+    'letter1' => "甲信第一段", 'letter2' => "乙一\r\n\r\n乙二", 'letter3' => '', 'map' => [$srcB4 => '2', '123' => '1']]);
+ok(str_contains(preq($E, ['id' => $b4, 'part' => 'all']), '<p>乙一</p><p class="blank">&nbsp;</p><p>乙二</p>'), '有正文的第 2 封保留內部空行');
+$d->exec("DELETE FROM option_item WHERE kind = 'source' AND code = '123'");
 $d->exec("DELETE FROM settings WHERE k IN ('letter2','letter3','letter_map','letter_name1','letter_name2','letter_name3')");
 
 $d->exec("DELETE FROM settings WHERE k = 'letter'");

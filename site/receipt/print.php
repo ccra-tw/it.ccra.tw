@@ -14,7 +14,7 @@ $id = (int)($_GET['id'] ?? 0);
 $s = $d->prepare('SELECT * FROM batch WHERE id = ?'); $s->execute([$id]);
 $b = $s->fetch(PDO::FETCH_ASSOC);
 if (!$b || $b['status'] !== 'numbered') { http_response_code(404); exit('找不到已配號的批次。'); }
-$letter = trim(rcpt_letter($d, (string)$b['source']));   // 信件在「設定」維護、依來源套用對應的信（繁英姊 11/25、11/26）
+$letter = trim(rcpt_letter($d, (string)$b['source'])); if (rcpt_is_blank($letter)) $letter = '';   // 信件在「設定」維護、依來源套用對應的信（繁英姊 11/25、11/26）
 // 食字軌：品名或單位缺的收據不印（配號時已擋；這裡再擋一次，避免配號前就存在的舊批次或日後資料被改）
 if ($b['track'] === '食' && ($miss = rcpt_food_missing($d, $id))) { http_response_code(409);    // 已配號的批次不能重匯，所以只講可行的處置（大沈 b8e2623 複驗建議）
     $parts = array_map(fn($m) => "第 {$m[0]} 列{$m[1]}", array_slice($miss, 0, 5));
@@ -226,7 +226,7 @@ addEventListener('pageshow', function () { var d = document.getElementById('rcBu
 <div class="f" style="<?= $pos('qty') ?>"><?= (int)$r['qty'] ?></div>
 <div class="f" style="<?= $pos('addr') ?>"><?= h($r['zip'] . $r['city'] . '　' . $r['address']) ?></div>
 <div class="f" style="<?= $pos('to') ?>"><?= h($r['name']) ?>　收</div>
-<?php if ($letter !== ''): ?><div class="f letter" style="<?= $pos('letter') ?>"><?php foreach (preg_split('/\R/u', $letter) as $para) echo preg_match('/^[\s\x{3000}]*$/u', $para) ? '<p class="blank">&nbsp;</p>' : '<p>' . h($para) . '</p>';   // 繁英姊 11/26：照輸入的樣子——按一次 Enter 換一段、空一行就印一行空白 ?></div><?php endif; ?>
+<?php if ($letter !== ''): ?><div class="f letter" style="<?= $pos('letter') ?>"><?php foreach (preg_split('/\R/u', $letter) as $para) echo rcpt_is_blank($para) ? '<p class="blank">&nbsp;</p>' : '<p>' . h($para) . '</p>';   // 繁英姊 11/26：照輸入的樣子——按一次 Enter 換一段、空一行就印一行空白 ?></div><?php endif; ?>
 </div>
 <?php endif; endforeach; ?>
 </div>

@@ -440,7 +440,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if ($n !== 1) $map[$o['code']] = $n;
                         if (($oldMap[$o['code']] ?? 1) !== $n) $chg[] = "{$o['code']}：信件" . ($oldMap[$o['code']] ?? 1) . " → 信件{$n}";
                     }
-                    $put->execute(['letter_map', json_encode($map, JSON_UNESCAPED_UNICODE)]);
+                    $put->execute(['letter_map', json_encode($map, JSON_UNESCAPED_UNICODE | JSON_FORCE_OBJECT)]);   // 來源「0」時不可變成 JSON 陣列
                 }
                 rcpt_audit($d, $email, 'letter_save', null, $chg ? implode('；', $chg) : '未變更');
                 $d->commit();

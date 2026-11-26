@@ -142,8 +142,14 @@ function rcpt_setting(PDO $d, string $k): ?string {
 function rcpt_letter_map(PDO $d): array {
     $m = json_decode((string)rcpt_setting($d, 'letter_map'), true);
     $out = [];
-    if (is_array($m)) foreach ($m as $src => $n) if (is_string($src) && in_array((int)$n, [1, 2, 3], true)) $out[$src] = (int)$n;
+    // 大沈 11/26：純數字的來源（例「123」）json_decode 後鍵會變整數，不可用 is_string 濾掉；一律轉字串比對
+    if (is_array($m)) foreach ($m as $src => $n) if (in_array((int)$n, [1, 2, 3], true)) $out[(string)$src] = (int)$n;
     return $out;
+}
+
+/** 空白判斷（含全形空白 U+3000）：整封信回退與列印逐行分段共用同一條規則（大沈 11/26） */
+function rcpt_is_blank(string $s): bool {
+    return (bool)preg_match('/^[\s\x{3000}]*$/u', $s);
 }
 
 function rcpt_letter_name(PDO $d, int $n): string {
@@ -162,8 +168,8 @@ function rcpt_letter_text(PDO $d, int $n): string {
 /** 列印用：依來源取對應的信；那封是空的就回退到信件一 */
 function rcpt_letter(PDO $d, string $source = ''): string {
     $n = rcpt_letter_map($d)[$source] ?? 1;
-    $v = $n !== 1 ? trim(rcpt_letter_text($d, $n)) : '';
-    return $v !== '' ? $v : rcpt_letter_text($d, 1);
+    $v = $n !== 1 ? rcpt_letter_text($d, $n) : '';
+    return rcpt_is_blank($v) ? rcpt_letter_text($d, 1) : $v;
 }
 
 function rcpt_audit(PDO $d, string $who, string $action, ?int $batch = null, string $detail = ''): void {
