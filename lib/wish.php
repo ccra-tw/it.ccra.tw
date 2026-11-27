@@ -36,45 +36,64 @@ function wish_log(PDO $d, string $email, ?int $id, string $action, string $detai
     $d->prepare('INSERT INTO log (email, wish_id, action, detail) VALUES (?,?,?,?)')->execute([$email, $id, $action, $detail]);
 }
 
-/** 新增一個願望；錯誤丟 RuntimeException（訊息給使用者看）。回傳新 id。 */
+/** 使用者輸入的問題（訊息可直接給使用者看）；資料庫等其他例外不可直接顯示。 */
+class WishInput extends RuntimeException {}
+
+/** 同一次操作的資料與紀錄放同一個交易；任何一步失敗全部回滾（大沈 11/27 審查）。 */
+function wish_tx(PDO $d, callable $fn) {
+    $d->beginTransaction();
+    try { $r = $fn(); $d->commit(); return $r; }
+    catch (Throwable $e) { if ($d->inTransaction()) $d->rollBack(); throw $e; }
+}
+
+/** 新增一個願望；輸入問題丟 WishInput。回傳新 id。 */
 function wish_add(PDO $d, string $email, string $name, string $dept, string $title, string $body): int {
     $email = strtolower(trim($email)); $title = trim(preg_replace('/\s+/u', ' ', $title)); $body = trim(str_replace("\r\n", "\n", $body));
-    if ($title === '') throw new RuntimeException('請寫下想要什麼（標題）');
-    if (mb_strlen($title) > WISH_TITLE_MAX) throw new RuntimeException('標題請在 ' . WISH_TITLE_MAX . ' 字以內，細節寫在下面的說明');
-    if (mb_strlen($body) > WISH_BODY_MAX) throw new RuntimeException('說明請在 ' . WISH_BODY_MAX . ' 字以內');
-    $c = $d->prepare("SELECT count(*) FROM wish WHERE email = ? AND created_at > now() - interval '1 day'"); $c->execute([$email]);
-    if ((int)$c->fetchColumn() >= WISH_DAILY_MAX) throw new RuntimeException('今天已經許了很多願了，明天再來吧！');
-    $s = $d->prepare('INSERT INTO wish (email, name, dept, title, body) VALUES (?,?,?,?,?) RETURNING id');
-    $s->execute([$email, $name, $dept, $title, $body]); $id = (int)$s->fetchColumn();
-    $d->prepare('INSERT INTO vote (wish_id, email) VALUES (?, ?) ON CONFLICT DO NOTHING')->execute([$id, $email]);   // 許願的人自己算一票
-    wish_log($d, $email, $id, 'add', $title);
-    return $id;
+    if ($title === '') throw new WishInput('請寫下想要什麼（標題）');
+    if (mb_strlen($title) > WISH_TITLE_MAX) throw new WishInput('標題請在 ' . WISH_TITLE_MAX . ' 字以內，細節寫在下面的說明');
+    if (mb_strlen($body) > WISH_BODY_MAX) throw new WishInput('說明請在 ' . WISH_BODY_MAX . ' 字以內');
+    return wish_tx($d, function () use ($d, $email, $name, $dept, $title, $body) {
+        // 同一帳號序列化：並行送件時「先數再寫」不會兩筆同時通過每日上限
+        $d->prepare('SELECT pg_advisory_xact_lock(hashtext(?))')->execute(['wish:' . $email]);
+        $c = $d->prepare("SELECT count(*) FROM wish WHERE email = ? AND created_at > now() - interval '1 day'"); $c->execute([$email]);
+        if ((int)$c->fetchColumn() >= WISH_DAILY_MAX) throw new WishInput('今天已經許了很多願了，明天再來吧！');
+        $s = $d->prepare('INSERT INTO wish (email, name, dept, title, body) VALUES (?,?,?,?,?) RETURNING id');
+        $s->execute([$email, $name, $dept, $title, $body]); $id = (int)$s->fetchColumn();
+        $d->prepare('INSERT INTO vote (wish_id, email) VALUES (?, ?) ON CONFLICT DO NOTHING')->execute([$id, $email]);   // 許願的人自己算一票
+        wish_log($d, $email, $id, 'add', $title);
+        return $id;
+    });
 }
 
 /** 切換「我也要」；回傳切換後是否有投。 */
 function wish_toggle_vote(PDO $d, int $id, string $email): bool {
     $email = strtolower($email);
-    $w = $d->prepare('SELECT id FROM wish WHERE id = ?'); $w->execute([$id]);
-    if (!$w->fetchColumn()) throw new RuntimeException('找不到這個願望');
-    $del = $d->prepare('DELETE FROM vote WHERE wish_id = ? AND email = ?'); $del->execute([$id, $email]);
-    if ($del->rowCount()) { wish_log($d, $email, $id, 'unvote'); return false; }
-    $d->prepare('INSERT INTO vote (wish_id, email) VALUES (?, ?) ON CONFLICT DO NOTHING')->execute([$id, $email]);
-    wish_log($d, $email, $id, 'vote');
-    return true;
+    return wish_tx($d, function () use ($d, $id, $email) {
+        $w = $d->prepare('SELECT id FROM wish WHERE id = ? FOR UPDATE'); $w->execute([$id]);
+        if (!$w->fetchColumn()) throw new WishInput('找不到這個願望');
+        $del = $d->prepare('DELETE FROM vote WHERE wish_id = ? AND email = ?'); $del->execute([$id, $email]);
+        if ($del->rowCount()) { wish_log($d, $email, $id, 'unvote'); return false; }
+        $d->prepare('INSERT INTO vote (wish_id, email) VALUES (?, ?) ON CONFLICT DO NOTHING')->execute([$id, $email]);
+        wish_log($d, $email, $id, 'vote');
+        return true;
+    });
 }
 
 /** 資訊部回覆狀態（呼叫端要先確認是資訊部）。 */
 function wish_reply(PDO $d, int $id, string $by, string $status, string $reply, string $planner): void {
-    if (!isset(WISH_STATUS[$status])) throw new RuntimeException('狀態不對');
+    if (!isset(WISH_STATUS[$status])) throw new WishInput('狀態不對');
     $reply = trim(str_replace("\r\n", "\n", $reply)); $planner = trim($planner);
-    if (mb_strlen($reply) > WISH_REPLY_MAX) throw new RuntimeException('回覆請在 ' . WISH_REPLY_MAX . ' 字以內');
-    if ($status === 'declined' && $reply === '') throw new RuntimeException('暫不處理要寫原因，讓同工知道為什麼');
-    if ($planner !== '' && !preg_match('/^[A-Za-z0-9_-]{6,40}$/', $planner)) throw new RuntimeException('Planner 票號格式不對（例：asQEZH9c）');
-    $old = $d->prepare('SELECT status FROM wish WHERE id = ?'); $old->execute([$id]); $o = $old->fetchColumn();
-    if ($o === false) throw new RuntimeException('找不到這個願望');
-    $d->prepare('UPDATE wish SET status = ?, reply = ?, planner = ?, replied_by = ?, replied_at = now() WHERE id = ?')
-      ->execute([$status, $reply, $planner, strtolower($by), $id]);
-    wish_log($d, $by, $id, 'reply', "$o → $status" . ($planner !== '' ? "｜Planner $planner" : ''));
+    if (mb_strlen($reply) > WISH_REPLY_MAX) throw new WishInput('回覆請在 ' . WISH_REPLY_MAX . ' 字以內');
+    if ($status === 'declined' && $reply === '') throw new WishInput('暫不處理要寫原因，讓同工知道為什麼');
+    if ($planner !== '' && !preg_match('/^[A-Za-z0-9_-]{6,40}$/', $planner)) throw new WishInput('Planner 票號格式不對（例：asQEZH9c）');
+    wish_tx($d, function () use ($d, $id, $by, $status, $reply, $planner) {
+        // 先鎖住這一列再讀改前狀態，兩人同時回覆時紀錄的「改前」才不會失真
+        $old = $d->prepare('SELECT status FROM wish WHERE id = ? FOR UPDATE'); $old->execute([$id]); $o = $old->fetchColumn();
+        if ($o === false) throw new WishInput('找不到這個願望');
+        $d->prepare('UPDATE wish SET status = ?, reply = ?, planner = ?, replied_by = ?, replied_at = now() WHERE id = ?')
+          ->execute([$status, $reply, $planner, strtolower($by), $id]);
+        wish_log($d, $by, $id, 'reply', "$o → $status" . ($planner !== '' ? "｜Planner $planner" : ''));
+    });
 }
 
 /** 清單：依「我也要」數與時間排序；$status 空字串＝全部。每筆附 votes、mine（目前使用者有沒有投）。 */

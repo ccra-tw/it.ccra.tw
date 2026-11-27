@@ -7,6 +7,10 @@ $id = access_identity();
 $email = strtolower($id['email']);
 $who = (json_decode((string)@file_get_contents(STATE_DIR . '/dept_map.json'), true) ?: [])[$email] ?? ['name' => '', 'dept' => ''];
 $staff = is_it_staff($email);
+// 審查預覽（伺服器設 ITCCRA_DB_SUFFIX=_web、用測試資料）可加 ?role=staff 或 ?role=user 切換角色給檢查人測；正式站不理會這個參數。
+$role = itdb_web_test() ? (string)($_GET['role'] ?? '') : '';
+if ($role === 'staff') $staff = true; elseif ($role === 'user') $staff = false; else $role = '';
+function wish_url(array $q = []): string { global $role; if ($role !== '') $q['role'] = $role; return './' . ($q ? '?' . http_build_query($q) : ''); }
 $secret = trim((string)@file_get_contents(STATE_DIR . '/form_secret'));
 $csrf = hash_hmac('sha256', 'wish' . $email . date('Y-m-d'), $secret);
 function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
@@ -20,17 +24,21 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         if ($do === 'add') {
             $form = ['title' => (string)($_POST['title'] ?? ''), 'body' => (string)($_POST['body'] ?? '')];
             $new = wish_add($d, $email, $who['name'], $who['dept'], $form['title'], $form['body']);
-            header('Location: ./?ok=add#w' . $new, true, 303); exit;
+            header('Location: ' . wish_url(['ok' => 'add']) . '#w' . $new, true, 303); exit;
         } elseif ($do === 'vote') {
             $wid = (int)($_POST['id'] ?? 0); wish_toggle_vote($d, $wid, $email);
-            header('Location: ./' . (isset($_GET['s']) ? '?s=' . urlencode((string)$_GET['s']) : '') . '#w' . $wid, true, 303); exit;
+            header('Location: ' . wish_url(isset($_GET['s']) ? ['s' => (string)$_GET['s']] : []) . '#w' . $wid, true, 303); exit;
         } elseif ($do === 'reply') {
-            if (!$staff) throw new RuntimeException('只有資訊部可以回覆狀態');
+            if (!$staff) throw new WishInput('只有資訊部可以回覆狀態');
             $wid = (int)($_POST['id'] ?? 0);
             wish_reply($d, $wid, $email, (string)($_POST['status'] ?? ''), (string)($_POST['reply'] ?? ''), (string)($_POST['planner'] ?? ''));
-            header('Location: ./?ok=reply#w' . $wid, true, 303); exit;
+            header('Location: ' . wish_url(['ok' => 'reply']) . '#w' . $wid, true, 303); exit;
         }
-    } catch (RuntimeException $e) { $err = $e->getMessage(); }
+    } catch (WishInput $e) { $err = $e->getMessage(); }
+    catch (Throwable $e) {   // 資料庫等故障：細節只進伺服器紀錄，頁面給可重試的通用訊息（交易已回滾，重送不會多一筆）
+        error_log('wish: ' . get_class($e) . ': ' . $e->getMessage());
+        $err = '系統暫時出了點問題，剛才的動作沒有存進去，請稍後再試一次；一直不行請告訴資訊部。';
+    }
 }
 $filter = isset($_GET['s'], WISH_STATUS[$_GET['s']]) ? (string)$_GET['s'] : '';
 $list = wish_list($d, $email, $filter);
@@ -83,9 +91,10 @@ details.adm select,details.adm input,details.adm textarea{width:100%;margin-top:
     <div class="pic">🌠</div>
     <div><h1>希望資訊部幫你做什麼？</h1><p>想要的工具、覺得麻煩的流程、希望電腦或系統可以更好用的地方，都可以寫下來。別人也想要就按「我也要」，資訊部會回覆處理狀態。</p></div>
   </div>
+<?php if (itdb_web_test()): ?><p class="hint" style="border:2px dashed #c0392b;padding:8px 12px">審查預覽・測試資料（不是正式站）｜目前角色：<?= $staff ? '資訊部' : '一般同工' ?>｜切換：<a href="?role=staff">資訊部</a>・<a href="?role=user">一般同工</a></p><?php endif; ?>
 <?php if ($err): ?><p class="err"><?= h($err) ?></p><?php endif; ?>
 <?php if (($_GET['ok'] ?? '') === 'add'): ?><p class="hint">收到你的願望了！資訊部看過會在下面回覆。</p><?php endif; ?>
-  <form method="post" action="./">
+  <form method="post" action="<?= h(wish_url()) ?>">
     <input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="add">
     <div class="box">
       <p class="step"><b>✨</b>許一個願</p>
@@ -99,13 +108,15 @@ details.adm select,details.adm input,details.adm textarea{width:100%;margin-top:
   </form>
 
   <nav class="tabs" aria-label="依狀態篩選">
-    <a href="./"<?= $filter === '' ? ' class="on"' : '' ?>>全部 <?= array_sum($counts) ?></a>
+    <a href="<?= h(wish_url()) ?>"<?= $filter === '' ? ' class="on"' : '' ?>>全部 <?= array_sum($counts) ?></a>
 <?php foreach (WISH_STATUS as $k => [$label, $icon]): ?>
-    <a href="./?s=<?= h($k) ?>"<?= $filter === $k ? ' class="on"' : '' ?>><?= $icon ?> <?= h($label) ?> <?= (int)($counts[$k] ?? 0) ?></a>
+    <a href="<?= h(wish_url(['s' => $k])) ?>"<?= $filter === $k ? ' class="on"' : '' ?>><?= $icon ?> <?= h($label) ?> <?= (int)($counts[$k] ?? 0) ?></a>
 <?php endforeach; ?>
   </nav>
 
-<?php if (!$list): ?>
+<?php if (!$list && $filter !== ''): ?>
+  <p class="hint" style="margin-top:16px">這個狀態目前沒有願望。<a href="<?= h(wish_url()) ?>">看全部</a></p>
+<?php elseif (!$list): ?>
   <p class="hint" style="margin-top:16px">還沒有願望，來許第一個吧！</p>
 <?php endif; ?>
   <ul class="wl">
@@ -119,14 +130,14 @@ details.adm select,details.adm input,details.adm textarea{width:100%;margin-top:
 <?php endif; ?>
       <div class="row">
         <span class="chip"><?= $si ?> <?= h($sl) ?></span>
-        <form method="post" action="./<?= $filter !== '' ? '?s=' . h($filter) : '' ?>" style="margin:0">
+        <form method="post" action="<?= h(wish_url($filter !== '' ? ['s' => $filter] : [])) ?>" style="margin:0">
           <input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="vote"><input type="hidden" name="id" value="<?= (int)$w['id'] ?>">
           <button class="vote<?= $w['mine'] ? ' on' : '' ?>" type="submit" aria-pressed="<?= $w['mine'] ? 'true' : 'false' ?>">🙋 我也要 <?= (int)$w['votes'] ?></button>
         </form>
       </div>
 <?php if ($staff): ?>
       <details class="adm"><summary>資訊部回覆狀態<?= $w['planner'] !== '' ? '（Planner ' . h($w['planner']) . '）' : '' ?></summary>
-        <form method="post" action="./">
+        <form method="post" action="<?= h(wish_url()) ?>">
           <input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="reply"><input type="hidden" name="id" value="<?= (int)$w['id'] ?>">
           <label class="q">狀態</label>
           <select name="status"><?php foreach (WISH_STATUS as $k => [$label]): ?><option value="<?= h($k) ?>"<?= $w['status'] === $k ? ' selected' : '' ?>><?= h($label) ?></option><?php endforeach; ?></select>

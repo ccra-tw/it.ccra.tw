@@ -5,11 +5,11 @@ putenv('ITCCRA_TEST_DB=1');
 require $LIB . '/wish.php';
 $fail = 0; $n = 0;
 function ok($cond, $msg) { global $fail, $n; $n++; echo ($cond ? "  ✅ " : "  ❌ ") . $msg . "\n"; if (!$cond) $fail++; }
-function req($email, $method = 'GET', $get = [], $post = []) {
+function req($email, $method = 'GET', $get = [], $post = [], $stderr = true) {   // $stderr=false：只看頁面本身（error_log 在命令列會寫到 stderr）
     global $SITE;
     $r = ['page' => "$SITE/wish/index.php", 'method' => $method, 'get' => $get, 'post' => $post];
     $env = 'ITCCRA_TEST_DB=1 ITCCRA_TEST_EMAIL=' . escapeshellarg($email) . ' ITCCRA_REQ=' . escapeshellarg(json_encode($r));
-    return (string)shell_exec("env $env php " . escapeshellarg(__DIR__ . '/req.php') . ' 2>&1');
+    return (string)shell_exec("env $env php " . escapeshellarg(__DIR__ . '/req.php') . ($stderr ? ' 2>&1' : ' 2>/dev/null'));
 }
 $secret = trim((string)file_get_contents('/var/lib/it-ccra/form_secret'));
 $csrf = fn($e) => hash_hmac('sha256', 'wish' . strtolower($e) . date('Y-m-d'), $secret);
@@ -70,6 +70,44 @@ req($IT, 'POST', [], ['csrf' => $csrf($IT), 'do' => 'reply', 'id' => $id, 'statu
 ok($d->query("SELECT status FROM wish WHERE id = $id")->fetchColumn() === 'review', '資訊部從頁面回覆成功');
 req($B, 'POST', [], ['csrf' => $csrf($B), 'do' => 'vote', 'id' => $id]);
 ok((int)$d->query("SELECT count(*) FROM vote WHERE wish_id = $id AND email = '$B'")->fetchColumn() === 1, '從頁面按我也要');
+
+echo "交易回滾（寫紀錄時故障）\n";
+$d->exec("CREATE OR REPLACE FUNCTION wish_test_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'wish-test-fault'; END $$");
+$d->exec('CREATE TRIGGER wish_test_fail BEFORE INSERT ON log FOR EACH ROW EXECUTE FUNCTION wish_test_fail()');
+$cnt = fn($sql) => (int)$d->query($sql)->fetchColumn();
+$w0 = $cnt('SELECT count(*) FROM wish'); $v0 = $cnt('SELECT count(*) FROM vote');
+try { wish_add($d, $A, '', '', '故障中的許願', ''); ok(false, '許願應丟例外'); } catch (PDOException $e) { ok(true, '許願：紀錄寫入失敗丟 PDOException'); }
+ok($cnt('SELECT count(*) FROM wish') === $w0 && $cnt('SELECT count(*) FROM vote') === $v0, '許願：願望與自己的票都回滾，沒有留下半筆');
+try { wish_toggle_vote($d, $id2, 'z@example.org'); ok(false, '投票應丟例外'); } catch (PDOException $e) { ok(true, '投票：紀錄失敗丟例外'); }
+ok($cnt('SELECT count(*) FROM vote') === $v0, '投票：票數回滾');
+$st = $d->query("SELECT status, reply FROM wish WHERE id = $id2")->fetch(PDO::FETCH_NUM);
+try { wish_reply($d, $id2, $IT, 'done', '改了', ''); ok(false, '回覆應丟例外'); } catch (PDOException $e) { ok(true, '回覆：紀錄失敗丟例外'); }
+ok($d->query("SELECT status, reply FROM wish WHERE id = $id2")->fetch(PDO::FETCH_NUM) === $st, '回覆：狀態與回覆內容回滾');
+ok(!$d->inTransaction(), '失敗後連線沒有卡在交易裡');
+$p = req($A, 'POST', [], ['csrf' => $csrf($A), 'do' => 'add', 'title' => '頁面故障測試', 'body' => ''], false);
+ok(str_contains($p, '系統暫時出了點問題') && !str_contains($p, 'wish-test-fault') && !str_contains($p, 'SQLSTATE'), '頁面：資料庫故障只給通用訊息，不露例外細節');
+ok($cnt('SELECT count(*) FROM wish') === $w0, '頁面：故障時沒有新增');
+$d->exec('DROP TRIGGER wish_test_fail ON log'); $d->exec('DROP FUNCTION wish_test_fail()');
+
+echo "每日上限與並行送件\n";
+$C = 'tester.c@example.org';
+for ($i = 1; $i <= WISH_DAILY_MAX - 1; $i++) wish_add($d, $C, '', '', "第 $i 個", '');
+$at = microtime(true) + 1.5; $procs = [];
+for ($k = 0; $k < 2; $k++) {
+    $code = 'require ' . var_export($LIB . '/wish.php', true) . '; time_sleep_until(' . $at . '); try { wish_add(wish_db(), ' . var_export($C, true) . ', "", "", "並行 ' . $k . '", ""); echo "OK"; } catch (WishInput $e) { echo "LIMIT"; }';
+    $procs[] = proc_open(['php', '-r', $code], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pp, null, ['ITCCRA_TEST_DB' => '1', 'PATH' => getenv('PATH')]);
+    $pipes[$k] = $pp;
+}
+$outs = [];
+foreach ($procs as $k => $pr) { $outs[] = trim(stream_get_contents($pipes[$k][1]) . stream_get_contents($pipes[$k][2])); proc_close($pr); }
+sort($outs);
+ok($outs === ['LIMIT', 'OK'], '第 10、11 件同時送：一件成功、一件被上限擋（' . implode('／', $outs) . '）');
+ok($cnt("SELECT count(*) FROM wish WHERE email = '$C'") === WISH_DAILY_MAX, '該帳號今天剛好 ' . WISH_DAILY_MAX . ' 件');
+
+echo "頁面其他\n";
+ok(str_contains(req($A, 'GET', ['s' => 'declined']), '這個狀態目前沒有願望'), '篩選沒有結果時顯示「這個狀態目前沒有願望」');
+ok(!str_contains(req($A, 'GET', ['role' => 'staff']), '資訊部回覆狀態'), '正式環境 ?role=staff 不會變成資訊部');
+ok(!str_contains(req($A), '審查預覽'), '正式環境不顯示審查預覽標示');
 
 $d->exec('DELETE FROM log'); $d->exec('DELETE FROM vote'); $d->exec('DELETE FROM wish');
 echo ($fail ? "❌ 失敗 $fail" : "✅ 全部通過") . " $n 項\n";
