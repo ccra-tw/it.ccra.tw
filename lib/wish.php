@@ -79,13 +79,20 @@ function wish_toggle_vote(PDO $d, int $id, string $email): bool {
     });
 }
 
+/** Planner 欄可貼代碼或整個工作網址（繁英姊 11/27 驗收：「Planner 票號」看不懂）；從網址取出工作代碼，取不到就原樣交給格式檢查。 */
+function wish_planner_id(string $s): string {
+    $s = trim($s);
+    if (preg_match('~(?:/task/|/Task/|taskdetail/|taskId=)([A-Za-z0-9_-]{6,40})~', $s, $m)) return $m[1];
+    return $s;
+}
+
 /** 資訊部回覆狀態（呼叫端要先確認是資訊部）。 */
 function wish_reply(PDO $d, int $id, string $by, string $status, string $reply, string $planner): void {
     if (!isset(WISH_STATUS[$status])) throw new WishInput('狀態不對');
-    $reply = trim(str_replace("\r\n", "\n", $reply)); $planner = trim($planner);
+    $reply = trim(str_replace("\r\n", "\n", $reply)); $planner = wish_planner_id($planner);
     if (mb_strlen($reply) > WISH_REPLY_MAX) throw new WishInput('回覆請在 ' . WISH_REPLY_MAX . ' 字以內');
     if ($status === 'declined' && $reply === '') throw new WishInput('暫不處理要寫原因，讓同工知道為什麼');
-    if ($planner !== '' && !preg_match('/^[A-Za-z0-9_-]{6,40}$/', $planner)) throw new WishInput('Planner 票號格式不對（例：asQEZH9c）');
+    if ($planner !== '' && !preg_match('/^[A-Za-z0-9_-]{6,40}$/', $planner)) throw new WishInput('Planner 工作代碼看不懂，請貼 Planner 工作的網址或代碼（例：asQEZH9c）');
     wish_tx($d, function () use ($d, $id, $by, $status, $reply, $planner) {
         // 先鎖住這一列再讀改前狀態，兩人同時回覆時紀錄的「改前」才不會失真
         $old = $d->prepare('SELECT status FROM wish WHERE id = ? FOR UPDATE'); $old->execute([$id]); $o = $old->fetchColumn();

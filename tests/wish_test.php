@@ -109,10 +109,19 @@ ok(str_contains(req($A, 'GET', ['s' => 'declined']), '這個狀態目前沒有�
 ok(!str_contains(req($A, 'GET', ['role' => 'staff']), '資訊部回覆狀態'), '正式環境 ?role=staff 不會變成資訊部');
 ok(!str_contains(req($A), '審查預覽'), '正式環境不顯示審查預覽標示');
 
+echo "Planner 欄可貼網址（繁英姊驗收）
+";
+ok(wish_planner_id('https://planner.cloud.microsoft/webui/plan/WLjIX4pJX0aot3QF96N06MkADMal/view/board/task/asQEZH9cAbc123?tid=x') === 'asQEZH9cAbc123', '新版 Planner 網址取出工作代碼');
+ok(wish_planner_id('https://tasks.office.com/x.onmicrosoft.com/Home/Task/QwErTy_123-z') === 'QwErTy_123-z', '舊版 tasks.office.com 網址取出工作代碼');
+ok(wish_planner_id(' asQEZH9c ') === 'asQEZH9c', '直接貼代碼照用');
+wish_reply($d, $id2, $IT, 'planned', '', 'https://planner.cloud.microsoft/webui/plan/P/view/board/task/fromUrl123');
+ok($d->query("SELECT planner FROM wish WHERE id = $id2")->fetchColumn() === 'fromUrl123', '貼網址存進去的是代碼');
+ok(str_contains(req($IT), '對應的 Planner 工作'), '頁面標籤改成「對應的 Planner 工作」');
+
 echo "資訊部回覆驗證錯誤（第二輪）\n";
 $p = req($IT, 'POST', [], ['csrf' => $csrf($IT), 'do' => 'reply', 'id' => $id2, 'status' => 'review', 'reply' => '回覆草稿留著', 'planner' => '123'], false);
 $blk = substr($p, (int)strpos($p, 'id="w' . $id2 . '"'), 4000);
-ok(str_contains($blk, '<details class="adm" open>') && str_contains($blk, '沒有存進去：Planner 票號格式不對'), '票號錯：該筆回覆區保持展開，錯誤放在表單旁');
+ok(str_contains($blk, '<details class="adm" open>') && str_contains($blk, '沒有存進去：Planner 工作代碼看不懂'), '票號錯：該筆回覆區保持展開，錯誤放在表單旁');
 ok(str_contains($blk, '回覆草稿留著') && str_contains($blk, 'value="123"') && str_contains($blk, '<option value="review" selected>'), '票號錯：狀態、回覆草稿、票號都保留送出值');
 $other = substr($p, (int)strpos($p, 'id="w' . $id . '"'), 3000);
 ok(!str_contains($other, '<details class="adm" open>'), '其他筆的回覆區不受影響');

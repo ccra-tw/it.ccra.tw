@@ -161,8 +161,9 @@ details.adm select,details.adm input,details.adm textarea{width:100%;margin-top:
           <select name="status"><?php foreach (WISH_STATUS as $k => [$label]): ?><option value="<?= h($k) ?>"<?= $fs === $k ? ' selected' : '' ?>><?= h($label) ?></option><?php endforeach; ?></select>
           <label class="q">回覆（同工看得到；暫不處理要寫原因）</label>
           <textarea name="reply" maxlength="<?= WISH_REPLY_MAX ?>" rows="3"><?= h($fr) ?></textarea>
-          <label class="q">Planner 票號（選填，只有資訊部看得到）</label>
-          <input type="text" name="planner" maxlength="40" value="<?= h($fp) ?>">
+          <label class="q">對應的 Planner 工作（選填，只有資訊部看得到）</label>
+          <p class="hint" style="margin:2px 0 0">決定要做時，在 Planner 開一張工作，把那張工作的網址貼在這裡，之後就知道是哪張在追。</p>
+          <input type="text" name="planner" maxlength="400" value="<?= h($fp) ?>" placeholder="貼 Planner 工作網址，或代碼（例：asQEZH9c）">
           <button class="go" type="submit">儲存</button>
         </form>
       </details>
