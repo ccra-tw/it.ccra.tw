@@ -40,8 +40,9 @@ try {
             } elseif ($do === 'vote') {
                 $wid = (int)($_POST['id'] ?? 0); $on = wish_toggle_vote($d, $wid, $email);
                 // 票數變動會改變排序：導到該筆現在所在的頁（不在目前篩選結果裡就留在原頁），並顯示成功訊息
-                $pg = wish_page_of($d, $wid, $filter, $q); $view = array_diff_key(view_q(), ['p' => 1]);
-                if (($pg ?: $page) > 1) $view['p'] = $pg ?: $page;
+                // 查頁碼失敗時留在原頁、仍顯示成功（票已存，不能讓人重按變成取消）
+                $pg = wish_vote_page($d, $wid, $filter, $q, $page); $view = array_diff_key(view_q(), ['p' => 1]);
+                if ($pg > 1) $view['p'] = $pg;
                 header('Location: ' . wish_url($view + ['ok' => $on ? 'vote' : 'unvote']) . '#w' . $wid, true, 303); exit;
             } elseif ($do === 'reply') {
                 if (!$staff) throw new WishInput('只有資訊部可以回覆狀態');

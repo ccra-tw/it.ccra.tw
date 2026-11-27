@@ -156,6 +156,21 @@ ok($d->query("SELECT planner FROM wish WHERE id = $id2")->fetchColumn() === $c40
 $v = req($B, 'POST', ['s' => 'new', 'q' => '驗收詞'], ['csrf' => $csrf($B), 'do' => 'vote', 'id' => $sA], false);
 ok((int)$d->query("SELECT count(*) FROM vote WHERE wish_id = $sA AND email = '$B'")->fetchColumn() === 1, '搜尋結果裡按我也要成功');
 
+echo "投票後查頁碼失敗（大沈 c957824 審查）\n";
+ok(wish_vote_page($d, $old, 'new', '分頁測試', 1) === 2, '正常：回傳該筆所在頁');
+ok(wish_vote_page($d, $old, 'done', '分頁測試', 3) === 3, '不在篩選結果裡：留在原頁');
+putenv('ITCCRA_TEST_PAGE_OF_FAIL=1');
+ok(wish_vote_page($d, $old, 'new', '分頁測試', 2) === 2, '查頁碼失敗：回傳原頁、不丟例外');
+putenv('ITCCRA_TEST_PAGE_OF_FAIL');
+$vc = fn() => (int)$d->query("SELECT count(*) FROM vote WHERE wish_id = $old AND email = '$B'")->fetchColumn();
+$before = $vc();
+$out = req($B, 'POST', ['q' => '分頁測試', 'p' => '2'], ['csrf' => $csrf($B), 'do' => 'vote', 'id' => $old], true, 'ITCCRA_TEST_PAGE_OF_FAIL=1');
+ok($vc() === $before + 1, '查頁碼失敗：票已存（回讀票數 +1）');
+ok(!str_contains($out, '沒有存進去') && !str_contains($out, '許願池暫時無法使用'), '查頁碼失敗：不顯示失敗訊息（避免重按變取消）');
+ok(str_contains($out, 'wish: vote saved, page lookup failed'), '查頁碼失敗：伺服器紀錄有寫下');
+wish_toggle_vote($d, $old, $B);
+ok($vc() === $before, '測試資料還原');
+
 echo "資訊部回覆驗證錯誤（第二輪）\n";
 $p = req($IT, 'POST', [], ['csrf' => $csrf($IT), 'do' => 'reply', 'id' => $id2, 'status' => 'review', 'reply' => '回覆草稿留著', 'planner' => '123'], false);
 $blk = substr($p, (int)strpos($p, 'id="w' . $id2 . '"'), 4000);

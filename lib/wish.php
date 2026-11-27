@@ -127,6 +127,18 @@ function wish_page_of(PDO $d, int $id, string $status = '', string $q = ''): int
     return $rn === false ? 0 : intdiv((int)$rn - 1, WISH_PER_PAGE) + 1;
 }
 
+/** 投票後要導回第幾頁。票已存進去之後才呼叫，所以查頁碼失敗不可以讓使用者以為沒投成而重按（重按會變成取消）：
+ *  失敗就記錄、回傳原頁，呼叫端照樣顯示成功訊息（大沈 11/27 c957824 審查）。 */
+function wish_vote_page(PDO $d, int $id, string $status, string $q, int $current): int {
+    try {
+        if (PHP_SAPI === 'cli' && getenv('ITCCRA_TEST_DB') === '1' && getenv('ITCCRA_TEST_PAGE_OF_FAIL') === '1') throw new PDOException('test: page_of failed');
+        return wish_page_of($d, $id, $status, $q) ?: $current;
+    } catch (Throwable $e) {
+        error_log('wish: vote saved, page lookup failed: ' . get_class($e) . ': ' . $e->getMessage());
+        return $current;
+    }
+}
+
 /** 目前關鍵字下各狀態的筆數（狀態按鈕顯示用；沒有關鍵字就是全站）。 */
 function wish_status_counts(PDO $d, string $q = ''): array {
     [$where, $p] = wish_where('', $q);
