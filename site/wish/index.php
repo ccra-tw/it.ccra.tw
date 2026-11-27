@@ -86,21 +86,21 @@ try {
 <script src="/assets/footer.js?v=dev" defer></script>
 <style>
 .wl{list-style:none;padding:0;margin:16px 0 0;display:grid;gap:12px}
-.wi{border:1px solid var(--line,#ddd);border-radius:12px;padding:14px 16px;background:var(--card,#fff)}
+.wi{color:var(--ink);border:1px solid var(--edge);border-radius:12px;padding:14px 16px;background:var(--panel)}
 .wi h3{margin:0 0 4px;font-size:1.05rem;overflow-wrap:anywhere}
-.wi .meta{color:var(--ink-2,#666);font-size:.85rem}
+.wi .meta{color:var(--muted);font-size:.85rem}
 .wi .body{white-space:pre-wrap;margin:8px 0 0;overflow-wrap:anywhere}
-.wi .rep{margin-top:10px;padding:10px 12px;border-radius:8px;background:var(--soft,#f2f7f3);white-space:pre-wrap;overflow-wrap:anywhere}
+.wi .rep{margin-top:10px;padding:10px 12px;border-radius:8px;background:rgba(16,154,75,.10);white-space:pre-wrap;overflow-wrap:anywhere}
 .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin-top:10px}
-.chip{display:inline-block;padding:2px 10px;border-radius:99px;font-size:.85rem;background:var(--soft,#eef3ef)}
-.vote{border:1px solid var(--line,#ccc);background:transparent;border-radius:99px;padding:6px 14px;cursor:pointer;font:inherit}
+.chip{display:inline-block;padding:2px 10px;border-radius:99px;font-size:.85rem;background:rgba(16,154,75,.12)}
+.vote{border:1px solid var(--edge);background:transparent;color:var(--ink);border-radius:99px;padding:6px 14px;cursor:pointer;font:inherit}
 .vote.on{background:#109a4b;color:#fff;border-color:#109a4b}
-.search{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:18px}.search input{flex:1 1 220px;min-width:0;padding:8px 10px;border:1px solid var(--line,#ccc);border-radius:8px;font:inherit}.search button{padding:8px 14px;border-radius:8px;border:1px solid #109a4b;background:#109a4b;color:#fff;font:inherit;cursor:pointer}
+.search{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:18px}.search input{flex:1 1 220px;min-width:0;padding:8px 10px;border:1px solid var(--edge);border-radius:8px;font:inherit;background:var(--panel);color:var(--ink)}.search button{padding:8px 14px;border-radius:8px;border:1px solid #109a4b;background:#109a4b;color:#fff;font:inherit;cursor:pointer}
 .pager{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;align-items:center;margin:18px 0}
 .tabs{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
-.tabs a{padding:4px 12px;border-radius:99px;border:1px solid var(--line,#ccc);text-decoration:none;color:inherit;font-size:.9rem}
+.tabs a{padding:4px 12px;border-radius:99px;border:1px solid var(--edge);text-decoration:none;color:inherit;font-size:.9rem}
 .tabs a.on{background:#109a4b;color:#fff;border-color:#109a4b}
-details.adm{margin-top:10px} details.adm summary{cursor:pointer;color:var(--ink-2,#666);font-size:.9rem}
+details.adm{margin-top:10px} details.adm summary{cursor:pointer;color:var(--muted);font-size:.9rem}
 details.adm select,details.adm input,details.adm textarea{width:100%;margin-top:6px}
 </style>
 </head>
