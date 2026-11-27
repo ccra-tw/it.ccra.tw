@@ -36,18 +36,18 @@ try {
         else try {
             if ($do === 'add') {
                 $new = wish_add($d, $email, $who['name'], $who['dept'], $form['title'], $form['body']);
-                header('Location: ' . wish_url(['ok' => 'add']) . '#w' . $new, true, 303); exit;
+                wish_redirect(wish_url(['ok' => 'add']) . '#w' . $new);
             } elseif ($do === 'vote') {
                 $wid = (int)($_POST['id'] ?? 0); $on = wish_toggle_vote($d, $wid, $email);
                 // 票數變動會改變排序：導到該筆現在所在的頁（不在目前篩選結果裡就留在原頁），並顯示成功訊息
                 // 查頁碼失敗時留在原頁、仍顯示成功（票已存，不能讓人重按變成取消）
                 $pg = wish_vote_page($d, $wid, $filter, $q, $page); $view = array_diff_key(view_q(), ['p' => 1]);
                 if ($pg > 1) $view['p'] = $pg;
-                header('Location: ' . wish_url($view + ['ok' => $on ? 'vote' : 'unvote']) . '#w' . $wid, true, 303); exit;
+                wish_redirect(wish_url($view + ['ok' => $on ? 'vote' : 'unvote']) . '#w' . $wid);
             } elseif ($do === 'reply') {
                 if (!$staff) throw new WishInput('只有資訊部可以回覆狀態');
                 wish_reply($d, $rf['id'], $email, $rf['status'], $rf['reply'], $rf['planner']);
-                header('Location: ' . wish_url(['ok' => 'reply']) . '#w' . $rf['id'], true, 303); exit;
+                wish_redirect(wish_url(['ok' => 'reply']) . '#w' . $rf['id']);
             }
         } catch (WishInput $e) { $msg = $e->getMessage(); }
         catch (Throwable $e) { wish_fail_log($e); $msg = WISH_TRY_AGAIN; }   // 交易已回滾，重送不會多一筆
@@ -95,12 +95,12 @@ try {
 .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin-top:10px}
 .chip{display:inline-block;padding:2px 10px;border-radius:99px;font-size:.85rem;background:rgba(16,154,75,.12)}
 .vote{border:1px solid var(--edge);background:transparent;color:var(--ink);border-radius:99px;padding:6px 14px;cursor:pointer;font:inherit}
-.vote.on{background:#109a4b;color:#fff;border-color:#109a4b}
-.search{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:18px}.search input{flex:1 1 220px;min-width:0;padding:8px 10px;border:1px solid var(--edge);border-radius:8px;font:inherit;background:var(--panel);color:var(--ink)}.search button{padding:8px 14px;border-radius:8px;border:1px solid #109a4b;background:#109a4b;color:#fff;font:inherit;cursor:pointer}
+.vote.on{background:#0b6b34;color:#fff;border-color:#0b6b34}
+.search{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:18px}.search input{flex:1 1 220px;min-width:0;padding:8px 10px;border:1px solid var(--edge);border-radius:8px;font:inherit;background:var(--panel);color:var(--ink)}.search button{padding:8px 14px;border-radius:8px;border:1px solid #0b6b34;background:#0b6b34;color:#fff;font:inherit;cursor:pointer}
 .pager{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;align-items:center;margin:18px 0}
 .tabs{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
 .tabs a{padding:4px 12px;border-radius:99px;border:1px solid var(--edge);text-decoration:none;color:inherit;font-size:.9rem}
-.tabs a.on{background:#109a4b;color:#fff;border-color:#109a4b}
+.tabs a.on{background:#0b6b34;color:#fff;border-color:#0b6b34}
 details.adm{margin-top:10px} details.adm summary{cursor:pointer;color:var(--muted);font-size:.9rem}
 details.adm select,details.adm input,details.adm textarea{width:100%;margin-top:6px}
 </style>

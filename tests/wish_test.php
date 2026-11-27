@@ -168,8 +168,23 @@ $out = req($B, 'POST', ['q' => '分頁測試', 'p' => '2'], ['csrf' => $csrf($B)
 ok($vc() === $before + 1, '查頁碼失敗：票已存（回讀票數 +1）');
 ok(!str_contains($out, '沒有存進去') && !str_contains($out, '許願池暫時無法使用'), '查頁碼失敗：不顯示失敗訊息（避免重按變取消）');
 ok(str_contains($out, 'wish: vote saved, page lookup failed'), '查頁碼失敗：伺服器紀錄有寫下');
+ok(str_contains($out, 'REDIRECT 303 ./?q=' . urlencode('分頁測試') . '&p=2&ok=vote#w' . $old . "\n"), '查頁碼失敗：303 導回原頁（p=2）、保留關鍵字、ok=vote、錨點正確');
 wish_toggle_vote($d, $old, $B);
 ok($vc() === $before, '測試資料還原');
+// 正常路徑：0 票那筆被投一票後排到第 1 頁 → Location 不帶 p（大沈第三輪：補斷言 303 的 Location）
+$out = req($B, 'POST', ['q' => '分頁測試', 'p' => '2'], ['csrf' => $csrf($B), 'do' => 'vote', 'id' => $old], false);
+ok(str_contains($out, 'REDIRECT 303 ./?q=' . urlencode('分頁測試') . '&ok=vote#w' . $old . "\n"), '正常投票：303 導到該筆現在所在的第 1 頁、ok=vote');
+$out = req($B, 'POST', ['q' => '分頁測試'], ['csrf' => $csrf($B), 'do' => 'vote', 'id' => $old], false);
+ok(str_contains($out, '&ok=unvote#w' . $old . "\n"), '再按一次：ok=unvote');
+ok($vc() === $before, '測試資料還原（投一次、撤一次）');
+
+echo "文字對比（大沈第三輪：白字配主題綠低於 4.5:1）\n";
+$lum = function (string $hex): float { $c = array_map(fn($x) => hexdec($x) / 255, str_split(ltrim($hex, '#'), 2));
+    $c = array_map(fn($v) => $v <= 0.03928 ? $v / 12.92 : (($v + 0.055) / 1.055) ** 2.4, $c); return 0.2126 * $c[0] + 0.7152 * $c[1] + 0.0722 * $c[2]; };
+$src = file_get_contents("$SITE/wish/index.php");
+preg_match_all('/background:(#[0-9a-f]{6});color:#fff/i', $src, $mm);
+ok(count($mm[1]) === 3, '白字按鈕三處（已投票、搜尋、選中篩選）都找到');
+foreach (array_unique($mm[1]) as $bg) { $r = 1.05 / ($lum($bg) + 0.05); ok($r >= 4.5, sprintf('白字配 %s 對比 %.2f:1 ≥ 4.5:1', $bg, $r)); }
 
 echo "資訊部回覆驗證錯誤（第二輪）\n";
 $p = req($IT, 'POST', [], ['csrf' => $csrf($IT), 'do' => 'reply', 'id' => $id2, 'status' => 'review', 'reply' => '回覆草稿留著', 'planner' => '123'], false);

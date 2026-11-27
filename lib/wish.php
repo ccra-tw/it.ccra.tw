@@ -127,6 +127,14 @@ function wish_page_of(PDO $d, int $id, string $status = '', string $q = ''): int
     return $rn === false ? 0 : intdiv((int)$rn - 1, WISH_PER_PAGE) + 1;
 }
 
+/** 送出後 303 導回（PRG）。命令列測試看不到 header()，所以測試模式下另外印一行「REDIRECT 303 <網址>」供斷言（大沈 11/27 第三輪）。 */
+function wish_redirect(string $url): never {
+    if (PHP_SAPI === 'cli' && getenv('ITCCRA_TEST_DB') === '1') echo "REDIRECT 303 $url
+";
+    header('Location: ' . $url, true, 303);
+    exit;
+}
+
 /** 投票後要導回第幾頁。票已存進去之後才呼叫，所以查頁碼失敗不可以讓使用者以為沒投成而重按（重按會變成取消）：
  *  失敗就記錄、回傳原頁，呼叫端照樣顯示成功訊息（大沈 11/27 c957824 審查）。 */
 function wish_vote_page(PDO $d, int $id, string $status, string $q, int $current): int {
