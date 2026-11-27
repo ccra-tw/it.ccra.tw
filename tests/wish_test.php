@@ -139,6 +139,20 @@ ok($np === 25 && count(wish_list($d, $A, 'new', '分頁測試', WISH_PER_PAGE, 0
 $p = req($A, 'GET', ['q' => '分頁測試', 'p' => '2'], [], false);
 ok(str_contains($p, '第 2／2 頁，共 25 筆') && str_contains($p, '上一頁') && !str_contains($p, '下一頁'), '頁面分頁：第 2 頁有上一頁、沒有下一頁');
 ok(str_contains(req($A, 'GET', ['q' => '分頁測試', 'p' => '99'], [], false), '第 2／2 頁'), '頁碼超過時停在最後一頁');
+$old = (int)$d->query("SELECT min(id) FROM wish WHERE email = '$P'")->fetchColumn();
+ok(wish_page_of($d, $old, 'new', '分頁測試') === 2, '最舊、0 票的那筆在第 2 頁');
+wish_toggle_vote($d, $old, $A);
+ok(wish_page_of($d, $old, 'new', '分頁測試') === 1, '投票後排到第 1 頁（導回時用它所在頁）');
+ok(wish_page_of($d, $old, 'done', '分頁測試') === 0, '不在目前篩選結果裡回傳 0（留在原頁）');
+wish_toggle_vote($d, $old, $A);
+$cs = wish_status_counts($d, '驗收詞');
+ok(($cs['new'] ?? 0) === 2 && array_sum($cs) === 2, '搜尋時狀態筆數只算關鍵字下的結果');
+ok(str_contains(req($A, 'GET', ['q' => '驗收詞'], [], false), '全部 2'), '頁面：搜尋時「全部」顯示關鍵字下筆數');
+$c40 = str_repeat('a', 40); $c41 = str_repeat('b', 41);
+ok(wish_planner_id("https://planner.cloud.microsoft/webui/plan/P/view/board/task/$c41") === $c41, '41 碼網址取出完整 41 碼，不截斷');
+try { wish_reply($d, $id2, $IT, 'review', '', "https://planner.cloud.microsoft/webui/plan/P/view/board/task/$c41"); ok(false, '41 碼應被擋'); } catch (WishInput $e) { ok(true, '41 碼被格式檢查擋下'); }
+wish_reply($d, $id2, $IT, 'review', '', "https://planner.cloud.microsoft/webui/plan/P/view/board/task/$c40");
+ok($d->query("SELECT planner FROM wish WHERE id = $id2")->fetchColumn() === $c40, '40 碼網址照存');
 $v = req($B, 'POST', ['s' => 'new', 'q' => '驗收詞'], ['csrf' => $csrf($B), 'do' => 'vote', 'id' => $sA], false);
 ok((int)$d->query("SELECT count(*) FROM vote WHERE wish_id = $sA AND email = '$B'")->fetchColumn() === 1, '搜尋結果裡按我也要成功');
 

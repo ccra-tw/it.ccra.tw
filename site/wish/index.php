@@ -38,8 +38,11 @@ try {
                 $new = wish_add($d, $email, $who['name'], $who['dept'], $form['title'], $form['body']);
                 header('Location: ' . wish_url(['ok' => 'add']) . '#w' . $new, true, 303); exit;
             } elseif ($do === 'vote') {
-                $wid = (int)($_POST['id'] ?? 0); wish_toggle_vote($d, $wid, $email);
-                header('Location: ' . wish_url(view_q()) . '#w' . $wid, true, 303); exit;
+                $wid = (int)($_POST['id'] ?? 0); $on = wish_toggle_vote($d, $wid, $email);
+                // 票數變動會改變排序：導到該筆現在所在的頁（不在目前篩選結果裡就留在原頁），並顯示成功訊息
+                $pg = wish_page_of($d, $wid, $filter, $q); $view = array_diff_key(view_q(), ['p' => 1]);
+                if (($pg ?: $page) > 1) $view['p'] = $pg ?: $page;
+                header('Location: ' . wish_url($view + ['ok' => $on ? 'vote' : 'unvote']) . '#w' . $wid, true, 303); exit;
             } elseif ($do === 'reply') {
                 if (!$staff) throw new WishInput('只有資訊部可以回覆狀態');
                 wish_reply($d, $rf['id'], $email, $rf['status'], $rf['reply'], $rf['planner']);
@@ -52,7 +55,7 @@ try {
     $total = wish_count($d, $filter, $q);
     $pages = max(1, (int)ceil($total / WISH_PER_PAGE)); if ($page > $pages) $page = $pages;
     $list = wish_list($d, $email, $filter, $q, WISH_PER_PAGE, ($page - 1) * WISH_PER_PAGE);
-    $counts = $d->query('SELECT status, count(*) FROM wish GROUP BY status')->fetchAll(PDO::FETCH_KEY_PAIR);
+    $counts = wish_status_counts($d, $q);   // 有關鍵字時是「關鍵字下」各狀態筆數（大沈 11/27）
 } catch (Throwable $e) {
     // 資料庫整體不可用（連不上、清單或計數失敗）：穩定的錯誤頁，細節只進伺服器紀錄
     wish_fail_log($e);
@@ -116,6 +119,7 @@ details.adm select,details.adm input,details.adm textarea{width:100%;margin-top:
   </div>
 <?php if (itdb_web_test()): ?><p class="hint" style="border:2px dashed #c0392b;padding:8px 12px">審查預覽・測試資料（不是正式站）｜目前角色：<?= $staff ? '資訊部' : '一般同工' ?>｜切換：<a href="?role=staff">資訊部</a>・<a href="?role=user">一般同工</a></p><?php endif; ?>
 <?php if ($err): ?><p class="err"><?= h($err) ?></p><?php endif; ?>
+<?php if (in_array($_GET['ok'] ?? '', ['vote', 'unvote'], true)): ?><p class="hint" role="status"><?= $_GET['ok'] === 'vote' ? '已加上你的「我也要」。' : '已收回你的「我也要」。' ?></p><?php endif; ?>
 <?php if (($_GET['ok'] ?? '') === 'add'): ?><p class="hint">收到你的願望了！資訊部看過會在下面回覆。</p><?php endif; ?>
   <form method="post" action="<?= h(wish_url()) ?>">
     <input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="add">

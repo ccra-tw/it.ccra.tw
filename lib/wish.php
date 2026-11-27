@@ -82,7 +82,7 @@ function wish_toggle_vote(PDO $d, int $id, string $email): bool {
 /** Planner 欄可貼代碼或整個工作網址（繁英姊 11/27 驗收：「Planner 票號」看不懂）；從網址取出工作代碼，取不到就原樣交給格式檢查。 */
 function wish_planner_id(string $s): string {
     $s = trim($s);
-    if (preg_match('~(?:/task/|/Task/|taskdetail/|taskId=)([A-Za-z0-9_-]{6,40})~', $s, $m)) return $m[1];
+    if (preg_match('~(?:/task/|/Task/|taskdetail/|taskId=)([A-Za-z0-9_-]+)~', $s, $m)) return $m[1];   // 取完整一段，長度交給 wish_reply 的格式檢查（大沈：41 碼不可截成 40 碼）
     return $s;
 }
 
@@ -116,6 +116,22 @@ function wish_where(string $status, string $q): array {
         $w[] = '(w.title ILIKE ? OR w.body ILIKE ? OR w.reply ILIKE ?)'; array_push($p, $like, $like, $like);
     }
     return [$w ? ' WHERE ' . implode(' AND ', $w) : '', $p];
+}
+
+/** 某願望在目前條件、目前排序下位於第幾頁；不在結果裡回傳 0（投票後導回該筆所在頁，大沈 11/27）。 */
+function wish_page_of(PDO $d, int $id, string $status = '', string $q = ''): int {
+    [$where, $p] = wish_where($status, $q);
+    $s = $d->prepare('SELECT rn FROM (SELECT w.id, row_number() OVER (ORDER BY CASE w.status WHEN \'done\' THEN 2 WHEN \'declined\' THEN 2 ELSE 1 END,
+                        (SELECT count(*) FROM vote v WHERE v.wish_id = w.id) DESC, w.id DESC) AS rn FROM wish w' . $where . ') t WHERE id = ?');
+    $s->execute(array_merge($p, [$id])); $rn = $s->fetchColumn();
+    return $rn === false ? 0 : intdiv((int)$rn - 1, WISH_PER_PAGE) + 1;
+}
+
+/** 目前關鍵字下各狀態的筆數（狀態按鈕顯示用；沒有關鍵字就是全站）。 */
+function wish_status_counts(PDO $d, string $q = ''): array {
+    [$where, $p] = wish_where('', $q);
+    $s = $d->prepare('SELECT w.status, count(*) FROM wish w' . $where . ' GROUP BY w.status'); $s->execute($p);
+    return $s->fetchAll(PDO::FETCH_KEY_PAIR);
 }
 
 /** 符合條件的筆數。 */
