@@ -5,10 +5,10 @@ putenv('ITCCRA_TEST_DB=1');
 require $LIB . '/wish.php';
 $fail = 0; $n = 0;
 function ok($cond, $msg) { global $fail, $n; $n++; echo ($cond ? "  ✅ " : "  ❌ ") . $msg . "\n"; if (!$cond) $fail++; }
-function req($email, $method = 'GET', $get = [], $post = [], $stderr = true) {   // $stderr=false：只看頁面本身（error_log 在命令列會寫到 stderr）
+function req($email, $method = 'GET', $get = [], $post = [], $stderr = true, $extraEnv = '') {   // $stderr=false：只看頁面本身（error_log 在命令列會寫到 stderr）
     global $SITE;
     $r = ['page' => "$SITE/wish/index.php", 'method' => $method, 'get' => $get, 'post' => $post];
-    $env = 'ITCCRA_TEST_DB=1 ITCCRA_TEST_EMAIL=' . escapeshellarg($email) . ' ITCCRA_REQ=' . escapeshellarg(json_encode($r));
+    $env = $extraEnv . ' ITCCRA_TEST_DB=1 ITCCRA_TEST_EMAIL=' . escapeshellarg($email) . ' ITCCRA_REQ=' . escapeshellarg(json_encode($r));
     return (string)shell_exec("env $env php " . escapeshellarg(__DIR__ . '/req.php') . ($stderr ? ' 2>&1' : ' 2>/dev/null'));
 }
 $secret = trim((string)file_get_contents('/var/lib/it-ccra/form_secret'));
@@ -108,6 +108,25 @@ echo "頁面其他\n";
 ok(str_contains(req($A, 'GET', ['s' => 'declined']), '這個狀態目前沒有願望'), '篩選沒有結果時顯示「這個狀態目前沒有願望」');
 ok(!str_contains(req($A, 'GET', ['role' => 'staff']), '資訊部回覆狀態'), '正式環境 ?role=staff 不會變成資訊部');
 ok(!str_contains(req($A), '審查預覽'), '正式環境不顯示審查預覽標示');
+
+echo "資訊部回覆驗證錯誤（第二輪）\n";
+$p = req($IT, 'POST', [], ['csrf' => $csrf($IT), 'do' => 'reply', 'id' => $id2, 'status' => 'review', 'reply' => '回覆草稿留著', 'planner' => '123'], false);
+$blk = substr($p, (int)strpos($p, 'id="w' . $id2 . '"'), 4000);
+ok(str_contains($blk, '<details class="adm" open>') && str_contains($blk, '沒有存進去：Planner 票號格式不對'), '票號錯：該筆回覆區保持展開，錯誤放在表單旁');
+ok(str_contains($blk, '回覆草稿留著') && str_contains($blk, 'value="123"') && str_contains($blk, '<option value="review" selected>'), '票號錯：狀態、回覆草稿、票號都保留送出值');
+$other = substr($p, (int)strpos($p, 'id="w' . $id . '"'), 3000);
+ok(!str_contains($other, '<details class="adm" open>'), '其他筆的回覆區不受影響');
+$p = req($IT, 'POST', [], ['csrf' => $csrf($IT), 'do' => 'reply', 'id' => $id2, 'status' => 'declined', 'reply' => '', 'planner' => ''], false);
+ok(str_contains(substr($p, (int)strpos($p, 'id="w' . $id2 . '"'), 4000), '暫不處理要寫原因'), '暫不處理沒寫原因：提示出現在該筆表單旁');
+
+echo "資料庫整體不可用\n";
+foreach ([['GET', []], ['POST', ['csrf' => $csrf($A), 'do' => 'add', 'title' => 'DB 掛了時送出', 'body' => '']]] as [$m, $post]) {
+    $p = req($A, $m, [], $post, false, 'ITCCRA_TEST_DB_DOWN=1');
+    ok(str_contains($p, '許願池暫時無法使用') && !str_contains($p, 'database down') && !str_contains($p, 'Fatal') && !str_contains($p, 'Uncaught'), "{$m}：顯示穩定錯誤頁，不露例外細節");
+}
+$e2 = req($A, 'GET', [], [], true, 'ITCCRA_TEST_DB_DOWN=1');
+ok(str_contains($e2, 'wish: PDOException: test: database down'), '伺服器紀錄有寫下例外');
+ok($cnt("SELECT count(*) FROM wish WHERE title = 'DB 掛了時送出'") === 0, 'DB 不可用時沒有寫入');
 
 $d->exec('DELETE FROM log'); $d->exec('DELETE FROM vote'); $d->exec('DELETE FROM wish');
 echo ($fail ? "❌ 失敗 $fail" : "✅ 全部通過") . " $n 項\n";

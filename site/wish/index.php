@@ -15,34 +15,49 @@ $secret = trim((string)@file_get_contents(STATE_DIR . '/form_secret'));
 $csrf = hash_hmac('sha256', 'wish' . $email . date('Y-m-d'), $secret);
 function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 
-$d = wish_db();
 $err = ''; $form = ['title' => '', 'body' => ''];
-if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
-    $do = (string)($_POST['do'] ?? '');
-    if (strlen($secret) < 32 || !hash_equals($csrf, (string)($_POST['csrf'] ?? ''))) $err = '頁面已過期，請重新整理後再送出。';
-    else try {
-        if ($do === 'add') {
-            $form = ['title' => (string)($_POST['title'] ?? ''), 'body' => (string)($_POST['body'] ?? '')];
-            $new = wish_add($d, $email, $who['name'], $who['dept'], $form['title'], $form['body']);
-            header('Location: ' . wish_url(['ok' => 'add']) . '#w' . $new, true, 303); exit;
-        } elseif ($do === 'vote') {
-            $wid = (int)($_POST['id'] ?? 0); wish_toggle_vote($d, $wid, $email);
-            header('Location: ' . wish_url(isset($_GET['s']) ? ['s' => (string)$_GET['s']] : []) . '#w' . $wid, true, 303); exit;
-        } elseif ($do === 'reply') {
-            if (!$staff) throw new WishInput('只有資訊部可以回覆狀態');
-            $wid = (int)($_POST['id'] ?? 0);
-            wish_reply($d, $wid, $email, (string)($_POST['status'] ?? ''), (string)($_POST['reply'] ?? ''), (string)($_POST['planner'] ?? ''));
-            header('Location: ' . wish_url(['ok' => 'reply']) . '#w' . $wid, true, 303); exit;
-        }
-    } catch (WishInput $e) { $err = $e->getMessage(); }
-    catch (Throwable $e) {   // 資料庫等故障：細節只進伺服器紀錄，頁面給可重試的通用訊息（交易已回滾，重送不會多一筆）
-        error_log('wish: ' . get_class($e) . ': ' . $e->getMessage());
-        $err = '系統暫時出了點問題，剛才的動作沒有存進去，請稍後再試一次；一直不行請告訴資訊部。';
+$rf = null;   // 資訊部回覆失敗時保留該筆的送出值，表單維持展開、錯誤放在表單旁（大沈 11/27 第二輪）
+const WISH_TRY_AGAIN = '系統暫時出了點問題，剛才的動作沒有存進去，請稍後再試一次；一直不行請告訴資訊部。';
+function wish_fail_log(Throwable $e): void { error_log('wish: ' . get_class($e) . ': ' . $e->getMessage()); }
+try {
+    $d = wish_db();
+    if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
+        $do = (string)($_POST['do'] ?? '');
+        if ($do === 'reply') $rf = ['id' => (int)($_POST['id'] ?? 0), 'status' => (string)($_POST['status'] ?? ''),
+                                   'reply' => (string)($_POST['reply'] ?? ''), 'planner' => (string)($_POST['planner'] ?? ''), 'err' => ''];
+        if ($do === 'add') $form = ['title' => (string)($_POST['title'] ?? ''), 'body' => (string)($_POST['body'] ?? '')];
+        $msg = '';
+        if (strlen($secret) < 32 || !hash_equals($csrf, (string)($_POST['csrf'] ?? ''))) $msg = '頁面已過期，請重新整理後再送出。';
+        else try {
+            if ($do === 'add') {
+                $new = wish_add($d, $email, $who['name'], $who['dept'], $form['title'], $form['body']);
+                header('Location: ' . wish_url(['ok' => 'add']) . '#w' . $new, true, 303); exit;
+            } elseif ($do === 'vote') {
+                $wid = (int)($_POST['id'] ?? 0); wish_toggle_vote($d, $wid, $email);
+                header('Location: ' . wish_url(isset($_GET['s']) ? ['s' => (string)$_GET['s']] : []) . '#w' . $wid, true, 303); exit;
+            } elseif ($do === 'reply') {
+                if (!$staff) throw new WishInput('只有資訊部可以回覆狀態');
+                wish_reply($d, $rf['id'], $email, $rf['status'], $rf['reply'], $rf['planner']);
+                header('Location: ' . wish_url(['ok' => 'reply']) . '#w' . $rf['id'], true, 303); exit;
+            }
+        } catch (WishInput $e) { $msg = $e->getMessage(); }
+        catch (Throwable $e) { wish_fail_log($e); $msg = WISH_TRY_AGAIN; }   // 交易已回滾，重送不會多一筆
+        if ($msg !== '') { if ($rf && $staff) $rf['err'] = $msg; else $err = $msg; }
     }
+    $filter = isset($_GET['s'], WISH_STATUS[$_GET['s']]) ? (string)$_GET['s'] : '';
+    $list = wish_list($d, $email, $filter);
+    $counts = $d->query('SELECT status, count(*) FROM wish GROUP BY status')->fetchAll(PDO::FETCH_KEY_PAIR);
+} catch (Throwable $e) {
+    // 資料庫整體不可用（連不上、清單或計數失敗）：穩定的錯誤頁，細節只進伺服器紀錄
+    wish_fail_log($e);
+    http_response_code(503);
+    header('Retry-After: 60');
+    echo '<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>許願池暫時無法使用｜CCRA 資訊服務</title>'
+       . '<link rel="stylesheet" href="/assets/site.css?v=dev"></head><body><main class="wrap" style="padding-block:40px">'
+       . '<h1>許願池暫時無法使用</h1><p>系統暫時出了點問題，' . (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' ? '剛才送出的內容可能沒有存進去，' : '')
+       . '請稍後重新整理再試一次；一直不行請告訴資訊部。</p><p><a href="/">回資訊站首頁</a></p></main></body></html>';
+    exit;
 }
-$filter = isset($_GET['s'], WISH_STATUS[$_GET['s']]) ? (string)$_GET['s'] : '';
-$list = wish_list($d, $email, $filter);
-$counts = $d->query('SELECT status, count(*) FROM wish GROUP BY status')->fetchAll(PDO::FETCH_KEY_PAIR);
 ?>
 <!doctype html>
 <html lang="zh-Hant">
@@ -135,16 +150,19 @@ details.adm select,details.adm input,details.adm textarea{width:100%;margin-top:
           <button class="vote<?= $w['mine'] ? ' on' : '' ?>" type="submit" aria-pressed="<?= $w['mine'] ? 'true' : 'false' ?>">🙋 我也要 <?= (int)$w['votes'] ?></button>
         </form>
       </div>
-<?php if ($staff): ?>
-      <details class="adm"><summary>資訊部回覆狀態<?= $w['planner'] !== '' ? '（Planner ' . h($w['planner']) . '）' : '' ?></summary>
+<?php if ($staff): $mine = $rf && $rf['id'] === (int)$w['id'] && $rf['err'] !== '';
+        $fs = $mine ? $rf['status'] : $w['status']; $fr = $mine ? $rf['reply'] : $w['reply']; $fp = $mine ? $rf['planner'] : $w['planner']; ?>
+      <details class="adm"<?= $mine ? ' open' : '' ?>><summary>資訊部回覆狀態<?= $w['planner'] !== '' ? '（Planner ' . h($w['planner']) . '）' : '' ?></summary>
         <form method="post" action="<?= h(wish_url()) ?>">
           <input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="reply"><input type="hidden" name="id" value="<?= (int)$w['id'] ?>">
+<?php if ($mine): ?>          <p class="err" role="alert">沒有存進去：<?= h($rf['err']) ?>（你填的內容還在，改好再按儲存）</p>
+<?php endif; ?>
           <label class="q">狀態</label>
-          <select name="status"><?php foreach (WISH_STATUS as $k => [$label]): ?><option value="<?= h($k) ?>"<?= $w['status'] === $k ? ' selected' : '' ?>><?= h($label) ?></option><?php endforeach; ?></select>
+          <select name="status"><?php foreach (WISH_STATUS as $k => [$label]): ?><option value="<?= h($k) ?>"<?= $fs === $k ? ' selected' : '' ?>><?= h($label) ?></option><?php endforeach; ?></select>
           <label class="q">回覆（同工看得到；暫不處理要寫原因）</label>
-          <textarea name="reply" maxlength="<?= WISH_REPLY_MAX ?>" rows="3"><?= h($w['reply']) ?></textarea>
+          <textarea name="reply" maxlength="<?= WISH_REPLY_MAX ?>" rows="3"><?= h($fr) ?></textarea>
           <label class="q">Planner 票號（選填，只有資訊部看得到）</label>
-          <input type="text" name="planner" maxlength="40" value="<?= h($w['planner']) ?>">
+          <input type="text" name="planner" maxlength="40" value="<?= h($fp) ?>">
           <button class="go" type="submit">儲存</button>
         </form>
       </details>

@@ -13,6 +13,8 @@ function itdb(string $schema): PDO {
     if (!preg_match('/^[a-z_]+$/', $schema)) throw new InvalidArgumentException('bad schema');
     // 測試接縫：命令列且 ITCCRA_TEST_DB=1 時一律改用 <schema>_test，測試資料不進正式表
     if (PHP_SAPI === 'cli' && getenv('ITCCRA_TEST_DB') === '1') $schema .= '_test';
+    // 測試接縫：命令列測試加 ITCCRA_TEST_DB_DOWN=1 模擬資料庫整體不可用（只在命令列＋測試庫時生效）
+    if (PHP_SAPI === 'cli' && getenv('ITCCRA_TEST_DB') === '1' && getenv('ITCCRA_TEST_DB_DOWN') === '1') throw new PDOException('test: database down');
     // 網頁測試環境（/receipt-test/）：nginx 以 fastcgi_param 設 ITCCRA_DB_SUFFIX=_web，只對 receipt、wish 生效，用 <schema>_web。
     // 不與命令列測試共用 receipt_test：自動測試每次開跑會 DROP 掉 receipt_test，人工測試的資料會被清掉。
     // 這個值只能由伺服器設定（瀏覽器送的標頭會變成 HTTP_*，蓋不到它）；其他 schema 一律照舊用正式表。
