@@ -118,6 +118,30 @@ wish_reply($d, $id2, $IT, 'planned', '', 'https://planner.cloud.microsoft/webui/
 ok($d->query("SELECT planner FROM wish WHERE id = $id2")->fetchColumn() === 'fromUrl123', '貼網址存進去的是代碼');
 ok(str_contains(req($IT), '對應的 Planner 工作'), '頁面標籤改成「對應的 Planner 工作」');
 
+echo "搜尋與分頁（繁英姊驗收）
+";
+$S = 'tester.s@example.org';
+$sA = wish_add($d, $S, '', '', '驗收詞單可以看進度', '想知道處理到哪');
+$sB = wish_add($d, $S, '', '', '會議室預約', '希望可以線上預約會議室，不用打電話驗收詞');
+$sC = wish_add($d, $S, '', '', '百分比 100% 顯示', ''); wish_reply($d, $sC, $IT, 'done', '已加上回覆詞', '');
+ok(wish_count($d, '', '驗收詞') === 2, '關鍵字比對標題與說明（驗收詞 → 2 筆）');
+ok(wish_count($d, '', '回覆詞') === 1, '關鍵字也比對資訊部回覆');
+ok(wish_count($d, 'done', '回覆詞') === 1 && wish_count($d, 'new', '驗收詞') === 2, '狀態與關鍵字可以同時用');
+ok(wish_count($d, '', '%') === 1 && wish_count($d, '', '_') === 0, '% 與 _ 當一般字元，不會變成萬用字元');
+$p = req($A, 'GET', ['q' => '驗收詞'], [], false);
+ok(str_contains($p, '「驗收詞」找到 2 筆') && str_contains($p, '驗收詞單可以看進度') && !str_contains($p, '百分比 100%'), '頁面搜尋：顯示筆數與結果');
+ok(str_contains(req($A, 'GET', ['q' => '<b>x</b>'], [], false), '&lt;b&gt;x&lt;/b&gt;'), '關鍵字回顯有跳脫');
+ok(str_contains(req($A, 'GET', ['q' => '找不到的字'], [], false), '找到 0 筆'), '沒有結果時顯示 0 筆');
+$P = 'tester.p@example.org'; $d->exec("DELETE FROM wish WHERE email = '$P'");
+$d->prepare("INSERT INTO wish (email, title) SELECT ?, '分頁測試 ' || g FROM generate_series(1, 25) g")->execute([$P]);
+$np = wish_count($d, 'new', '分頁測試');
+ok($np === 25 && count(wish_list($d, $A, 'new', '分頁測試', WISH_PER_PAGE, 0)) === WISH_PER_PAGE && count(wish_list($d, $A, 'new', '分頁測試', WISH_PER_PAGE, WISH_PER_PAGE)) === 5, '每頁 ' . WISH_PER_PAGE . ' 筆，第 2 頁 5 筆');
+$p = req($A, 'GET', ['q' => '分頁測試', 'p' => '2'], [], false);
+ok(str_contains($p, '第 2／2 頁，共 25 筆') && str_contains($p, '上一頁') && !str_contains($p, '下一頁'), '頁面分頁：第 2 頁有上一頁、沒有下一頁');
+ok(str_contains(req($A, 'GET', ['q' => '分頁測試', 'p' => '99'], [], false), '第 2／2 頁'), '頁碼超過時停在最後一頁');
+$v = req($B, 'POST', ['s' => 'new', 'q' => '驗收詞'], ['csrf' => $csrf($B), 'do' => 'vote', 'id' => $sA], false);
+ok((int)$d->query("SELECT count(*) FROM vote WHERE wish_id = $sA AND email = '$B'")->fetchColumn() === 1, '搜尋結果裡按我也要成功');
+
 echo "資訊部回覆驗證錯誤（第二輪）\n";
 $p = req($IT, 'POST', [], ['csrf' => $csrf($IT), 'do' => 'reply', 'id' => $id2, 'status' => 'review', 'reply' => '回覆草稿留著', 'planner' => '123'], false);
 $blk = substr($p, (int)strpos($p, 'id="w' . $id2 . '"'), 4000);

@@ -103,12 +103,36 @@ function wish_reply(PDO $d, int $id, string $by, string $status, string $reply, 
     });
 }
 
-/** 清單：依「我也要」數與時間排序；$status 空字串＝全部。每筆附 votes、mine（目前使用者有沒有投）。 */
-function wish_list(PDO $d, string $me, string $status = ''): array {
+const WISH_PER_PAGE = 20;
+const WISH_Q_MAX = 50;
+
+/** 篩選條件（狀態、關鍵字）組成 WHERE；關鍵字比對標題、說明、資訊部回覆（繁英姊 11/27：筆數多時要能搜尋）。 */
+function wish_where(string $status, string $q): array {
+    $w = []; $p = [];
+    if ($status !== '') { $w[] = 'w.status = ?'; $p[] = $status; }
+    $q = trim($q);
+    if ($q !== '') {
+        $like = '%' . strtr($q, ['\\' => '\\\\', '%' => '\\%', '_' => '\\_']) . '%';
+        $w[] = '(w.title ILIKE ? OR w.body ILIKE ? OR w.reply ILIKE ?)'; array_push($p, $like, $like, $like);
+    }
+    return [$w ? ' WHERE ' . implode(' AND ', $w) : '', $p];
+}
+
+/** 符合條件的筆數。 */
+function wish_count(PDO $d, string $status = '', string $q = ''): int {
+    [$where, $p] = wish_where($status, $q);
+    $s = $d->prepare('SELECT count(*) FROM wish w' . $where); $s->execute($p);
+    return (int)$s->fetchColumn();
+}
+
+/** 清單：未結案在前、依「我也要」數與時間排序；每筆附 votes、mine（目前使用者有沒有投）。$limit=0 表示不分頁。 */
+function wish_list(PDO $d, string $me, string $status = '', string $q = '', int $limit = 0, int $offset = 0): array {
+    [$where, $p] = wish_where($status, $q);
     $sql = 'SELECT w.*, (SELECT count(*) FROM vote v WHERE v.wish_id = w.id) AS votes,
                    EXISTS (SELECT 1 FROM vote v WHERE v.wish_id = w.id AND v.email = ?) AS mine
-            FROM wish w' . ($status !== '' ? ' WHERE w.status = ?' : '') . '
-            ORDER BY CASE w.status WHEN \'done\' THEN 2 WHEN \'declined\' THEN 2 ELSE 1 END, votes DESC, w.id DESC';
-    $s = $d->prepare($sql); $s->execute($status !== '' ? [strtolower($me), $status] : [strtolower($me)]);
+            FROM wish w' . $where . '
+            ORDER BY CASE w.status WHEN \'done\' THEN 2 WHEN \'declined\' THEN 2 ELSE 1 END, votes DESC, w.id DESC'
+         . ($limit > 0 ? ' LIMIT ' . (int)$limit . ' OFFSET ' . max(0, (int)$offset) : '');
+    $s = $d->prepare($sql); $s->execute(array_merge([strtolower($me)], $p));
     return $s->fetchAll(PDO::FETCH_ASSOC);
 }

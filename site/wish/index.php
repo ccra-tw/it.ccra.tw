@@ -16,6 +16,11 @@ $csrf = hash_hmac('sha256', 'wish' . $email . date('Y-m-d'), $secret);
 function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 
 $err = ''; $form = ['title' => '', 'body' => ''];
+// 目前的檢視（狀態篩選、關鍵字、頁碼），投票後導回同一個檢視
+$filter = isset($_GET['s'], WISH_STATUS[$_GET['s']]) ? (string)$_GET['s'] : '';
+$q = mb_substr(trim(preg_replace('/\s+/u', ' ', (string)($_GET['q'] ?? ''))), 0, WISH_Q_MAX);
+$page = max(1, (int)($_GET['p'] ?? 1));
+function view_q(array $extra = []): array { global $filter, $q, $page; return array_filter(['s' => $filter, 'q' => $q, 'p' => $page > 1 ? $page : 0] , fn($v) => $v !== '' && $v !== 0) + $extra; }
 $rf = null;   // 資訊部回覆失敗時保留該筆的送出值，表單維持展開、錯誤放在表單旁（大沈 11/27 第二輪）
 const WISH_TRY_AGAIN = '系統暫時出了點問題，剛才的動作沒有存進去，請稍後再試一次；一直不行請告訴資訊部。';
 function wish_fail_log(Throwable $e): void { error_log('wish: ' . get_class($e) . ': ' . $e->getMessage()); }
@@ -34,7 +39,7 @@ try {
                 header('Location: ' . wish_url(['ok' => 'add']) . '#w' . $new, true, 303); exit;
             } elseif ($do === 'vote') {
                 $wid = (int)($_POST['id'] ?? 0); wish_toggle_vote($d, $wid, $email);
-                header('Location: ' . wish_url(isset($_GET['s']) ? ['s' => (string)$_GET['s']] : []) . '#w' . $wid, true, 303); exit;
+                header('Location: ' . wish_url(view_q()) . '#w' . $wid, true, 303); exit;
             } elseif ($do === 'reply') {
                 if (!$staff) throw new WishInput('只有資訊部可以回覆狀態');
                 wish_reply($d, $rf['id'], $email, $rf['status'], $rf['reply'], $rf['planner']);
@@ -44,8 +49,9 @@ try {
         catch (Throwable $e) { wish_fail_log($e); $msg = WISH_TRY_AGAIN; }   // 交易已回滾，重送不會多一筆
         if ($msg !== '') { if ($rf && $staff) $rf['err'] = $msg; else $err = $msg; }
     }
-    $filter = isset($_GET['s'], WISH_STATUS[$_GET['s']]) ? (string)$_GET['s'] : '';
-    $list = wish_list($d, $email, $filter);
+    $total = wish_count($d, $filter, $q);
+    $pages = max(1, (int)ceil($total / WISH_PER_PAGE)); if ($page > $pages) $page = $pages;
+    $list = wish_list($d, $email, $filter, $q, WISH_PER_PAGE, ($page - 1) * WISH_PER_PAGE);
     $counts = $d->query('SELECT status, count(*) FROM wish GROUP BY status')->fetchAll(PDO::FETCH_KEY_PAIR);
 } catch (Throwable $e) {
     // 資料庫整體不可用（連不上、清單或計數失敗）：穩定的錯誤頁，細節只進伺服器紀錄
@@ -86,6 +92,8 @@ try {
 .chip{display:inline-block;padding:2px 10px;border-radius:99px;font-size:.85rem;background:var(--soft,#eef3ef)}
 .vote{border:1px solid var(--line,#ccc);background:transparent;border-radius:99px;padding:6px 14px;cursor:pointer;font:inherit}
 .vote.on{background:#109a4b;color:#fff;border-color:#109a4b}
+.search{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:18px}.search input{flex:1 1 220px;min-width:0;padding:8px 10px;border:1px solid var(--line,#ccc);border-radius:8px;font:inherit}.search button{padding:8px 14px;border-radius:8px;border:1px solid #109a4b;background:#109a4b;color:#fff;font:inherit;cursor:pointer}
+.pager{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;align-items:center;margin:18px 0}
 .tabs{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
 .tabs a{padding:4px 12px;border-radius:99px;border:1px solid var(--line,#ccc);text-decoration:none;color:inherit;font-size:.9rem}
 .tabs a.on{background:#109a4b;color:#fff;border-color:#109a4b}
@@ -122,14 +130,23 @@ details.adm select,details.adm input,details.adm textarea{width:100%;margin-top:
     </div>
   </form>
 
+  <form class="search" method="get" action="./" role="search">
+<?php if ($role !== ''): ?>    <input type="hidden" name="role" value="<?= h($role) ?>">
+<?php endif; ?><?php if ($filter !== ''): ?>    <input type="hidden" name="s" value="<?= h($filter) ?>">
+<?php endif; ?>    <input type="search" name="q" value="<?= h($q) ?>" maxlength="<?= WISH_Q_MAX ?>" placeholder="搜尋願望（標題、說明、回覆）" aria-label="搜尋願望">
+    <button type="submit">搜尋</button>
+<?php if ($q !== ''): ?>    <a href="<?= h(wish_url($filter !== '' ? ['s' => $filter] : [])) ?>">清除</a>
+<?php endif; ?>  </form>
   <nav class="tabs" aria-label="依狀態篩選">
-    <a href="<?= h(wish_url()) ?>"<?= $filter === '' ? ' class="on"' : '' ?>>全部 <?= array_sum($counts) ?></a>
+    <a href="<?= h(wish_url($q !== '' ? ['q' => $q] : [])) ?>"<?= $filter === '' ? ' class="on"' : '' ?>>全部 <?= array_sum($counts) ?></a>
 <?php foreach (WISH_STATUS as $k => [$label, $icon]): ?>
-    <a href="<?= h(wish_url(['s' => $k])) ?>"<?= $filter === $k ? ' class="on"' : '' ?>><?= $icon ?> <?= h($label) ?> <?= (int)($counts[$k] ?? 0) ?></a>
+    <a href="<?= h(wish_url(['s' => $k] + ($q !== '' ? ['q' => $q] : []))) ?>"<?= $filter === $k ? ' class="on"' : '' ?>><?= $icon ?> <?= h($label) ?> <?= (int)($counts[$k] ?? 0) ?></a>
 <?php endforeach; ?>
   </nav>
 
-<?php if (!$list && $filter !== ''): ?>
+<?php if ($q !== ''): ?>
+  <p class="hint" style="margin-top:12px">「<?= h($q) ?>」找到 <?= $total ?> 筆<?= $filter !== '' ? '（' . h(WISH_STATUS[$filter][0]) . '）' : '' ?>。<?php if (!$list): ?><a href="<?= h(wish_url()) ?>">看全部</a><?php endif; ?></p>
+<?php elseif (!$list && $filter !== ''): ?>
   <p class="hint" style="margin-top:16px">這個狀態目前沒有願望。<a href="<?= h(wish_url()) ?>">看全部</a></p>
 <?php elseif (!$list): ?>
   <p class="hint" style="margin-top:16px">還沒有願望，來許第一個吧！</p>
@@ -145,7 +162,7 @@ details.adm select,details.adm input,details.adm textarea{width:100%;margin-top:
 <?php endif; ?>
       <div class="row">
         <span class="chip"><?= $si ?> <?= h($sl) ?></span>
-        <form method="post" action="<?= h(wish_url($filter !== '' ? ['s' => $filter] : [])) ?>" style="margin:0">
+        <form method="post" action="<?= h(wish_url(view_q())) ?>" style="margin:0">
           <input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="do" value="vote"><input type="hidden" name="id" value="<?= (int)$w['id'] ?>">
           <button class="vote<?= $w['mine'] ? ' on' : '' ?>" type="submit" aria-pressed="<?= $w['mine'] ? 'true' : 'false' ?>">🙋 我也要 <?= (int)$w['votes'] ?></button>
         </form>
@@ -171,6 +188,13 @@ details.adm select,details.adm input,details.adm textarea{width:100%;margin-top:
     </li>
 <?php endforeach; ?>
   </ul>
+<?php if ($pages > 1): ?>
+  <nav class="pager" aria-label="分頁">
+<?php if ($page > 1): ?>    <a href="<?= h(wish_url(['p' => $page - 1] + array_diff_key(view_q(), ['p' => 1]))) ?>">← 上一頁</a>
+<?php endif; ?>    <span>第 <?= $page ?>／<?= $pages ?> 頁，共 <?= $total ?> 筆</span>
+<?php if ($page < $pages): ?>    <a href="<?= h(wish_url(['p' => $page + 1] + array_diff_key(view_q(), ['p' => 1]))) ?>">下一頁 →</a>
+<?php endif; ?>  </nav>
+<?php endif; ?>
 </main>
 </body>
 </html>
